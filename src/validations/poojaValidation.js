@@ -1,13 +1,43 @@
 const Joi = require("joi");
 
+const stepsField = Joi.alternatives().try(
+  Joi.array().items(Joi.string().trim().min(1)).default([]),
+  Joi.string().trim().min(2)
+);
+
+const requiredItemsField = Joi.alternatives().try(
+  Joi.array().items(Joi.string().trim().min(1)).default([]),
+  Joi.string().trim().min(2)
+);
+
 const createPoojaSchema = Joi.object({
   title: Joi.string().trim().min(2).max(150).required(),
+  deity: Joi.string().trim().min(2).max(150).required(),
+  category: Joi.string().trim().min(2).max(150).required(),
+  difficulty: Joi.string().trim().min(2).max(100).required(),
+  duration: Joi.string().trim().min(1).max(100).required(),
   description: Joi.string().trim().min(5).max(3000).required(),
+  status: Joi.string().trim().min(2).max(50).required(),
+  audioUrl: Joi.string().trim().uri(),
+  videoUrl: Joi.string().trim().uri(),
+  steps: stepsField,
+  requiredItems: requiredItemsField,
+  rating: Joi.number().min(0).max(5),
 });
 
 const updatePoojaSchema = Joi.object({
   title: Joi.string().trim().min(2).max(150),
+  deity: Joi.string().trim().min(2).max(150),
+  category: Joi.string().trim().min(2).max(150),
+  difficulty: Joi.string().trim().min(2).max(100),
+  duration: Joi.string().trim().min(1).max(100),
   description: Joi.string().trim().min(5).max(3000),
+  status: Joi.string().trim().min(2).max(50),
+  audioUrl: Joi.string().trim().uri(),
+  videoUrl: Joi.string().trim().uri(),
+  steps: stepsField,
+  requiredItems: requiredItemsField,
+  rating: Joi.number().min(0).max(5),
 });
 
 const poojaIdParamsSchema = Joi.object({

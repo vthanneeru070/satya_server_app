@@ -15,18 +15,31 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (_req, file, cb) => {
-  if (!file.mimetype || !file.mimetype.startsWith("image/")) {
-    return cb(new Error("Only image files are allowed"));
+  if (!file.mimetype) {
+    return cb(new Error("Invalid file type"));
   }
-  return cb(null, true);
+
+  if (file.fieldname === "image" && file.mimetype.startsWith("image/")) {
+    return cb(null, true);
+  }
+
+  if (file.fieldname === "audio" && file.mimetype.startsWith("audio/")) {
+    return cb(null, true);
+  }
+
+  if (file.fieldname === "video" && file.mimetype.startsWith("video/")) {
+    return cb(null, true);
+  }
+
+  return cb(new Error(`Invalid file type for field ${file.fieldname}`));
 };
 
-const uploadPoojaImage = multer({
+const uploadPoojaMedia = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024,
+    fileSize: 50 * 1024 * 1024,
   },
 });
 
-module.exports = uploadPoojaImage;
+module.exports = uploadPoojaMedia;

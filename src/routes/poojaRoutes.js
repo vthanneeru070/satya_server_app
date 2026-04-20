@@ -30,7 +30,7 @@ const router = express.Router();
  * /poojas/create-pooja:
  *   post:
  *     summary: Create pooja
- *     description: Requires admin role. Upload pooja with image, title, and description.
+ *     description: Requires admin role. Upload pooja with image/audio/video and details.
  *     tags: [Poojas]
  *     security:
  *       - bearerAuth: []
@@ -40,15 +40,37 @@ const router = express.Router();
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             required: [title, description, image]
+ *             required: [title, deity, category, difficulty, duration, description, status]
  *             properties:
  *               title:
  *                 type: string
+ *               deity:
+ *                 type: string
+ *               category:
+ *                 type: string
+ *               difficulty:
+ *                 type: string
+ *               duration:
+ *                 type: string
  *               description:
+ *                 type: string
+ *               status:
  *                 type: string
  *               image:
  *                 type: string
  *                 format: binary
+ *               audio:
+ *                 type: string
+ *                 format: binary
+ *               video:
+ *                 type: string
+ *                 format: binary
+ *               steps:
+ *                 type: string
+ *               requiredItems:
+ *                 type: string
+ *               rating:
+ *                 type: number
  *     responses:
  *       201:
  *         description: Pooja created successfully
@@ -63,7 +85,11 @@ router.post(
   "/create-pooja",
   authenticate,
   authorizeRoles("admin"),
-  uploadPoojaImage.single("image"),
+  uploadPoojaImage.fields([
+    { name: "image", maxCount: 1 },
+    { name: "audio", maxCount: 1 },
+    { name: "video", maxCount: 1 },
+  ]),
   validate(createPoojaSchema),
   createPooja
 );
@@ -105,7 +131,7 @@ router.get("/:id", validate(poojaIdParamsSchema, "params"), getPoojaById);
  * /poojas/{id}:
  *   patch:
  *     summary: Update pooja
- *     description: Requires admin role. Update pooja title/description and optionally replace image.
+ *     description: Requires admin role. Update pooja fields and optionally replace image/audio/video.
  *     tags: [Poojas]
  *     security:
  *       - bearerAuth: []
@@ -124,11 +150,33 @@ router.get("/:id", validate(poojaIdParamsSchema, "params"), getPoojaById);
  *             properties:
  *               title:
  *                 type: string
+ *               deity:
+ *                 type: string
+ *               category:
+ *                 type: string
+ *               difficulty:
+ *                 type: string
+ *               duration:
+ *                 type: string
  *               description:
+ *                 type: string
+ *               status:
  *                 type: string
  *               image:
  *                 type: string
  *                 format: binary
+ *               audio:
+ *                 type: string
+ *                 format: binary
+ *               video:
+ *                 type: string
+ *                 format: binary
+ *               steps:
+ *                 type: string
+ *               requiredItems:
+ *                 type: string
+ *               rating:
+ *                 type: number
  *     responses:
  *       200:
  *         description: Pooja updated successfully
@@ -145,7 +193,11 @@ router.patch(
   "/:id",
   authenticate,
   authorizeRoles("admin"),
-  uploadPoojaImage.single("image"),
+  uploadPoojaImage.fields([
+    { name: "image", maxCount: 1 },
+    { name: "audio", maxCount: 1 },
+    { name: "video", maxCount: 1 },
+  ]),
   validate(poojaIdParamsSchema, "params"),
   validate(updatePoojaSchema),
   updatePooja

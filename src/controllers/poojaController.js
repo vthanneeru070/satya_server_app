@@ -14,20 +14,90 @@ const deleteLocalImage = async (imageUrl) => {
   await fs.promises.unlink(absolutePath).catch(() => {});
 };
 
-const createPooja = async (req, res, next) => {
-  try {
-    const { title, description } = req.body;
+const getUploadedMediaUrls = (files = {}) => {
+  const imageFile = files.image?.[0];
+  const audioFile = files.audio?.[0];
+  const videoFile = files.video?.[0];
 
-    if (!req.file) {
-      throw new HttpError("Pooja image is required", 400);
+  return {
+    imageUrl: imageFile ? `/uploads/poojas/${imageFile.filename}` : undefined,
+    audioUrl: audioFile ? `/uploads/poojas/${audioFile.filename}` : undefined,
+    videoUrl: videoFile ? `/uploads/poojas/${videoFile.filename}` : undefined,
+  };
+};
+
+const parseStringArrayField = (value, fieldName) => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const trimmedValue = value.trim();
+
+    if (!trimmedValue) {
+      return [];
     }
 
-    const imageUrl = `/uploads/poojas/${req.file.filename}`;
+    try {
+      const parsed = JSON.parse(trimmedValue);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch (_error) {
+      // Keep handling as plain string below
+    }
+
+    if (trimmedValue.includes(",")) {
+      return trimmedValue
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+
+    return [trimmedValue];
+  }
+
+  throw new HttpError(`${fieldName} must be an array or JSON array string`, 400);
+};
+
+const createPooja = async (req, res, next) => {
+  try {
+    const {
+      title,
+      deity,
+      category,
+      difficulty,
+      duration,
+      description,
+      status,
+      audioUrl: audioUrlFromBody,
+      videoUrl: videoUrlFromBody,
+      rating,
+    } = req.body;
+    const steps = parseStringArrayField(req.body.steps, "steps") ?? [];
+    const requiredItems = parseStringArrayField(req.body.requiredItems, "requiredItems") ?? [];
+    const { imageUrl, audioUrl: audioFileUrl, videoUrl: videoFileUrl } = getUploadedMediaUrls(req.files);
+    const audioUrl = audioFileUrl ?? audioUrlFromBody;
+    const videoUrl = videoFileUrl ?? videoUrlFromBody;
 
     const pooja = await Pooja.create({
       title,
+      deity,
+      category,
+      difficulty,
+      duration,
       description,
+      status,
       imageUrl,
+      audioUrl,
+      videoUrl,
+      steps,
+      requiredItems,
+      rating,
       createdBy: req.user.userId,
     });
 
@@ -71,11 +141,43 @@ const updatePooja = async (req, res, next) => {
       throw new HttpError("Pooja not found", 404);
     }
 
-    const { title, description } = req.body;
-    const hasBodyUpdates = title !== undefined || description !== undefined;
-    const hasImageUpdate = Boolean(req.file);
+    const {
+      title,
+      deity,
+      category,
+      difficulty,
+      duration,
+      description,
+      status,
+      audioUrl: audioUrlFromBody,
+      videoUrl: videoUrlFromBody,
+      rating,
+    } = req.body;
+    const steps = parseStringArrayField(req.body.steps, "steps");
+    const requiredItems = parseStringArrayField(req.body.requiredItems, "requiredItems");
+    const {
+      imageUrl: imageFileUrl,
+      audioUrl: audioFileUrl,
+      videoUrl: videoFileUrl,
+    } = getUploadedMediaUrls(req.files);
+    const audioUrl = audioFileUrl ?? audioUrlFromBody;
+    const videoUrl = videoFileUrl ?? videoUrlFromBody;
+    const hasBodyUpdates =
+      title !== undefined ||
+      deity !== undefined ||
+      category !== undefined ||
+      difficulty !== undefined ||
+      duration !== undefined ||
+      description !== undefined ||
+      status !== undefined ||
+      audioUrl !== undefined ||
+      videoUrl !== undefined ||
+      rating !== undefined ||
+      steps !== undefined ||
+      requiredItems !== undefined;
+    const hasMediaUpdate = Boolean(imageFileUrl || audioFileUrl || videoFileUrl);
 
-    if (!hasBodyUpdates && !hasImageUpdate) {
+    if (!hasBodyUpdates && !hasMediaUpdate) {
       throw new HttpError("Provide at least one field to update", 400);
     }
 
@@ -83,15 +185,66 @@ const updatePooja = async (req, res, next) => {
       pooja.title = title;
     }
 
+    if (deity !== undefined) {
+      pooja.deity = deity;
+    }
+
+    if (category !== undefined) {
+      pooja.category = category;
+    }
+
+    if (difficulty !== undefined) {
+      pooja.difficulty = difficulty;
+    }
+
+    if (duration !== undefined) {
+      pooja.duration = duration;
+    }
+
     if (description !== undefined) {
       pooja.description = description;
     }
 
-    if (req.file) {
-      const nextImageUrl = `/uploads/poojas/${req.file.filename}`;
+    if (status !== undefined) {
+      pooja.status = status;
+    }
+
+    if (audioUrl !== undefined) {
+      pooja.audioUrl = audioUrl;
+    }
+
+    if (videoUrl !== undefined) {
+      pooja.videoUrl = videoUrl;
+    }
+
+    if (steps !== undefined) {
+      pooja.steps = steps;
+    }
+
+    if (requiredItems !== undefined) {
+      pooja.requiredItems = requiredItems;
+    }
+
+    if (rating !== undefined) {
+      pooja.rating = rating;
+    }
+
+    if (imageFileUrl) {
       const previousImageUrl = pooja.imageUrl;
-      pooja.imageUrl = nextImageUrl;
+      pooja.imageUrl = imageFileUrl;
       await deleteLocalImage(previousImageUrl);
+    }
+
+    if (audioFileUrl) {
+      const previousAudioUrl = pooja.audioUrl;
+      pooja.audioUrl = audioFileUrl;
+      await deleteLocalImage(previousAudioUrl);
+    }
+
+    if (videoFileUrl) {
+      const previousVideoUrl = pooja.videoUrl;
+      pooja.videoUrl = videoFileUrl;
+      await deleteLocalImage(previousVideoUrl);
     }
 
     await pooja.save();
@@ -111,7 +264,11 @@ const deletePooja = async (req, res, next) => {
       throw new HttpError("Pooja not found", 404);
     }
 
-    await deleteLocalImage(pooja.imageUrl);
+    await Promise.all([
+      deleteLocalImage(pooja.imageUrl),
+      deleteLocalImage(pooja.audioUrl),
+      deleteLocalImage(pooja.videoUrl),
+    ]);
     await pooja.deleteOne();
 
     return sendSuccess(res, null, "Pooja deleted successfully");

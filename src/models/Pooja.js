@@ -7,15 +7,59 @@ const poojaSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    deity: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    category: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    difficulty: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    duration: {
+      type: String,
+      required: true,
+      trim: true,
+    },
     description: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    status: {
       type: String,
       required: true,
       trim: true,
     },
     imageUrl: {
       type: String,
-      required: true,
       trim: true,
+    },
+    audioUrl: {
+      type: String,
+      trim: true,
+    },
+    videoUrl: {
+      type: String,
+      trim: true,
+    },
+    steps: {
+      type: [String],
+      default: [],
+    },
+    requiredItems: {
+      type: [String],
+      default: [],
+    },
+    rating: {
+      type: Number,
+      default: 0,
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
