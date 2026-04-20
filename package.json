@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "echo \"No tests configured\""
+    "test": "echo \"No tests configured\"",
+    "create:super-admin": "node scripts/createSuperAdmin.js"
   },
   "keywords": [],
   "author": "",
@@ -24,6 +25,7 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.4.1",
     "morgan": "^1.10.1",
+    "multer": "^2.1.1",
     "nodemailer": "^8.0.5",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1"

@@ -27,10 +27,22 @@ const userSchema = new mongoose.Schema(
       enum: ["user", "admin"],
       default: "user",
     },
+    isSuperAdmin: {
+      type: Boolean,
+      default: false,
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
   },
   {
     timestamps: true,
   }
 );
+
+userSchema.index({ role: 1 });
+userSchema.index({ email: 1 });
 
 module.exports = mongoose.model("User", userSchema);

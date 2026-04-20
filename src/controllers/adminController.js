@@ -1,15 +1,92 @@
 const User = require("../models/User");
+const AdminLog = require("../models/AdminLog");
+const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 
-const getUsers = async (req, res, next) => {
+const createAdmin = async (req, res, next) => {
+  try {
+    const normalizedEmail = req.body.email.toLowerCase().trim();
+    const user = await User.findOne({ email: normalizedEmail });
+
+    if (!user) {
+      throw new HttpError("User not found", 404);
+    }
+
+    if (user.role === "admin") {
+      return sendSuccess(res, { user }, "User is already an admin");
+    }
+
+    user.role = "admin";
+    user.createdBy = req.user.userId;
+    await user.save();
+
+    await AdminLog.create({
+      action: "create_admin",
+      performedBy: req.user.userId,
+      targetUser: user._id,
+    });
+
+    return sendSuccess(res, { user }, "User promoted to admin");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const getAdminUsers = async (req, res, next) => {
   try {
     const page = Number(req.query.page || 1);
     const limit = Number(req.query.limit || 10);
     const skip = (page - 1) * limit;
+    const search = (req.query.search || "").trim();
+    const filter = { role: "admin" };
+
+    if (search) {
+      filter.email = { $regex: search, $options: "i" };
+    }
+
+    const [admins, total] = await Promise.all([
+      User.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .select("-__v")
+        .populate("createdBy", "email role"),
+      User.countDocuments(filter),
+    ]);
+
+    return sendSuccess(
+      res,
+      {
+        admins,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      },
+      "Admin users fetched successfully"
+    );
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const getRegularUsers = async (req, res, next) => {
+  try {
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const skip = (page - 1) * limit;
+    const search = (req.query.search || "").trim();
+    const filter = { role: "user" };
+
+    if (search) {
+      filter.email = { $regex: search, $options: "i" };
+    }
 
     const [users, total] = await Promise.all([
-      User.find().sort({ createdAt: -1 }).skip(skip).limit(limit).select("-__v"),
-      User.countDocuments(),
+      User.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).select("-__v"),
+      User.countDocuments(filter),
     ]);
 
     return sendSuccess(
@@ -23,13 +100,73 @@ const getUsers = async (req, res, next) => {
           totalPages: Math.ceil(total / limit),
         },
       },
-      "Users fetched successfully"
+      "Regular users fetched successfully"
     );
   } catch (error) {
     return next(error);
   }
 };
 
+const removeAdmin = async (req, res, next) => {
+  try {
+    const targetUser = await User.findById(req.params.id);
+
+    if (!targetUser) {
+      throw new HttpError("User not found", 404);
+    }
+
+    if (targetUser.isSuperAdmin) {
+      throw new HttpError("Super admin role cannot be removed", 400);
+    }
+
+    if (targetUser.role !== "admin") {
+      return sendSuccess(res, { user: targetUser }, "User is not an admin");
+    }
+
+    targetUser.role = "user";
+    targetUser.isSuperAdmin = false;
+    targetUser.createdBy = null;
+    await targetUser.save();
+
+    await AdminLog.create({
+      action: "remove_admin",
+      performedBy: req.user.userId,
+      targetUser: targetUser._id,
+    });
+
+    return sendSuccess(res, { user: targetUser }, "Admin role removed successfully");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const deleteUser = async (req, res, next) => {
+  try {
+    const targetUser = await User.findById(req.params.id);
+    if (!targetUser) {
+      throw new HttpError("User not found", 404);
+    }
+
+    if (targetUser.role === "admin" || targetUser.isSuperAdmin) {
+      throw new HttpError("Admin users cannot be deleted", 400);
+    }
+
+    await targetUser.deleteOne();
+    await AdminLog.create({
+      action: "delete_user",
+      performedBy: req.user.userId,
+      targetUser: targetUser._id,
+    });
+    return sendSuccess(res, { user: targetUser }, "User deleted successfully");
+  } catch (error) {
+    return next(error);
+  }
+};
+
 module.exports = {
-  getUsers,
+  createAdmin,
+  getAdminUsers,
+  getRegularUsers,
+  removeAdmin,
+  deleteUser,
 };

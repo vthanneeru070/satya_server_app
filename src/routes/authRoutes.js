@@ -3,6 +3,7 @@ const authenticate = require("../middleware/authenticate");
 const validate = require("../middleware/validate");
 const {
   login,
+  adminLogin,
   refreshAccessToken,
   logout,
   getProfile,
@@ -22,8 +23,8 @@ const router = express.Router();
  * @swagger
  * /auth/login:
  *   post:
- *     summary: Login using Firebase ID token
- *     description: Accepts a Firebase ID token in Authorization header (Bearer format), verifies it on backend, then issues backend access and refresh tokens. No request body required.
+ *     summary: User login (Firebase)
+ *     description: Logs in any valid Firebase-authenticated user. If user does not exist in MongoDB, backend creates user with default role `user`.
  *     tags: [Auth]
  *     parameters:
  *       - in: header
@@ -42,6 +43,33 @@ const router = express.Router();
  *         description: Firebase token verification failed
  */
 router.post("/login", login);
+
+/**
+ * @swagger
+ * /auth/admin/login:
+ *   post:
+ *     summary: Admin login (Firebase)
+ *     description: Logs in only users that already have `admin` role in MongoDB. Firebase is used only for identity verification.
+ *     tags: [Auth]
+ *     parameters:
+ *       - in: header
+ *         name: Authorization
+ *         required: true
+ *         schema:
+ *           type: string
+ *           example: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IkZJUkVCQVNFX0lEX1RPS0VOIiwi...
+ *         description: Firebase ID token prefixed with Bearer.
+ *     responses:
+ *       200:
+ *         description: Admin login successful
+ *       401:
+ *         description: Firebase token verification failed
+ *       403:
+ *         description: Admin access denied
+ *       404:
+ *         description: Admin user not found
+ */
+router.post("/admin/login", adminLogin);
 
 /**
  * @swagger

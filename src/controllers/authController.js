@@ -11,17 +11,43 @@ const getProvider = (decodedToken) => {
   const provider = decodedToken.firebase?.sign_in_provider || "phone";
   if (provider.includes("google")) return "google";
   if (provider.includes("apple")) return "apple";
-  return "phone";
+  return "gmail/password";
+};
+
+const parseFirebaseTokenFromHeader = (req) => {
+  const authorizationHeader = req.headers.authorization || "";
+  const [scheme, firebaseIdToken] = authorizationHeader.split(" ");
+
+  if (scheme !== "Bearer" || !firebaseIdToken) {
+    throw new HttpError("Firebase ID token is required in Authorization header", 400);
+  }
+
+  return firebaseIdToken;
+};
+
+const issueTokens = async (user) => {
+  const accessToken = generateAccessToken({
+    userId: user._id.toString(),
+    role: user.role,
+  });
+  const refreshToken = generateRefreshToken({
+    userId: user._id.toString(),
+    role: user.role,
+  });
+
+  const refreshPayload = jwt.verify(refreshToken, jwtRefreshSecret);
+  await RefreshToken.create({
+    userId: user._id,
+    token: refreshToken,
+    expiryDate: new Date(refreshPayload.exp * 1000),
+  });
+
+  return { accessToken, refreshToken };
 };
 
 const login = async (req, res, next) => {
   try {
-    const authorizationHeader = req.headers.authorization || "";
-    const [scheme, firebaseIdToken] = authorizationHeader.split(" ");
-
-    if (scheme !== "Bearer" || !firebaseIdToken) {
-      throw new HttpError("Firebase ID token is required in Authorization header", 400);
-    }
+    const firebaseIdToken = parseFirebaseTokenFromHeader(req);
 
     const decodedToken = await admin.auth().verifyIdToken(firebaseIdToken);
     const firebaseUid = decodedToken.uid;
@@ -38,21 +64,7 @@ const login = async (req, res, next) => {
       });
     }
 
-    const accessToken = generateAccessToken({
-      userId: user._id.toString(),
-      role: user.role,
-    });
-    const refreshToken = generateRefreshToken({
-      userId: user._id.toString(),
-      role: user.role,
-    });
-
-    const refreshPayload = jwt.verify(refreshToken, jwtRefreshSecret);
-    await RefreshToken.create({
-      userId: user._id,
-      token: refreshToken,
-      expiryDate: new Date(refreshPayload.exp * 1000),
-    });
+    const { accessToken, refreshToken } = await issueTokens(user);
 
     return sendSuccess(
       res,
@@ -62,6 +74,38 @@ const login = async (req, res, next) => {
         refreshToken,
       },
       "Login successful"
+    );
+  } catch (error) {
+    if (error.code && String(error.code).startsWith("auth/")) {
+      return next(new HttpError("Invalid Firebase ID token", 401));
+    }
+    return next(error);
+  }
+};
+
+const adminLogin = async (req, res, next) => {
+  try {
+    const firebaseIdToken = parseFirebaseTokenFromHeader(req);
+    const decodedToken = await admin.auth().verifyIdToken(firebaseIdToken);
+    const user = await User.findOne({ firebaseUid: decodedToken.uid });
+
+    if (!user) {
+      throw new HttpError("Admin user not found. Please login with /auth/login first.", 404);
+    }
+
+    if (user.role !== "admin") {
+      throw new HttpError("Admin access denied", 403);
+    }
+
+    const { accessToken, refreshToken } = await issueTokens(user);
+    return sendSuccess(
+      res,
+      {
+        user,
+        accessToken,
+        refreshToken,
+      },
+      "Admin login successful"
     );
   } catch (error) {
     if (error.code && String(error.code).startsWith("auth/")) {
@@ -124,6 +168,7 @@ const getProfile = async (req, res, next) => {
 
 module.exports = {
   login,
+  adminLogin,
   refreshAccessToken,
   logout,
   getProfile,

@@ -1,8 +1,9 @@
 const jwt = require("jsonwebtoken");
 const { jwtSecret } = require("../config/env");
+const User = require("../models/User");
 const HttpError = require("../utils/httpError");
 
-const authenticate = (req, _res, next) => {
+const authenticate = async (req, _res, next) => {
   try {
     const authorizationHeader = req.headers.authorization || "";
     const [scheme, token] = authorizationHeader.split(" ");
@@ -12,7 +13,16 @@ const authenticate = (req, _res, next) => {
     }
 
     const decoded = jwt.verify(token, jwtSecret);
-    req.user = decoded;
+    const user = await User.findById(decoded.userId).select("role isSuperAdmin");
+    if (!user) {
+      throw new HttpError("User not found", 401);
+    }
+
+    req.user = {
+      userId: user._id.toString(),
+      role: user.role,
+      isSuperAdmin: user.isSuperAdmin,
+    };
     next();
   } catch (error) {
     if (error.name === "JsonWebTokenError" || error.name === "TokenExpiredError") {
