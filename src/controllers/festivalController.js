@@ -99,13 +99,32 @@ const parseRituals = (value) => {
   throw new HttpError("rituals must be an array or comma separated string", 400);
 };
 
+const parseDdMmYyyyDate = (value, fieldName) => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const match = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])-([0-9]{4})$/.exec(
+    String(value).trim()
+  );
+
+  if (!match) {
+    throw new HttpError(`${fieldName} must be in dd-mm-yyyy format`, 400);
+  }
+
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  return new Date(Date.UTC(year, month - 1, day));
+};
+
 const createFestival = async (req, res, next) => {
   try {
     const {
       title,
       description,
-      date,
-      endDate,
+      date: rawDate,
+      endDate: rawEndDate,
       category,
       status,
     } = req.body;
@@ -117,6 +136,8 @@ const createFestival = async (req, res, next) => {
     );
     const location = parseLocation(req.body.location);
     const rituals = parseRituals(req.body.rituals);
+    const date = parseDdMmYyyyDate(rawDate, "date");
+    const endDate = parseDdMmYyyyDate(rawEndDate, "endDate");
 
     if (!req.file) {
       throw new HttpError("Festival image is required", 400);
@@ -202,8 +223,8 @@ const updateFestival = async (req, res, next) => {
     const {
       title,
       description,
-      date,
-      endDate,
+      date: rawDate,
+      endDate: rawEndDate,
       category,
       status,
     } = req.body;
@@ -215,6 +236,8 @@ const updateFestival = async (req, res, next) => {
     );
     const location = parseLocation(req.body.location);
     const rituals = parseRituals(req.body.rituals);
+    const date = parseDdMmYyyyDate(rawDate, "date");
+    const endDate = parseDdMmYyyyDate(rawEndDate, "endDate");
     const hasBodyUpdates =
       title !== undefined ||
       description !== undefined ||
