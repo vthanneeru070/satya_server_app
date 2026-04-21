@@ -48,7 +48,6 @@ const uploadFile = async (file, folder = "general") => {
     Key: key,
     Body: file.buffer,
     ContentType: file.mimetype || "application/octet-stream",
-    ACL: "public-read",
   });
 
   await s3Client.send(command);
