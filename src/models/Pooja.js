@@ -34,8 +34,8 @@ const poojaSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      required: true,
-      trim: true,
+      enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED"],
+      default: "PENDING",
     },
     imageUrl: {
       type: String,

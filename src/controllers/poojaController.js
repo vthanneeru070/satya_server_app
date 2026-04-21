@@ -73,7 +73,7 @@ const createPooja = async (req, res, next) => {
       difficulty,
       duration,
       description,
-      status,
+      status: requestedStatus,
       audioUrl: audioUrlFromBody,
       videoUrl: videoUrlFromBody,
       rating,
@@ -83,6 +83,7 @@ const createPooja = async (req, res, next) => {
     const { imageUrl, audioUrl: audioFileUrl, videoUrl: videoFileUrl } = getUploadedMediaUrls(req.files);
     const audioUrl = audioFileUrl ?? audioUrlFromBody;
     const videoUrl = videoFileUrl ?? videoUrlFromBody;
+    const status = req.user.isSuperAdmin === true ? requestedStatus || "APPROVED" : "PENDING";
 
     const pooja = await Pooja.create({
       title,
@@ -109,7 +110,13 @@ const createPooja = async (req, res, next) => {
 
 const getPoojas = async (_req, res, next) => {
   try {
-    const poojas = await Pooja.find()
+    const filter = {};
+
+    if (_req.user?.role !== "admin") {
+      filter.status = "APPROVED";
+    }
+
+    const poojas = await Pooja.find(filter)
       .sort({ createdAt: -1 })
       .populate("createdBy", "email role");
 
@@ -119,9 +126,27 @@ const getPoojas = async (_req, res, next) => {
   }
 };
 
+const getAllPoojas = async (_req, res, next) => {
+  try {
+    const poojas = await Pooja.find()
+      .sort({ createdAt: -1 })
+      .populate("createdBy", "email role");
+
+    return sendSuccess(res, { poojas }, "All poojas fetched successfully");
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const getPoojaById = async (req, res, next) => {
   try {
-    const pooja = await Pooja.findById(req.params.id).populate("createdBy", "email role");
+    const filter = { _id: req.params.id };
+
+    if (req.user?.role !== "admin") {
+      filter.status = "APPROVED";
+    }
+
+    const pooja = await Pooja.findOne(filter).populate("createdBy", "email role");
 
     if (!pooja) {
       throw new HttpError("Pooja not found", 404);
@@ -206,7 +231,9 @@ const updatePooja = async (req, res, next) => {
     }
 
     if (status !== undefined) {
-      pooja.status = status;
+      if (req.user.isSuperAdmin === true) {
+        pooja.status = status;
+      }
     }
 
     if (audioUrl !== undefined) {
@@ -247,10 +274,32 @@ const updatePooja = async (req, res, next) => {
       await deleteLocalImage(previousVideoUrl);
     }
 
+    if (req.user.isSuperAdmin !== true) {
+      pooja.status = "PENDING";
+    }
+
     await pooja.save();
     await pooja.populate("createdBy", "email role");
 
     return sendSuccess(res, { pooja }, "Pooja updated successfully");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const reviewPooja = async (req, res, next) => {
+  try {
+    const pooja = await Pooja.findById(req.params.id);
+
+    if (!pooja) {
+      throw new HttpError("Pooja not found", 404);
+    }
+
+    pooja.status = req.body.status;
+    await pooja.save();
+    await pooja.populate("createdBy", "email role");
+
+    return sendSuccess(res, { pooja }, "Pooja reviewed successfully");
   } catch (error) {
     return next(error);
   }
@@ -280,7 +329,9 @@ const deletePooja = async (req, res, next) => {
 module.exports = {
   createPooja,
   getPoojas,
+  getAllPoojas,
   getPoojaById,
   updatePooja,
   deletePooja,
+  reviewPooja,
 };

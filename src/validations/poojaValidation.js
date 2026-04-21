@@ -17,7 +17,7 @@ const createPoojaSchema = Joi.object({
   difficulty: Joi.string().trim().min(2).max(100).required(),
   duration: Joi.string().trim().min(1).max(100).required(),
   description: Joi.string().trim().min(5).max(3000).required(),
-  status: Joi.string().trim().min(2).max(50).required(),
+  status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED").optional(),
   audioUrl: Joi.string().trim().uri(),
   videoUrl: Joi.string().trim().uri(),
   steps: stepsField,
@@ -32,7 +32,7 @@ const updatePoojaSchema = Joi.object({
   difficulty: Joi.string().trim().min(2).max(100),
   duration: Joi.string().trim().min(1).max(100),
   description: Joi.string().trim().min(5).max(3000),
-  status: Joi.string().trim().min(2).max(50),
+  status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED"),
   audioUrl: Joi.string().trim().uri(),
   videoUrl: Joi.string().trim().uri(),
   steps: stepsField,
@@ -44,8 +44,13 @@ const poojaIdParamsSchema = Joi.object({
   id: Joi.string().trim().hex().length(24).required(),
 });
 
+const reviewPoojaSchema = Joi.object({
+  status: Joi.string().valid("APPROVED", "REJECTED").required(),
+});
+
 module.exports = {
   createPoojaSchema,
   updatePoojaSchema,
+  reviewPoojaSchema,
   poojaIdParamsSchema,
 };

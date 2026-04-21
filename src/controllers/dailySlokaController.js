@@ -35,7 +35,7 @@ const todayDateKey = () => {
 
 const createDailySloka = async (req, res, next) => {
   try {
-    const { sloka, date } = req.body;
+    const { sloka, date, author } = req.body;
     const parts = toDateParts(date);
     const dateKey = toDateKey(parts);
     const normalizedDate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
@@ -44,6 +44,7 @@ const createDailySloka = async (req, res, next) => {
       { dateKey },
       {
         sloka,
+        author,
         date: normalizedDate,
         dateKey,
         createdBy: req.user.userId,

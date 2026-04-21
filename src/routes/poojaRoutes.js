@@ -1,18 +1,22 @@
 const express = require("express");
 const authenticate = require("../middleware/authenticate");
 const authorizeRoles = require("../middleware/authorizeRoles");
+const authorizeSuperAdmin = require("../middleware/authorizeSuperAdmin");
 const validate = require("../middleware/validate");
 const uploadPoojaImage = require("../middleware/uploadPoojaImage");
 const {
   createPooja,
   getPoojas,
+  getAllPoojas,
   getPoojaById,
   updatePooja,
   deletePooja,
+  reviewPooja,
 } = require("../controllers/poojaController");
 const {
   createPoojaSchema,
   updatePoojaSchema,
+  reviewPoojaSchema,
   poojaIdParamsSchema,
 } = require("../validations/poojaValidation");
 
@@ -104,7 +108,9 @@ router.post(
  *       200:
  *         description: Poojas fetched successfully
  */
-router.get("/", getPoojas);
+router.get("/", authenticate, getPoojas);
+
+router.get("/all", authenticate, authorizeSuperAdmin, getAllPoojas);
 
 /**
  * @swagger
@@ -124,7 +130,7 @@ router.get("/", getPoojas);
  *       404:
  *         description: Pooja not found
  */
-router.get("/:id", validate(poojaIdParamsSchema, "params"), getPoojaById);
+router.get("/:id", authenticate, validate(poojaIdParamsSchema, "params"), getPoojaById);
 
 /**
  * @swagger
@@ -234,6 +240,15 @@ router.delete(
   authorizeRoles("admin"),
   validate(poojaIdParamsSchema, "params"),
   deletePooja
+);
+
+router.put(
+  "/review/:id",
+  authenticate,
+  authorizeSuperAdmin,
+  validate(poojaIdParamsSchema, "params"),
+  validate(reviewPoojaSchema),
+  reviewPooja
 );
 
 module.exports = router;

@@ -7,6 +7,11 @@ const dailySlokaSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    author:{
+      type: String,
+      required: false,
+      trim: true,
+    },
     date: {
       type: Date,
       required: true,

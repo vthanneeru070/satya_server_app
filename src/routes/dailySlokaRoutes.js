@@ -39,6 +39,8 @@ const router = express.Router();
  *             properties:
  *               sloka:
  *                 type: string
+ *               author:
+ *                 type: string
  *               date:
  *                 type: string
  *                 example: 20-04-2026
