@@ -22,7 +22,7 @@ const router = express.Router();
 
 /**
  * @swagger
- * /daily-slokas:
+ * /daily-slokas/create-sloka:
  *   post:
  *     summary: Create or update daily sloka
  *     description: Requires admin or super admin. Saves one sloka per date.
@@ -48,7 +48,7 @@ const router = express.Router();
  *       201:
  *         description: Daily sloka saved successfully
  */
-router.post("/", authenticate, authorizeRoles("admin"), validate(createDailySlokaSchema), createDailySloka);
+router.post("/create-sloka", authenticate, authorizeRoles("admin"), validate(createDailySlokaSchema), createDailySloka);
 
 /**
  * @swagger

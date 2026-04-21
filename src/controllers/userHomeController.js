@@ -22,22 +22,21 @@ const getUserHome = async (_req, res, next) => {
 
     const [dailySloka, poojas, festivals, donations] = await Promise.all([
       DailySloka.findOne({ dateKey: todayDateKey }).populate("createdBy", "email role"),
-      Pooja.find()
+      Pooja.find({ status: "APPROVED" })
         .sort({ createdAt: -1 })
         .limit(5)
         .populate("createdBy", "email role"),
       Festival.find({
         date: { $gte: todayStartUtc },
         status: "APPROVED",
-        isVisible: true,
         isDeleted: false,
       })
         .sort({ date: 1 })
         .limit(5)
         .populate("createdBy", "email role"),
-      Donation.find({ status: "APPROVED", isVisible: true })
+      Donation.find({ status: "APPROVED"})
         .sort({ createdAt: -1 })
-        .limit(10)
+        .limit(5)
         .populate("createdBy", "email role"),
     ]);
 
