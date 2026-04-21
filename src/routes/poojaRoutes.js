@@ -3,7 +3,7 @@ const authenticate = require("../middleware/authenticate");
 const authorizeRoles = require("../middleware/authorizeRoles");
 const authorizeSuperAdmin = require("../middleware/authorizeSuperAdmin");
 const validate = require("../middleware/validate");
-const uploadPoojaImage = require("../middleware/uploadPoojaImage");
+const upload = require("../middleware/upload");
 const {
   createPooja,
   getPoojas,
@@ -90,7 +90,7 @@ router.post(
   "/create-pooja",
   authenticate,
   authorizeRoles("admin"),
-  uploadPoojaImage.fields([
+  upload.fields([
     { name: "image", maxCount: 1 },
     { name: "audio", maxCount: 1 },
     { name: "video", maxCount: 1 },
@@ -236,7 +236,7 @@ router.patch(
   "/:id",
   authenticate,
   authorizeRoles("admin"),
-  uploadPoojaImage.fields([
+  upload.fields([
     { name: "image", maxCount: 1 },
     { name: "audio", maxCount: 1 },
     { name: "video", maxCount: 1 },

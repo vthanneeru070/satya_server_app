@@ -1,18 +1,7 @@
 const Donation = require("../models/Donation");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
-const fs = require("fs");
-const path = require("path");
-
-const deleteLocalImage = async (imageUrl) => {
-  if (!imageUrl || typeof imageUrl !== "string" || !imageUrl.startsWith("/uploads/")) {
-    return;
-  }
-
-  const relativePath = imageUrl.replace(/^\/+/, "");
-  const absolutePath = path.resolve(process.cwd(), relativePath);
-  await fs.promises.unlink(absolutePath).catch(() => {});
-};
+const { uploadFile, deleteFile } = require("../services/s3Service");
 
 const createDonation = async (req, res, next) => {
   try {
@@ -22,7 +11,7 @@ const createDonation = async (req, res, next) => {
       throw new HttpError("Donation image is required", 400);
     }
 
-    const image = `/uploads/donations/${req.file.filename}`;
+    const image = await uploadFile(req.file, "donations");
 
     const donation = await Donation.create({
       title,
@@ -114,10 +103,10 @@ const updateDonation = async (req, res, next) => {
     }
 
     if (req.file) {
-      const nextImage = `/uploads/donations/${req.file.filename}`;
+      const nextImage = await uploadFile(req.file, "donations");
       const previousImage = donation.image;
       donation.image = nextImage;
-      await deleteLocalImage(previousImage);
+      await deleteFile(previousImage).catch(() => {});
     }
 
     donation.status = "PENDING";
@@ -149,7 +138,7 @@ const deleteDonation = async (req, res, next) => {
       throw new HttpError("You are not authorized to delete this donation", 403);
     }
 
-    await deleteLocalImage(donation.image);
+    await deleteFile(donation.image).catch(() => {});
     await donation.deleteOne();
 
     return sendSuccess(res, null, "Donation deleted successfully");

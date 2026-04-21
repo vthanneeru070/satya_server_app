@@ -3,7 +3,7 @@ const authenticate = require("../middleware/authenticate");
 const authorizeRoles = require("../middleware/authorizeRoles");
 const authorizeSuperAdmin = require("../middleware/authorizeSuperAdmin");
 const validate = require("../middleware/validate");
-const uploadFestivalImage = require("../middleware/uploadFestivalImage");
+const upload = require("../middleware/upload");
 const {
   createFestival,
   getMyFestivals,
@@ -94,7 +94,7 @@ router.post(
   "/create-festival",
   authenticate,
   authorizeRoles("admin"),
-  uploadFestivalImage.single("image"),
+  upload.single("image"),
   validate(createFestivalSchema),
   createFestival
 );
@@ -185,7 +185,7 @@ router.patch(
   "/:id",
   authenticate,
   authorizeRoles("admin"),
-  uploadFestivalImage.single("image"),
+  upload.single("image"),
   validate(festivalIdParamsSchema, "params"),
   validate(updateFestivalSchema),
   updateFestival

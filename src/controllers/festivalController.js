@@ -1,18 +1,7 @@
-const fs = require("fs");
-const path = require("path");
 const Festival = require("../models/Festival");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
-
-const deleteLocalImage = async (imageUrl) => {
-  if (!imageUrl || typeof imageUrl !== "string" || !imageUrl.startsWith("/uploads/")) {
-    return;
-  }
-
-  const relativePath = imageUrl.replace(/^\/+/, "");
-  const absolutePath = path.resolve(process.cwd(), relativePath);
-  await fs.promises.unlink(absolutePath).catch(() => {});
-};
+const { uploadFile, deleteFile } = require("../services/s3Service");
 
 const canModifyFestival = (festival, user) =>
   user.isSuperAdmin === true || festival.createdBy.toString() === user.userId;
@@ -133,7 +122,7 @@ const createFestival = async (req, res, next) => {
       throw new HttpError("Festival image is required", 400);
     }
 
-    const image = `/uploads/festivals/${req.file.filename}`;
+    const image = await uploadFile(req.file, "festivals");
 
     const festival = await Festival.create({
       title,
@@ -289,10 +278,10 @@ const updateFestival = async (req, res, next) => {
     }
 
     if (req.file) {
-      const nextImage = `/uploads/festivals/${req.file.filename}`;
+      const nextImage = await uploadFile(req.file, "festivals");
       const previousImage = festival.image;
       festival.image = nextImage;
-      await deleteLocalImage(previousImage);
+      await deleteFile(previousImage).catch(() => {});
     }
 
     festival.status = "PENDING";
@@ -325,6 +314,7 @@ const deleteFestival = async (req, res, next) => {
       throw new HttpError("You are not authorized to delete this festival", 403);
     }
 
+    await deleteFile(festival.image).catch(() => {});
     festival.isDeleted = true;
     festival.isVisible = false;
     await festival.save();

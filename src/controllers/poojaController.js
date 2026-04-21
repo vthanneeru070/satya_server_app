@@ -1,28 +1,17 @@
 const Pooja = require("../models/Pooja");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
-const fs = require("fs");
-const path = require("path");
+const { uploadFile, deleteFile } = require("../services/s3Service");
 
-const deleteLocalImage = async (imageUrl) => {
-  if (!imageUrl || typeof imageUrl !== "string" || !imageUrl.startsWith("/uploads/")) {
-    return;
-  }
-
-  const relativePath = imageUrl.replace(/^\/+/, "");
-  const absolutePath = path.resolve(process.cwd(), relativePath);
-  await fs.promises.unlink(absolutePath).catch(() => {});
-};
-
-const getUploadedMediaUrls = (files = {}) => {
+const getUploadedMediaUrls = async (files = {}) => {
   const imageFile = files.image?.[0];
   const audioFile = files.audio?.[0];
   const videoFile = files.video?.[0];
 
   return {
-    imageUrl: imageFile ? `/uploads/poojas/${imageFile.filename}` : undefined,
-    audioUrl: audioFile ? `/uploads/poojas/${audioFile.filename}` : undefined,
-    videoUrl: videoFile ? `/uploads/poojas/${videoFile.filename}` : undefined,
+    imageUrl: imageFile ? await uploadFile(imageFile, "general") : undefined,
+    audioUrl: audioFile ? await uploadFile(audioFile, "general") : undefined,
+    videoUrl: videoFile ? await uploadFile(videoFile, "general") : undefined,
   };
 };
 
@@ -80,7 +69,9 @@ const createPooja = async (req, res, next) => {
     } = req.body;
     const steps = parseStringArrayField(req.body.steps, "steps") ?? [];
     const requiredItems = parseStringArrayField(req.body.requiredItems, "requiredItems") ?? [];
-    const { imageUrl, audioUrl: audioFileUrl, videoUrl: videoFileUrl } = getUploadedMediaUrls(req.files);
+    const { imageUrl, audioUrl: audioFileUrl, videoUrl: videoFileUrl } = await getUploadedMediaUrls(
+      req.files
+    );
     const audioUrl = audioFileUrl ?? audioUrlFromBody;
     const videoUrl = videoFileUrl ?? videoUrlFromBody;
     const status = req.user.isSuperAdmin === true ? requestedStatus || "APPROVED" : "PENDING";
@@ -196,7 +187,7 @@ const updatePooja = async (req, res, next) => {
       imageUrl: imageFileUrl,
       audioUrl: audioFileUrl,
       videoUrl: videoFileUrl,
-    } = getUploadedMediaUrls(req.files);
+    } = await getUploadedMediaUrls(req.files);
     const audioUrl = audioFileUrl ?? audioUrlFromBody;
     const videoUrl = videoFileUrl ?? videoUrlFromBody;
     const hasBodyUpdates =
@@ -271,19 +262,19 @@ const updatePooja = async (req, res, next) => {
     if (imageFileUrl) {
       const previousImageUrl = pooja.imageUrl;
       pooja.imageUrl = imageFileUrl;
-      await deleteLocalImage(previousImageUrl);
+      await deleteFile(previousImageUrl).catch(() => {});
     }
 
     if (audioFileUrl) {
       const previousAudioUrl = pooja.audioUrl;
       pooja.audioUrl = audioFileUrl;
-      await deleteLocalImage(previousAudioUrl);
+      await deleteFile(previousAudioUrl).catch(() => {});
     }
 
     if (videoFileUrl) {
       const previousVideoUrl = pooja.videoUrl;
       pooja.videoUrl = videoFileUrl;
-      await deleteLocalImage(previousVideoUrl);
+      await deleteFile(previousVideoUrl).catch(() => {});
     }
 
     if (req.user.isSuperAdmin !== true) {
@@ -326,9 +317,9 @@ const deletePooja = async (req, res, next) => {
     }
 
     await Promise.all([
-      deleteLocalImage(pooja.imageUrl),
-      deleteLocalImage(pooja.audioUrl),
-      deleteLocalImage(pooja.videoUrl),
+      deleteFile(pooja.imageUrl).catch(() => {}),
+      deleteFile(pooja.audioUrl).catch(() => {}),
+      deleteFile(pooja.videoUrl).catch(() => {}),
     ]);
     await pooja.deleteOne();
 

@@ -3,7 +3,7 @@ const authenticate = require("../middleware/authenticate");
 const authorizeRoles = require("../middleware/authorizeRoles");
 const authorizeSuperAdmin = require("../middleware/authorizeSuperAdmin");
 const validate = require("../middleware/validate");
-const uploadDonationImage = require("../middleware/uploadDonationImage");
+const upload = require("../middleware/upload");
 const {
   createDonation,
   updateDonation,
@@ -79,7 +79,7 @@ router.post(
   "/create-donation",
   authenticate,
   authorizeRoles("admin"),
-  uploadDonationImage.single("image"),
+  upload.single("image"),
   validate(createDonationSchema),
   createDonation
 );
@@ -153,7 +153,7 @@ router.patch(
   "/:id",
   authenticate,
   authorizeRoles("admin"),
-  uploadDonationImage.single("image"),
+  upload.single("image"),
   validate(donationIdParamsSchema, "params"),
   validate(updateDonationSchema),
   updateDonation
