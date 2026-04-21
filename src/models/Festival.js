@@ -18,6 +18,7 @@ const festivalSchema = new mongoose.Schema(
     },
     image: {
       type: String,
+      required: false,
     },
     rituals: [
       {

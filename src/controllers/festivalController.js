@@ -139,11 +139,7 @@ const createFestival = async (req, res, next) => {
     const date = parseDdMmYyyyDate(rawDate, "date");
     const endDate = parseDdMmYyyyDate(rawEndDate, "endDate");
 
-    if (!req.file) {
-      throw new HttpError("Festival image is required", 400);
-    }
-
-    const image = await uploadFile(req.file, "festivals");
+    const image = req.file ? await uploadFile(req.file, "festivals") : undefined;
 
     const festival = await Festival.create({
       title,
