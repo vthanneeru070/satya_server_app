@@ -58,7 +58,7 @@ router.get("/", authenticate, getVisibleFestivals);
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             required: [title, date, image]
+ *             required: [title, date]
  *             properties:
  *               title:
  *                 type: string
@@ -66,10 +66,10 @@ router.get("/", authenticate, getVisibleFestivals);
  *                 type: string
  *               date:
  *                 type: string
- *                 format: date-time
+ *                 example: 26-04-2026
  *               endDate:
  *                 type: string
- *                 format: date-time
+ *                 example: 27-04-2026
  *               category:
  *                 type: string
  *                 enum: [MAJOR, MINOR, FASTING, ECLIPSE]
@@ -157,10 +157,10 @@ router.get("/all", authenticate, authorizeSuperAdmin, getAllFestivals);
  *                 type: string
  *               date:
  *                 type: string
- *                 format: date-time
+ *                 example: 26-04-2026
  *               endDate:
  *                 type: string
- *                 format: date-time
+ *                 example: 27-04-2026
  *               category:
  *                 type: string
  *                 enum: [MAJOR, MINOR, FASTING, ECLIPSE]
