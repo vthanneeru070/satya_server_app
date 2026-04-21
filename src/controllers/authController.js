@@ -79,6 +79,7 @@ const login = async (req, res, next) => {
     if (error.code && String(error.code).startsWith("auth/")) {
       return next(new HttpError("Invalid Firebase ID token", 401));
     }
+    console.log(error);
     return next(error);
   }
 };
@@ -109,8 +110,10 @@ const adminLogin = async (req, res, next) => {
     );
   } catch (error) {
     if (error.code && String(error.code).startsWith("auth/")) {
+      console.log(error);
       return next(new HttpError("Invalid Firebase ID token", 401));
     }
+    console.log(error);
     return next(error);
   }
 };

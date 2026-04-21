@@ -4,13 +4,18 @@ const HttpError = require("../utils/httpError");
 
 const {
   AWS_ACCESS_KEY,
+  AWS_ACCESS_KEY_ID,
   AWS_SECRET_KEY,
+  AWS_SECRET_ACCESS_KEY,
   AWS_REGION = "us-east-1",
   AWS_BUCKET_NAME,
 } = process.env;
 
+const resolvedAccessKey = AWS_ACCESS_KEY || AWS_ACCESS_KEY_ID;
+const resolvedSecretKey = AWS_SECRET_KEY || AWS_SECRET_ACCESS_KEY;
+
 const validateConfig = () => {
-  if (!AWS_ACCESS_KEY || !AWS_SECRET_KEY || !AWS_REGION || !AWS_BUCKET_NAME) {
+  if (!resolvedAccessKey || !resolvedSecretKey || !AWS_REGION || !AWS_BUCKET_NAME) {
     throw new HttpError("AWS S3 configuration is missing", 500);
   }
 };
@@ -18,8 +23,8 @@ const validateConfig = () => {
 const s3Client = new S3Client({
   region: AWS_REGION,
   credentials: {
-    accessKeyId: AWS_ACCESS_KEY || "",
-    secretAccessKey: AWS_SECRET_KEY || "",
+    accessKeyId: resolvedAccessKey || "",
+    secretAccessKey: resolvedSecretKey || "",
   },
 });
 
