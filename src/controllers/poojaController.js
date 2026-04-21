@@ -138,6 +138,18 @@ const getAllPoojas = async (_req, res, next) => {
   }
 };
 
+const getMyPoojas = async (req, res, next) => {
+  try {
+    const poojas = await Pooja.find({ createdBy: req.user.userId })
+      .sort({ createdAt: -1 })
+      .populate("createdBy", "email role");
+
+    return sendSuccess(res, { poojas }, "My poojas fetched successfully");
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const getPoojaById = async (req, res, next) => {
   try {
     const filter = { _id: req.params.id };
@@ -330,6 +342,7 @@ module.exports = {
   createPooja,
   getPoojas,
   getAllPoojas,
+  getMyPoojas,
   getPoojaById,
   updatePooja,
   deletePooja,

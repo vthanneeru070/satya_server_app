@@ -8,6 +8,7 @@ const {
   createPooja,
   getPoojas,
   getAllPoojas,
+  getMyPoojas,
   getPoojaById,
   updatePooja,
   deletePooja,
@@ -110,6 +111,42 @@ router.post(
  */
 router.get("/", authenticate, getPoojas);
 
+/**
+ * @swagger
+ * /poojas/my:
+ *   get:
+ *     summary: Get my poojas
+ *     description: Requires admin role. Returns poojas created by logged-in admin/super admin.
+ *     tags: [Poojas]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: My poojas fetched successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (admin role required)
+ */
+router.get("/my", authenticate, authorizeRoles("admin"), getMyPoojas);
+
+/**
+ * @swagger
+ * /poojas/all:
+ *   get:
+ *     summary: Get all poojas (all statuses)
+ *     description: Requires super admin role.
+ *     tags: [Poojas]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: All poojas fetched successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (super admin required)
+ */
 router.get("/all", authenticate, authorizeSuperAdmin, getAllPoojas);
 
 /**
@@ -242,6 +279,42 @@ router.delete(
   deletePooja
 );
 
+/**
+ * @swagger
+ * /poojas/review/{id}:
+ *   put:
+ *     summary: Review pooja
+ *     description: Requires super admin role. Set pooja status to APPROVED or REJECTED.
+ *     tags: [Poojas]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [status]
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [APPROVED, REJECTED]
+ *     responses:
+ *       200:
+ *         description: Pooja reviewed successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (super admin required)
+ *       404:
+ *         description: Pooja not found
+ */
 router.put(
   "/review/:id",
   authenticate,
