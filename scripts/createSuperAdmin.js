@@ -1,9 +1,31 @@
 require("dotenv").config();
 const mongoose = require("mongoose");
 const User = require("../src/models/User");
-const connectDatabase = require("../src/config/db");
 
 const { SUPER_ADMIN_EMAIL, SUPER_ADMIN_FIREBASE_UID, SUPER_ADMIN_PROVIDER } = process.env;
+const superAdminDbName = process.env.SUPER_ADMIN_DB_NAME || "satya_auth";
+const mongoUri = process.env.MONGO_URI;
+
+
+const logSuperAdminDetails = (label, user) => {
+  console.log(
+    label,
+    JSON.stringify(
+      {
+        id: user._id.toString(),
+        email: user.email,
+        firebaseUid: user.firebaseUid,
+        role: user.role,
+        isSuperAdmin: user.isSuperAdmin,
+        provider: user.provider,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      },
+      null,
+      2
+    )
+  );
+};
 
 const createSuperAdmin = async () => {
   if (!SUPER_ADMIN_EMAIL) {
@@ -14,13 +36,19 @@ const createSuperAdmin = async () => {
     throw new Error("Missing required environment variable: SUPER_ADMIN_FIREBASE_UID");
   }
 
-  await connectDatabase();
+  if (!mongoUri) {
+    throw new Error("Missing required environment variable: MONGO_URI");
+  }
+
+  await mongoose.connect(mongoUri, { dbName: superAdminDbName });
+  console.log(`MongoDB connected successfully (db: ${superAdminDbName})`);
 
   try {
     const existingSuperAdmin = await User.findOne({ isSuperAdmin: true });
 
     if (existingSuperAdmin) {
       console.log("Super admin already exists. No action taken.");
+      logSuperAdminDetails("Existing super admin details:", existingSuperAdmin);
       return;
     }
 
@@ -38,10 +66,11 @@ const createSuperAdmin = async () => {
       existingUser.createdBy = null;
       await existingUser.save();
       console.log("Existing user elevated to super admin.");
+      logSuperAdminDetails("Elevated super admin details:", existingUser);
       return;
     }
 
-    await User.create({
+    const createdSuperAdmin = await User.create({
       firebaseUid: SUPER_ADMIN_FIREBASE_UID.trim(),
       email: SUPER_ADMIN_EMAIL.toLowerCase().trim(),
       provider: SUPER_ADMIN_PROVIDER || "google",
@@ -51,6 +80,7 @@ const createSuperAdmin = async () => {
     });
 
     console.log("Super admin created successfully.");
+    logSuperAdminDetails("Created super admin details:", createdSuperAdmin);
   } finally {
     await mongoose.connection.close();
   }
