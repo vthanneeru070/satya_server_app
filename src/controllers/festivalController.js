@@ -178,7 +178,7 @@ const getMyFestivals = async (req, res, next) => {
 
 const getAllFestivals = async (_req, res, next) => {
   try {
-    const festivals = await Festival.find({ isDeleted: false })
+    const festivals = await Festival.find()
       .sort({ createdAt: -1 })
       .populate("createdBy", "email role isSuperAdmin");
 
