@@ -53,6 +53,21 @@ const parseStringArrayField = (value, fieldName) => {
   throw new HttpError(`${fieldName} must be an array or JSON array string`, 400);
 };
 
+const parseObjectIdArrayField = (value, fieldName) => {
+  const parsed = parseStringArrayField(value, fieldName);
+  if (parsed === undefined) {
+    return undefined;
+  }
+
+  const objectIdRegex = /^[a-fA-F0-9]{24}$/;
+  const invalidId = parsed.find((id) => !objectIdRegex.test(String(id).trim()));
+  if (invalidId) {
+    throw new HttpError(`${fieldName} must contain valid ObjectId values`, 400);
+  }
+
+  return parsed.map((id) => String(id).trim());
+};
+
 const createPooja = async (req, res, next) => {
   try {
     const {
@@ -65,10 +80,12 @@ const createPooja = async (req, res, next) => {
       status: requestedStatus,
       audioUrl: audioUrlFromBody,
       videoUrl: videoUrlFromBody,
+      festivalIds: festivalIdsRaw,
       rating,
     } = req.body;
     const steps = parseStringArrayField(req.body.steps, "steps") ?? [];
     const requiredItems = parseStringArrayField(req.body.requiredItems, "requiredItems") ?? [];
+    const festivalIds = parseObjectIdArrayField(festivalIdsRaw, "festivalIds") ?? [];
     const { imageUrl, audioUrl: audioFileUrl, videoUrl: videoFileUrl } = await getUploadedMediaUrls(
       req.files
     );
@@ -89,6 +106,7 @@ const createPooja = async (req, res, next) => {
       videoUrl,
       steps,
       requiredItems,
+      festivalIds,
       rating,
       createdBy: req.user.userId,
     });
@@ -179,10 +197,12 @@ const updatePooja = async (req, res, next) => {
       status,
       audioUrl: audioUrlFromBody,
       videoUrl: videoUrlFromBody,
+      festivalIds: festivalIdsRaw,
       rating,
     } = req.body;
     const steps = parseStringArrayField(req.body.steps, "steps");
     const requiredItems = parseStringArrayField(req.body.requiredItems, "requiredItems");
+    const festivalIds = parseObjectIdArrayField(festivalIdsRaw, "festivalIds");
     const {
       imageUrl: imageFileUrl,
       audioUrl: audioFileUrl,
@@ -202,7 +222,8 @@ const updatePooja = async (req, res, next) => {
       videoUrl !== undefined ||
       rating !== undefined ||
       steps !== undefined ||
-      requiredItems !== undefined;
+      requiredItems !== undefined ||
+      festivalIds !== undefined;
     const hasMediaUpdate = Boolean(imageFileUrl || audioFileUrl || videoFileUrl);
 
     if (!hasBodyUpdates && !hasMediaUpdate) {
@@ -253,6 +274,10 @@ const updatePooja = async (req, res, next) => {
 
     if (requiredItems !== undefined) {
       pooja.requiredItems = requiredItems;
+    }
+
+    if (festivalIds !== undefined) {
+      pooja.festivalIds = festivalIds;
     }
 
     if (rating !== undefined) {

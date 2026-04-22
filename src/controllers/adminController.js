@@ -1,5 +1,9 @@
 const User = require("../models/User");
 const AdminLog = require("../models/AdminLog");
+const Festival = require("../models/Festival");
+const Pooja = require("../models/Pooja");
+const Donation = require("../models/Donation");
+const DailySloka = require("../models/DailySloka");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 
@@ -163,10 +167,59 @@ const deleteUser = async (req, res, next) => {
   }
 };
 
+const getTodayDateKey = () => {
+  const now = new Date();
+  const day = String(now.getUTCDate()).padStart(2, "0");
+  const month = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const year = now.getUTCFullYear();
+  return `${day}-${month}-${year}`;
+};
+
+const getStatusCounts = async (Model, statuses) => {
+  const counts = await Promise.all(statuses.map((status) => Model.countDocuments({ status })));
+  return statuses.reduce((acc, status, index) => {
+    acc[status] = counts[index];
+    return acc;
+  }, {});
+};
+
+const getAdminDashboard = async (_req, res, next) => {
+  try {
+    const statusKeys = ["PENDING", "APPROVED", "REJECTED"];
+    const todayDateKey = getTodayDateKey();
+
+    const [usersCount, adminsCount, festivalCounts, poojaCounts, donationCounts, todaySloka] =
+      await Promise.all([
+        User.countDocuments({ role: "user" }),
+        User.countDocuments({ role: "admin" }),
+        getStatusCounts(Festival, statusKeys),
+        getStatusCounts(Pooja, statusKeys),
+        getStatusCounts(Donation, statusKeys),
+        DailySloka.findOne({ dateKey: todayDateKey }).select("-__v").populate("createdBy", "email role"),
+      ]);
+
+    return sendSuccess(
+      res,
+      {
+        usersCount,
+        adminsCount,
+        festivals: festivalCounts,
+        poojas: poojaCounts,
+        donations: donationCounts,
+        todaySloka,
+      },
+      "Admin dashboard fetched successfully"
+    );
+  } catch (error) {
+    return next(error);
+  }
+};
+
 module.exports = {
   createAdmin,
   getAdminUsers,
   getRegularUsers,
   removeAdmin,
   deleteUser,
+  getAdminDashboard,
 };

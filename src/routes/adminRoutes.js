@@ -9,6 +9,7 @@ const {
   getRegularUsers,
   removeAdmin,
   deleteUser,
+  getAdminDashboard,
 } = require("../controllers/adminController");
 const {
   createAdminSchema,
@@ -180,4 +181,23 @@ router.patch(
 );
 
 router.delete("/delete-user/:id", authenticate, authorizeSuperAdmin, validate(deleteUserParamsSchema, "params"), deleteUser);
+
+/**
+ * @swagger
+ * /admin/dashboard:
+ *   get:
+ *     summary: Get admin dashboard metrics
+ *     description: Requires admin role. Returns user/admin counts, festival/pooja/donation status counts, and today's sloka.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Admin dashboard fetched successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (admin role required)
+ */
+router.get("/dashboard", authenticate, authorizeRoles("admin"), getAdminDashboard);
 module.exports = router;

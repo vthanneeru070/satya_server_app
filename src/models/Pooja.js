@@ -57,6 +57,12 @@ const poojaSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    festivalIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Festival",
+      },
+    ],
     rating: {
       type: Number,
       default: 0,

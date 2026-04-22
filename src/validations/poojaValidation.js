@@ -10,6 +10,11 @@ const requiredItemsField = Joi.alternatives().try(
   Joi.string().trim().min(2)
 );
 
+const festivalIdsField = Joi.alternatives().try(
+  Joi.array().items(Joi.string().trim().hex().length(24)).default([]),
+  Joi.string().trim().min(2)
+);
+
 const createPoojaSchema = Joi.object({
   title: Joi.string().trim().min(2).max(150).required(),
   deity: Joi.string().trim().min(2).max(150).required(),
@@ -22,6 +27,7 @@ const createPoojaSchema = Joi.object({
   videoUrl: Joi.string().trim().uri(),
   steps: stepsField,
   requiredItems: requiredItemsField,
+  festivalIds: festivalIdsField,
   rating: Joi.number().min(0).max(5),
 });
 
@@ -37,6 +43,7 @@ const updatePoojaSchema = Joi.object({
   videoUrl: Joi.string().trim().uri(),
   steps: stepsField,
   requiredItems: requiredItemsField,
+  festivalIds: festivalIdsField,
   rating: Joi.number().min(0).max(5),
 });
 

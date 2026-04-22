@@ -74,6 +74,8 @@ const router = express.Router();
  *                 type: string
  *               requiredItems:
  *                 type: string
+ *               festivalIds:
+ *                 type: string
  *               rating:
  *                 type: number
  *     responses:
