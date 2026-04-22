@@ -187,22 +187,41 @@ const getAdminDashboard = async (_req, res, next) => {
   try {
     const statusKeys = ["PENDING", "APPROVED", "REJECTED"];
     const todayDateKey = getTodayDateKey();
+    const now = new Date();
+    const todayStartUtc = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+    );
+    const tomorrowStartUtc = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)
+    );
 
-    const [usersCount, adminsCount, festivalCounts, poojaCounts, donationCounts, todaySloka] =
-      await Promise.all([
-        User.countDocuments({ role: "user" }),
-        User.countDocuments({ role: "admin" }),
-        getStatusCounts(Festival, statusKeys),
-        getStatusCounts(Pooja, statusKeys),
-        getStatusCounts(Donation, statusKeys),
-        DailySloka.findOne({ dateKey: todayDateKey }).select("-__v").populate("createdBy", "email role"),
-      ]);
+    const [
+      usersCount,
+      adminsCount,
+      todayActiveUsers,
+      festivalCounts,
+      poojaCounts,
+      donationCounts,
+      todaySloka,
+    ] = await Promise.all([
+      User.countDocuments({ role: "user" }),
+      User.countDocuments({ role: "admin" }),
+      User.countDocuments({
+        role: "user",
+        lastActiveAt: { $gte: todayStartUtc, $lt: tomorrowStartUtc },
+      }),
+      getStatusCounts(Festival, statusKeys),
+      getStatusCounts(Pooja, statusKeys),
+      getStatusCounts(Donation, statusKeys),
+      DailySloka.findOne({ dateKey: todayDateKey }).select("-__v").populate("createdBy", "email role"),
+    ]);
 
     return sendSuccess(
       res,
       {
         usersCount,
         adminsCount,
+        todayActiveUsers,
         festivals: festivalCounts,
         poojas: poojaCounts,
         donations: donationCounts,
