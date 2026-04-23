@@ -11,7 +11,7 @@ const updateDonationSchema = Joi.object({
 });
 
 const reviewDonationSchema = Joi.object({
-  status: Joi.string().valid("APPROVED", "REJECTED").required(),
+  status: Joi.string().valid("APPROVED", "REJECTED", "QUEUED","DRAFT").required(),
 });
 
 const donationIdParamsSchema = Joi.object({

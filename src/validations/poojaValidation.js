@@ -52,7 +52,7 @@ const poojaIdParamsSchema = Joi.object({
 });
 
 const reviewPoojaSchema = Joi.object({
-  status: Joi.string().valid("APPROVED", "REJECTED").required(),
+  status: Joi.string().valid("APPROVED", "REJECTED", "QUEUED","DRAFT").required(),
 });
 
 module.exports = {

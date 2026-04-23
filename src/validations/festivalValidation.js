@@ -30,7 +30,7 @@ const updateFestivalSchema = Joi.object({
 });
 
 const reviewFestivalSchema = Joi.object({
-  status: Joi.string().valid("APPROVED", "REJECTED").required(),
+  status: Joi.string().valid("APPROVED", "REJECTED", "QUEUED","DRAFT").required(),
 });
 
 const festivalIdParamsSchema = Joi.object({
