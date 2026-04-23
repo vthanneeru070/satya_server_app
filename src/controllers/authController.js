@@ -8,7 +8,7 @@ const { sendSuccess } = require("../utils/response");
 const { generateAccessToken, generateRefreshToken } = require("../utils/jwt");
 
 const getProvider = (decodedToken) => {
-  const provider = decodedToken.firebase?.sign_in_provider || "phone";
+  const provider = decodedToken.firebase?.sign_in_provider || "gmail/password";
   if (provider.includes("google")) return "google";
   if (provider.includes("apple")) return "apple";
   return "gmail/password";

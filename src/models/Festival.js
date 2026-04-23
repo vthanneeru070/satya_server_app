@@ -54,7 +54,7 @@ const festivalSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED"],
+      enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED","QUEUED"],
       default: "PENDING",
     },
     isVisible: {
