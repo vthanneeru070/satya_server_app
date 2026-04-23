@@ -44,6 +44,8 @@ const router = express.Router();
  *                 type: string
  *               author:
  *                 type: string
+ *               meaning:
+ *                 type: string
  *               date:
  *                 type: string
  *                 example: 20-04-2026
@@ -61,7 +63,8 @@ router.post("/create-sloka", authenticate, authorizeRoles("admin"), validate(cre
  *     description: |
  *       Requires super admin role.
  *       Accepts .xlsx or .docx file with headers:
- *       Date/date, sloka/Shloka, author/source (Author/Source supported).
+ *       Date/date, sloka/Shloka, author/source (Author/Source supported),
+ *       and optional meaning/explanation.
  *       Date format can be dd-mm-yyyy or yyyy-mm-dd.
  *       Existing sloka with same date is updated.
  *     tags: [Daily Sloka]

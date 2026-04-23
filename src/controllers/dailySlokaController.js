@@ -150,6 +150,7 @@ const bulkImportDailySlokas = async (req, res, next) => {
       const dateRaw = getCellValue(row, ["date", "datekey"]);
       const sloka = getCellValue(row, ["sloka", "shloka"]);
       const author = getCellValue(row, ["author", "source"]);
+      const meaning = getCellValue(row, ["meaning", "explanation"]);
 
       if (!dateRaw) {
         invalidRows.push({ row: rowNumber, reason: "date is required" });
@@ -172,6 +173,7 @@ const bulkImportDailySlokas = async (req, res, next) => {
           dateKey,
           sloka,
           author: author || undefined,
+          meaning: meaning || undefined,
         });
       } catch (error) {
         invalidRows.push({
@@ -193,6 +195,7 @@ const bulkImportDailySlokas = async (req, res, next) => {
           $set: {
             sloka: entry.sloka,
             author: entry.author,
+            meaning: entry.meaning,
             date: entry.date,
             dateKey: entry.dateKey,
             createdBy: req.user.userId,
