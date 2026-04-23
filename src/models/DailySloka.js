@@ -12,6 +12,11 @@ const dailySlokaSchema = new mongoose.Schema(
       required: false,
       trim: true,
     },
+    meaning: {
+      type: String,
+      required: false,
+      trim: true,
+    },
     date: {
       type: Date,
       required: true,

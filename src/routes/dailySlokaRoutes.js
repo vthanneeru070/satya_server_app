@@ -1,10 +1,13 @@
 const express = require("express");
 const authenticate = require("../middleware/authenticate");
 const authorizeRoles = require("../middleware/authorizeRoles");
+const authorizeSuperAdmin = require("../middleware/authorizeSuperAdmin");
 const validate = require("../middleware/validate");
+const uploadSlokaImport = require("../middleware/uploadSlokaImport");
 const {
   createDailySloka,
   getDailySloka,
+  bulkImportDailySlokas,
 } = require("../controllers/dailySlokaController");
 const {
   createDailySlokaSchema,
@@ -49,6 +52,48 @@ const router = express.Router();
  *         description: Daily sloka saved successfully
  */
 router.post("/create-sloka", authenticate, authorizeRoles("admin"), validate(createDailySlokaSchema), createDailySloka);
+
+/**
+ * @swagger
+ * /daily-slokas/import:
+ *   post:
+ *     summary: Bulk import daily slokas from xlsx or docx table
+ *     description: |
+ *       Requires super admin role.
+ *       Accepts .xlsx or .docx file with columns date, sloka, and optional author.
+ *       Date format must be dd-mm-yyyy.
+ *       Existing sloka with same date is updated.
+ *     tags: [Daily Sloka]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [file]
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Daily slokas imported successfully
+ *       400:
+ *         description: Invalid file or invalid rows
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (super admin required)
+ */
+router.post(
+  "/import",
+  authenticate,
+  authorizeSuperAdmin,
+  uploadSlokaImport.single("file"),
+  bulkImportDailySlokas
+);
 
 /**
  * @swagger
