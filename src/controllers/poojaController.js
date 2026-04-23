@@ -117,31 +117,79 @@ const createPooja = async (req, res, next) => {
   }
 };
 
-const getPoojas = async (_req, res, next) => {
+const getPoojas = async (req, res, next) => {
   try {
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const skip = (page - 1) * limit;
     const filter = {};
 
-    if (_req.user?.role !== "admin") {
+    if (req.user?.role !== "admin") {
       filter.status = "APPROVED";
+    } else if (req.query.status) {
+      filter.status = req.query.status;
     }
 
-    const poojas = await Pooja.find(filter)
-      .sort({ createdAt: -1 })
-      .populate("createdBy", "email role");
+    const [poojas, total] = await Promise.all([
+      Pooja.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("createdBy", "email role"),
+      Pooja.countDocuments(filter),
+    ]);
 
-    return sendSuccess(res, { poojas }, "Poojas fetched successfully");
+    return sendSuccess(
+      res,
+      {
+        poojas,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      },
+      "Poojas fetched successfully"
+    );
   } catch (error) {
     return next(error);
   }
 };
 
-const getAllPoojas = async (_req, res, next) => {
+const getAllPoojas = async (req, res, next) => {
   try {
-    const poojas = await Pooja.find()
-      .sort({ createdAt: -1 })
-      .populate("createdBy", "email role");
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const skip = (page - 1) * limit;
+    const filter = {};
 
-    return sendSuccess(res, { poojas }, "All poojas fetched successfully");
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
+
+    const [poojas, total] = await Promise.all([
+      Pooja.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("createdBy", "email role"),
+      Pooja.countDocuments(filter),
+    ]);
+
+    return sendSuccess(
+      res,
+      {
+        poojas,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      },
+      "All poojas fetched successfully"
+    );
   } catch (error) {
     return next(error);
   }
@@ -149,11 +197,37 @@ const getAllPoojas = async (_req, res, next) => {
 
 const getMyPoojas = async (req, res, next) => {
   try {
-    const poojas = await Pooja.find({ createdBy: req.user.userId })
-      .sort({ createdAt: -1 })
-      .populate("createdBy", "email role");
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const skip = (page - 1) * limit;
+    const filter = { createdBy: req.user.userId };
 
-    return sendSuccess(res, { poojas }, "My poojas fetched successfully");
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
+
+    const [poojas, total] = await Promise.all([
+      Pooja.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("createdBy", "email role"),
+      Pooja.countDocuments(filter),
+    ]);
+
+    return sendSuccess(
+      res,
+      {
+        poojas,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      },
+      "My poojas fetched successfully"
+    );
   } catch (error) {
     return next(error);
   }

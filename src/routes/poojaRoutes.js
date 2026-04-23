@@ -19,6 +19,7 @@ const {
   updatePoojaSchema,
   reviewPoojaSchema,
   poojaIdParamsSchema,
+  allPoojasQuerySchema,
 } = require("../validations/poojaValidation");
 
 const router = express.Router();
@@ -107,11 +108,27 @@ router.post(
  *   get:
  *     summary: Get all poojas
  *     tags: [Poojas]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [DRAFT, PENDING, APPROVED, REJECTED, QUEUED]
  *     responses:
  *       200:
  *         description: Poojas fetched successfully
  */
-router.get("/", authenticate, getPoojas);
+router.get("/", authenticate, validate(allPoojasQuerySchema, "query"), getPoojas);
 
 /**
  * @swagger
@@ -122,6 +139,22 @@ router.get("/", authenticate, getPoojas);
  *     tags: [Poojas]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [DRAFT, PENDING, APPROVED, REJECTED, QUEUED]
  *     responses:
  *       200:
  *         description: My poojas fetched successfully
@@ -130,7 +163,13 @@ router.get("/", authenticate, getPoojas);
  *       403:
  *         description: Forbidden (admin role required)
  */
-router.get("/my", authenticate, authorizeRoles("admin"), getMyPoojas);
+router.get(
+  "/my",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(allPoojasQuerySchema, "query"),
+  getMyPoojas
+);
 
 /**
  * @swagger
@@ -141,6 +180,22 @@ router.get("/my", authenticate, authorizeRoles("admin"), getMyPoojas);
  *     tags: [Poojas]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [DRAFT, PENDING, APPROVED, REJECTED, QUEUED]
  *     responses:
  *       200:
  *         description: All poojas fetched successfully
@@ -149,7 +204,7 @@ router.get("/my", authenticate, authorizeRoles("admin"), getMyPoojas);
  *       403:
  *         description: Forbidden (super admin required)
  */
-router.get("/all", authenticate, authorizeSuperAdmin, getAllPoojas);
+router.get("/all", authenticate, authorizeSuperAdmin, validate(allPoojasQuerySchema, "query"), getAllPoojas);
 
 /**
  * @swagger

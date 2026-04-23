@@ -51,6 +51,12 @@ const poojaIdParamsSchema = Joi.object({
   id: Joi.string().trim().hex().length(24).required(),
 });
 
+const allPoojasQuerySchema = Joi.object({
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(100).default(10),
+  status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED").optional(),
+});
+
 const reviewPoojaSchema = Joi.object({
   status: Joi.string().valid("APPROVED", "REJECTED", "QUEUED","DRAFT").required(),
 });
@@ -60,4 +66,5 @@ module.exports = {
   updatePoojaSchema,
   reviewPoojaSchema,
   poojaIdParamsSchema,
+  allPoojasQuerySchema,
 };

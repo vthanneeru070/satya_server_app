@@ -18,6 +18,7 @@ const {
   updateDonationSchema,
   reviewDonationSchema,
   donationIdParamsSchema,
+  allDonationsQuerySchema,
 } = require("../validations/donationValidation");
 
 const router = express.Router();
@@ -37,11 +38,27 @@ const router = express.Router();
  *     tags: [Donations]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [DRAFT, PENDING, APPROVED, REJECTED, QUEUED]
  *     responses:
  *       200:
  *         description: Approved donations fetched successfully
  */
-router.get("/", authenticate, getVisibleDonations);
+router.get("/", authenticate, validate(allDonationsQuerySchema, "query"), getVisibleDonations);
 
 /**
  * @swagger
@@ -93,11 +110,33 @@ router.post(
  *     tags: [Donations]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [DRAFT, PENDING, APPROVED, REJECTED, QUEUED]
  *     responses:
  *       200:
  *         description: My donations fetched successfully
  */
-router.get("/my", authenticate, authorizeRoles("admin"), getMyDonations);
+router.get(
+  "/my",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(allDonationsQuerySchema, "query"),
+  getMyDonations
+);
 
 /**
  * @swagger
@@ -108,11 +147,33 @@ router.get("/my", authenticate, authorizeRoles("admin"), getMyDonations);
  *     tags: [Donations]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [DRAFT, PENDING, APPROVED, REJECTED, QUEUED]
  *     responses:
  *       200:
  *         description: All donations fetched successfully
  */
-router.get("/all", authenticate, authorizeSuperAdmin, getAllDonations);
+router.get(
+  "/all",
+  authenticate,
+  authorizeSuperAdmin,
+  validate(allDonationsQuerySchema, "query"),
+  getAllDonations
+);
 
 /**
  * @swagger

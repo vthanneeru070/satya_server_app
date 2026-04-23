@@ -18,6 +18,7 @@ const {
   updateFestivalSchema,
   reviewFestivalSchema,
   festivalIdParamsSchema,
+  allFestivalsQuerySchema,
 } = require("../validations/festivalValidation");
 
 const router = express.Router();
@@ -37,11 +38,27 @@ const router = express.Router();
  *     tags: [Festivals]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [DRAFT, PENDING, APPROVED, REJECTED, QUEUED]
  *     responses:
  *       200:
  *         description: Approved festivals fetched successfully
  */
-router.get("/", authenticate, getVisibleFestivals);
+router.get("/", authenticate, validate(allFestivalsQuerySchema, "query"), getVisibleFestivals);
 
 /**
  * @swagger
@@ -108,11 +125,33 @@ router.post(
  *     tags: [Festivals]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [DRAFT, PENDING, APPROVED, REJECTED, QUEUED]
  *     responses:
  *       200:
  *         description: My festivals fetched successfully
  */
-router.get("/my", authenticate, authorizeRoles("admin"), getMyFestivals);
+router.get(
+  "/my",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(allFestivalsQuerySchema, "query"),
+  getMyFestivals
+);
 
 /**
  * @swagger
@@ -123,11 +162,33 @@ router.get("/my", authenticate, authorizeRoles("admin"), getMyFestivals);
  *     tags: [Festivals]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [DRAFT, PENDING, APPROVED, REJECTED, QUEUED]
  *     responses:
  *       200:
  *         description: All festivals fetched successfully
  */
-router.get("/all", authenticate, authorizeSuperAdmin, getAllFestivals);
+router.get(
+  "/all",
+  authenticate,
+  authorizeSuperAdmin,
+  validate(allFestivalsQuerySchema, "query"),
+  getAllFestivals
+);
 
 /**
  * @swagger

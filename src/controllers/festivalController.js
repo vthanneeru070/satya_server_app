@@ -166,39 +166,116 @@ const createFestival = async (req, res, next) => {
 
 const getMyFestivals = async (req, res, next) => {
   try {
-    const festivals = await Festival.find({ createdBy: req.user.userId, isDeleted: false })
-      .sort({ createdAt: -1 })
-      .populate("createdBy", "email role isSuperAdmin");
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const skip = (page - 1) * limit;
+    const filter = { createdBy: req.user.userId, isDeleted: false };
 
-    return sendSuccess(res, { festivals }, "My festivals fetched successfully");
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
+
+    const [festivals, total] = await Promise.all([
+      Festival.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("createdBy", "email role isSuperAdmin"),
+      Festival.countDocuments(filter),
+    ]);
+
+    return sendSuccess(
+      res,
+      {
+        festivals,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      },
+      "My festivals fetched successfully"
+    );
   } catch (error) {
     return next(error);
   }
 };
 
-const getAllFestivals = async (_req, res, next) => {
+const getAllFestivals = async (req, res, next) => {
   try {
-    const festivals = await Festival.find()
-      .sort({ createdAt: -1 })
-      .populate("createdBy", "email role isSuperAdmin");
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const skip = (page - 1) * limit;
+    const filter = { isDeleted: false };
 
-    return sendSuccess(res, { festivals }, "All festivals fetched successfully");
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
+
+    const [festivals, total] = await Promise.all([
+      Festival.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("createdBy", "email role isSuperAdmin"),
+      Festival.countDocuments(filter),
+    ]);
+
+    return sendSuccess(
+      res,
+      {
+        festivals,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      },
+      "All festivals fetched successfully"
+    );
   } catch (error) {
     return next(error);
   }
 };
 
-const getVisibleFestivals = async (_req, res, next) => {
+const getVisibleFestivals = async (req, res, next) => {
   try {
-    const festivals = await Festival.find({
-      status: "APPROVED",
-      isVisible: true,
-      isDeleted: false,
-    })
-      .sort({ createdAt: -1 })
-      .populate("createdBy", "email role");
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const skip = (page - 1) * limit;
+    const filter = { isDeleted: false };
 
-    return sendSuccess(res, { festivals }, "Approved festivals fetched successfully");
+    if (req.user?.role !== "admin") {
+      filter.status = "APPROVED";
+      filter.isVisible = true;
+    } else if (req.query.status) {
+      filter.status = req.query.status;
+    }
+
+    const [festivals, total] = await Promise.all([
+      Festival.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("createdBy", "email role"),
+      Festival.countDocuments(filter),
+    ]);
+
+    return sendSuccess(
+      res,
+      {
+        festivals,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      },
+      "Approved festivals fetched successfully"
+    );
   } catch (error) {
     return next(error);
   }

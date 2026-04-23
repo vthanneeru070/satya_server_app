@@ -30,23 +30,75 @@ const createDonation = async (req, res, next) => {
 
 const getMyDonations = async (req, res, next) => {
   try {
-    const donations = await Donation.find({ createdBy: req.user.userId })
-      .sort({ createdAt: -1 })
-      .populate("createdBy", "email role isSuperAdmin");
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const skip = (page - 1) * limit;
+    const filter = { createdBy: req.user.userId };
 
-    return sendSuccess(res, { donations }, "My donations fetched successfully");
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
+
+    const [donations, total] = await Promise.all([
+      Donation.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("createdBy", "email role isSuperAdmin"),
+      Donation.countDocuments(filter),
+    ]);
+
+    return sendSuccess(
+      res,
+      {
+        donations,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      },
+      "My donations fetched successfully"
+    );
   } catch (error) {
     return next(error);
   }
 };
 
-const getAllDonations = async (_req, res, next) => {
+const getAllDonations = async (req, res, next) => {
   try {
-    const donations = await Donation.find()
-      .sort({ createdAt: -1 })
-      .populate("createdBy", "email role isSuperAdmin");
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const skip = (page - 1) * limit;
+    const filter = {};
 
-    return sendSuccess(res, { donations }, "All donations fetched successfully");
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
+
+    const [donations, total] = await Promise.all([
+      Donation.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("createdBy", "email role isSuperAdmin"),
+      Donation.countDocuments(filter),
+    ]);
+
+    return sendSuccess(
+      res,
+      {
+        donations,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      },
+      "All donations fetched successfully"
+    );
   } catch (error) {
     return next(error);
   }
@@ -147,13 +199,42 @@ const deleteDonation = async (req, res, next) => {
   }
 };
 
-const getVisibleDonations = async (_req, res, next) => {
+const getVisibleDonations = async (req, res, next) => {
   try {
-    const donations = await Donation.find({ isVisible: true, status: "APPROVED" })
-      .sort({ createdAt: -1 })
-      .populate("createdBy", "email role");
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const skip = (page - 1) * limit;
+    const filter = {};
 
-    return sendSuccess(res, { donations }, "Approved donations fetched successfully");
+    if (req.user?.role !== "admin") {
+      filter.status = "APPROVED";
+      filter.isVisible = true;
+    } else if (req.query.status) {
+      filter.status = req.query.status;
+    }
+
+    const [donations, total] = await Promise.all([
+      Donation.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("createdBy", "email role"),
+      Donation.countDocuments(filter),
+    ]);
+
+    return sendSuccess(
+      res,
+      {
+        donations,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      },
+      "Approved donations fetched successfully"
+    );
   } catch (error) {
     return next(error);
   }
