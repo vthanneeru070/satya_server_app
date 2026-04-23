@@ -19,7 +19,7 @@ const userSchema = new mongoose.Schema(
     },
     provider: {
       type: String,
-      enum: ["phone", "google", "apple"],
+      enum: [ "google", "apple", "email/password"],
       required: true,
     },
     role: {
