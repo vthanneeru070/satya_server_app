@@ -5,18 +5,31 @@ const xlsx = require("xlsx");
 const mammoth = require("mammoth");
 
 const toDateParts = (dateString) => {
-  const match = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])-([0-9]{4})$/.exec(
-    String(dateString || "").trim()
-  );
+  const value = String(dateString || "").trim();
 
-  if (!match) {
-    throw new HttpError("date must be in dd-mm-yyyy format", 400);
+  const ddMmYyyyMatch = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])-([0-9]{4})$/.exec(
+    value
+  );
+  if (ddMmYyyyMatch) {
+    return {
+      day: Number(ddMmYyyyMatch[1]),
+      month: Number(ddMmYyyyMatch[2]),
+      year: Number(ddMmYyyyMatch[3]),
+    };
   }
 
-  const day = Number(match[1]);
-  const month = Number(match[2]);
-  const year = Number(match[3]);
-  return { day, month, year };
+  const yyyyMmDdMatch = /^([0-9]{4})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/.exec(
+    value
+  );
+  if (yyyyMmDdMatch) {
+    return {
+      day: Number(yyyyMmDdMatch[3]),
+      month: Number(yyyyMmDdMatch[2]),
+      year: Number(yyyyMmDdMatch[1]),
+    };
+  }
+
+  throw new HttpError("date must be in dd-mm-yyyy or yyyy-mm-dd format", 400);
 };
 
 const toDateKey = ({ day, month, year }) => {
@@ -135,8 +148,8 @@ const bulkImportDailySlokas = async (req, res, next) => {
     rows.forEach((row, index) => {
       const rowNumber = index + 2;
       const dateRaw = getCellValue(row, ["date", "datekey"]);
-      const sloka = getCellValue(row, ["sloka"]);
-      const author = getCellValue(row, ["author"]);
+      const sloka = getCellValue(row, ["sloka", "shloka"]);
+      const author = getCellValue(row, ["author", "source"]);
 
       if (!dateRaw) {
         invalidRows.push({ row: rowNumber, reason: "date is required" });
