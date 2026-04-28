@@ -45,65 +45,7 @@ const router = express.Router();
  *       content:
  *         multipart/form-data:
  *           schema:
- *             type: object
- *             required: [title, deity]
- *             properties:
- *               title:
- *                 type: string
- *               deity:
- *                 type: string
- *                 description: Deity ObjectId
- *               category:
- *                 type: string
- *               difficulty:
- *                 type: string
- *               duration:
- *                 type: string
- *               description:
- *                 type: string
- *               purpose:
- *                 type: string
- *                 description: JSON string (e.g. {"why":"...","benefits":["..."]})
- *               deitySummary:
- *                 type: string
- *                 description: JSON string (e.g. {"about":"...","blessings":["..."]})
- *               preparation:
- *                 type: string
- *                 description: JSON string (e.g. {"personal":[],"space":[],"items":[]})
- *               steps:
- *                 type: string
- *                 description: JSON string array of step objects
- *               mantra:
- *                 type: string
- *                 description: JSON string (e.g. {"primary":"...","repetitions":"...","additional":[],"meaning":"..."})
- *               spiritualMeaning:
- *                 type: string
- *                 description: JSON string with offeringsMeaning/actionsMeaning/otherSymbolism arrays
- *               guidance:
- *                 type: string
- *                 description: JSON string (e.g. {"mindset":[],"avoid":[]})
- *               completion:
- *                 type: string
- *                 description: JSON string (e.g. {"closure":[],"integration":[],"benefits":[]})
- *               media:
- *                 type: string
- *                 description: JSON string (e.g. {"images":[],"audio":[],"videos":[]})
- *               status:
- *                 type: string
- *               image:
- *                 type: string
- *                 format: binary
- *               audio:
- *                 type: string
- *                 format: binary
- *               video:
- *                 type: string
- *                 format: binary
- *               festivalIds:
- *                 type: string
- *                 description: Single ObjectId, comma-separated ids, or JSON array string
- *               rating:
- *                 type: number
+ *             $ref: '#/components/schemas/PoojaCreateMultipart'
  *     responses:
  *       201:
  *         description: Pooja created successfully
@@ -271,64 +213,7 @@ router.get("/:id", authenticate, validate(poojaIdParamsSchema, "params"), getPoo
  *       content:
  *         multipart/form-data:
  *           schema:
- *             type: object
- *             properties:
- *               title:
- *                 type: string
- *               deity:
- *                 type: string
- *                 description: Deity ObjectId
- *               category:
- *                 type: string
- *               difficulty:
- *                 type: string
- *               duration:
- *                 type: string
- *               description:
- *                 type: string
- *               purpose:
- *                 type: string
- *                 description: JSON string (e.g. {"why":"...","benefits":["..."]})
- *               deitySummary:
- *                 type: string
- *                 description: JSON string (e.g. {"about":"...","blessings":["..."]})
- *               preparation:
- *                 type: string
- *                 description: JSON string (e.g. {"personal":[],"space":[],"items":[]})
- *               steps:
- *                 type: string
- *                 description: JSON string array of step objects
- *               mantra:
- *                 type: string
- *                 description: JSON string (e.g. {"primary":"...","repetitions":"...","additional":[],"meaning":"..."})
- *               spiritualMeaning:
- *                 type: string
- *                 description: JSON string with offeringsMeaning/actionsMeaning/otherSymbolism arrays
- *               guidance:
- *                 type: string
- *                 description: JSON string (e.g. {"mindset":[],"avoid":[]})
- *               completion:
- *                 type: string
- *                 description: JSON string (e.g. {"closure":[],"integration":[],"benefits":[]})
- *               media:
- *                 type: string
- *                 description: JSON string (e.g. {"images":[],"audio":[],"videos":[]})
- *               status:
- *                 type: string
- *               image:
- *                 type: string
- *                 format: binary
- *               audio:
- *                 type: string
- *                 format: binary
- *               video:
- *                 type: string
- *                 format: binary
- *               festivalIds:
- *                 type: string
- *                 description: Single ObjectId, comma-separated ids, or JSON array string
- *               rating:
- *                 type: number
+ *             $ref: '#/components/schemas/PoojaUpdateMultipart'
  *     responses:
  *       200:
  *         description: Pooja updated successfully

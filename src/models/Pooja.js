@@ -115,6 +115,11 @@ const poojaSchema = new mongoose.Schema(
 
     completion: completionSchema,
 
+    blessings: {
+      type: [String],
+      default: [],
+    },
+
     // 🔥 MEDIA
     media: {
       images: [String],
