@@ -17,6 +17,15 @@ const createDeity = async (req, res, next) => {
   }
 };
 
+//Only approved deities
+const getDeities = async (req, res, next) => {
+  const deities = await Deity.find({ status: "APPROVED" })
+    .populate("createdBy", "email role")
+    .populate("rituals", "title");
+
+  return sendSuccess(res, { deities }, "Deities fetched successfully");
+};
+
 const getAllDeities = async (req, res, next) => {
   try {
     const page = Number(req.query.page || 1);
@@ -116,6 +125,7 @@ const reviewDeity = async (req, res, next) => {
 
 module.exports = {
   createDeity,
+  getDeities,
   getAllDeities,
   updateDeity,
   deleteDeity,

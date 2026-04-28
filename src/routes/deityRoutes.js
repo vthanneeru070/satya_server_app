@@ -6,6 +6,7 @@ const validate = require("../middleware/validate");
 const {
   createDeity,
   getAllDeities,
+  getDeities,
   updateDeity,
   deleteDeity,
   reviewDeity,
@@ -126,11 +127,43 @@ router.post(
  *         description: Unauthorized
  */
 router.get(
-  "/",
+  "/all",
   authenticate,
   authorizeSuperAdmin,
   validate(allDeitiesQuerySchema, "query"),
   getAllDeities
+);
+
+/**
+ * @swagger
+ * /deities:
+ *   get:
+ *     summary: Get all deities
+ *     tags: [Deities]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10    
+ *     responses:
+ *       200:
+ *         description: Deities fetched successfully
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  "/",
+  authenticate,
+  validate(allDeitiesQuerySchema, "query"),
+  getDeities
 );
 
 /**
