@@ -233,7 +233,7 @@ const bulkImportDailySlokas = async (req, res, next) => {
 
 const createDailySloka = async (req, res, next) => {
   try {
-    const { sloka, date, author, meaning } = req.body;
+    const { sloka, date, author, meaning, contemplation, prayer } = req.body;
     const parts = toDateParts(date);
     const dateKey = toDateKey(parts);
     const normalizedDate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
