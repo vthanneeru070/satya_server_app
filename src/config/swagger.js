@@ -84,6 +84,10 @@ const options = {
             guidance: { type: "string", description: "JSON string" },
             completion: { type: "string", description: "JSON string" },
             media: { type: "string", description: "JSON string" },
+            blessings: {
+              type: "string",
+              description: "Array of blessings (JSON array string or comma-separated string)",
+            },
             status: {
               type: "string",
               enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"],

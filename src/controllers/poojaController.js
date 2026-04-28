@@ -95,6 +95,7 @@ const createPooja = async (req, res, next) => {
       difficulty,
       duration,
       description,
+      blessings,
       status: requestedStatus,
       festivalIds: festivalIdsRaw,
       rating,
@@ -135,6 +136,7 @@ const createPooja = async (req, res, next) => {
       media,
       status,
       festivalIds,
+      blessings,
       rating,
       createdBy: req.user.userId,
     });
@@ -296,6 +298,7 @@ const updatePooja = async (req, res, next) => {
       difficulty,
       duration,
       description,
+      blessings,
       status,
       festivalIds: festivalIdsRaw,
       rating,
@@ -329,6 +332,7 @@ const updatePooja = async (req, res, next) => {
       guidance !== undefined ||
       completion !== undefined ||
       mediaFromBody !== undefined ||
+      blessings !== undefined ||
       rating !== undefined ||
       steps !== undefined ||
       festivalIds !== undefined;
@@ -398,6 +402,10 @@ const updatePooja = async (req, res, next) => {
 
     if (completion !== undefined) {
       pooja.completion = completion;
+    }
+
+    if (blessings !== undefined) {
+      pooja.blessings = parseStringArrayField(blessings, "blessings");
     }
 
     if (festivalIds !== undefined) {

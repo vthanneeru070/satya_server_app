@@ -4,6 +4,10 @@ const festivalIdsField = Joi.alternatives().try(
   Joi.array().items(Joi.string().trim().hex().length(24)).default([]),
   Joi.string().trim().min(2)
 );
+const blessingsField = Joi.alternatives().try(
+  Joi.array().items(Joi.string().trim().min(1)).default([]),
+  Joi.string().trim().min(1)
+);
 
 const keyValueSchema = Joi.object({
   title: Joi.string().trim().allow("").required(),
@@ -79,6 +83,7 @@ const createPoojaSchema = Joi.object({
   guidance: guidanceSchema.optional(),
   completion: completionSchema.optional(),
   media: mediaSchema.optional(),
+  blessings: blessingsField,
   status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED").optional(),
   festivalIds: festivalIdsField,
   rating: Joi.number().min(0).max(5),
@@ -100,6 +105,7 @@ const updatePoojaSchema = Joi.object({
   guidance: guidanceSchema,
   completion: completionSchema,
   media: mediaSchema,
+  blessings: blessingsField,
   status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"),
   festivalIds: festivalIdsField,
   rating: Joi.number().min(0).max(5),
