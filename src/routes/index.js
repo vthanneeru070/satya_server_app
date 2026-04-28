@@ -7,6 +7,7 @@ const festivalRoutes = require("./festivalRoutes");
 const dailySlokaRoutes = require("./dailySlokaRoutes");
 const userHomeRoutes = require("./userHomeRoutes");
 const calendarRoutes = require("./calendarRoutes");
+const deityRoutes = require("./deityRoutes");
 
 const router = express.Router();
 
@@ -23,5 +24,6 @@ router.use("/festivals", festivalRoutes);
 router.use("/daily-slokas", dailySlokaRoutes);
 router.use("/user-home", userHomeRoutes);
 router.use("/calendar", calendarRoutes);
+router.use("/deities", deityRoutes);
 
 module.exports = router;

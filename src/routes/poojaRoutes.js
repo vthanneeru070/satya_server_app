@@ -46,12 +46,13 @@ const router = express.Router();
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             required: [title, deity, category, difficulty, duration, description, status]
+ *             required: [title, deity]
  *             properties:
  *               title:
  *                 type: string
  *               deity:
  *                 type: string
+ *                 description: Deity ObjectId
  *               category:
  *                 type: string
  *               difficulty:
@@ -60,6 +61,33 @@ const router = express.Router();
  *                 type: string
  *               description:
  *                 type: string
+ *               purpose:
+ *                 type: string
+ *                 description: JSON string (e.g. {"why":"...","benefits":["..."]})
+ *               deitySummary:
+ *                 type: string
+ *                 description: JSON string (e.g. {"about":"...","blessings":["..."]})
+ *               preparation:
+ *                 type: string
+ *                 description: JSON string (e.g. {"personal":[],"space":[],"items":[]})
+ *               steps:
+ *                 type: string
+ *                 description: JSON string array of step objects
+ *               mantra:
+ *                 type: string
+ *                 description: JSON string (e.g. {"primary":"...","repetitions":"...","additional":[],"meaning":"..."})
+ *               spiritualMeaning:
+ *                 type: string
+ *                 description: JSON string with offeringsMeaning/actionsMeaning/otherSymbolism arrays
+ *               guidance:
+ *                 type: string
+ *                 description: JSON string (e.g. {"mindset":[],"avoid":[]})
+ *               completion:
+ *                 type: string
+ *                 description: JSON string (e.g. {"closure":[],"integration":[],"benefits":[]})
+ *               media:
+ *                 type: string
+ *                 description: JSON string (e.g. {"images":[],"audio":[],"videos":[]})
  *               status:
  *                 type: string
  *               image:
@@ -71,12 +99,9 @@ const router = express.Router();
  *               video:
  *                 type: string
  *                 format: binary
- *               steps:
- *                 type: string
- *               requiredItems:
- *                 type: string
  *               festivalIds:
  *                 type: string
+ *                 description: Single ObjectId, comma-separated ids, or JSON array string
  *               rating:
  *                 type: number
  *     responses:
@@ -252,6 +277,7 @@ router.get("/:id", authenticate, validate(poojaIdParamsSchema, "params"), getPoo
  *                 type: string
  *               deity:
  *                 type: string
+ *                 description: Deity ObjectId
  *               category:
  *                 type: string
  *               difficulty:
@@ -260,6 +286,33 @@ router.get("/:id", authenticate, validate(poojaIdParamsSchema, "params"), getPoo
  *                 type: string
  *               description:
  *                 type: string
+ *               purpose:
+ *                 type: string
+ *                 description: JSON string (e.g. {"why":"...","benefits":["..."]})
+ *               deitySummary:
+ *                 type: string
+ *                 description: JSON string (e.g. {"about":"...","blessings":["..."]})
+ *               preparation:
+ *                 type: string
+ *                 description: JSON string (e.g. {"personal":[],"space":[],"items":[]})
+ *               steps:
+ *                 type: string
+ *                 description: JSON string array of step objects
+ *               mantra:
+ *                 type: string
+ *                 description: JSON string (e.g. {"primary":"...","repetitions":"...","additional":[],"meaning":"..."})
+ *               spiritualMeaning:
+ *                 type: string
+ *                 description: JSON string with offeringsMeaning/actionsMeaning/otherSymbolism arrays
+ *               guidance:
+ *                 type: string
+ *                 description: JSON string (e.g. {"mindset":[],"avoid":[]})
+ *               completion:
+ *                 type: string
+ *                 description: JSON string (e.g. {"closure":[],"integration":[],"benefits":[]})
+ *               media:
+ *                 type: string
+ *                 description: JSON string (e.g. {"images":[],"audio":[],"videos":[]})
  *               status:
  *                 type: string
  *               image:
@@ -271,10 +324,9 @@ router.get("/:id", authenticate, validate(poojaIdParamsSchema, "params"), getPoo
  *               video:
  *                 type: string
  *                 format: binary
- *               steps:
+ *               festivalIds:
  *                 type: string
- *               requiredItems:
- *                 type: string
+ *                 description: Single ObjectId, comma-separated ids, or JSON array string
  *               rating:
  *                 type: number
  *     responses:

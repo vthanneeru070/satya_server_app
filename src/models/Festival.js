@@ -23,7 +23,7 @@ const festivalSchema = new mongoose.Schema(
     rituals: [
       {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "Ritual",
+        ref: "Pooja",
       },
     ],
     category: {

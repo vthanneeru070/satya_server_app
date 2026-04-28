@@ -1,5 +1,74 @@
 const mongoose = require("mongoose");
 
+const keyValueSchema = new mongoose.Schema(
+  {
+    title: String,
+    description: String,
+  },
+  { _id: false }
+);
+
+// 🔥 Step Schema (IMPORTANT)
+const stepSchema = new mongoose.Schema(
+  {
+    stepNumber: Number,
+    title: String,
+    description: String,
+    subSteps: [String], // for detailed instructions
+  },
+  { _id: false }
+);
+
+// 🔥 Preparation Schema
+const preparationSchema = new mongoose.Schema(
+  {
+    personal: [String],
+    space: [String],
+    items: [String],
+  },
+  { _id: false }
+);
+
+// 🔥 Mantra Schema
+const mantraSchema = new mongoose.Schema(
+  {
+    primary: String,
+    repetitions: String,
+    additional: [String],
+    meaning: String,
+  },
+  { _id: false }
+);
+
+// 🔥 Spiritual Meaning
+const spiritualSchema = new mongoose.Schema(
+  {
+    offeringsMeaning: [keyValueSchema],
+    actionsMeaning: [keyValueSchema],
+    otherSymbolism: [keyValueSchema],
+  },
+  { _id: false }
+);
+
+// 🔥 Devotional Guidance
+const guidanceSchema = new mongoose.Schema(
+  {
+    mindset: [String],
+    avoid: [String],
+  },
+  { _id: false }
+);
+
+// 🔥 Completion
+const completionSchema = new mongoose.Schema(
+  {
+    closure: [String],
+    integration: [String],
+    benefits: [String],
+  },
+  { _id: false }
+);
+
 const poojaSchema = new mongoose.Schema(
   {
     title: {
@@ -7,66 +76,70 @@ const poojaSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+
     deity: {
-      type: String,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Deity", // 🔥 changed to reference
       required: true,
-      trim: true,
     },
-    category: {
-      type: String,
-      required: true,
-      trim: true,
+
+    category: String,
+    difficulty: String,
+    duration: String,
+
+    description: String,
+
+    // 🔥 NEW SECTIONS
+    purpose: {
+      why: String,
+      benefits: [String],
     },
-    difficulty: {
-      type: String,
-      required: true,
-      trim: true,
+
+    deitySummary: {
+      about: String,
+      blessings: [String],
     },
-    duration: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-    description: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-    status: {
-      type: String,
-      enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED","QUEUED"],
-      default: "PENDING",
-    },
-    imageUrl: {
-      type: String,
-      trim: true,
-    },
-    audioUrl: {
-      type: String,
-      trim: true,
-    },
-    videoUrl: {
-      type: String,
-      trim: true,
-    },
+
+    preparation: preparationSchema,
+
     steps: {
-      type: [String],
+      type: [stepSchema],
       default: [],
     },
-    requiredItems: {
-      type: [String],
-      default: [],
+
+    mantra: mantraSchema,
+
+    spiritualMeaning: spiritualSchema,
+
+    guidance: guidanceSchema,
+
+    completion: completionSchema,
+
+    // 🔥 MEDIA
+    media: {
+      images: [String],
+      audio: [String],
+      videos: [String],
     },
+
     festivalIds: [
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Festival",
       },
     ],
+
+    status: {
+      type: String,
+      enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"],
+      default: "PENDING",
+    },
+
     rating: {
       type: Number,
       default: 0,
     },
+
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

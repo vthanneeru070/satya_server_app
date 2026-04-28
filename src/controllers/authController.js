@@ -78,6 +78,14 @@ const login = async (req, res, next) => {
     const provider = getProvider(decodedToken);
     const linkedProviders = getLinkedProviders(decodedToken);
 
+    console.log(
+      "--------------------------------",
+      firebaseIdToken,"firebaseIdToken",
+      decodedToken,"decodedToken",
+      provider,"provider",
+      linkedProviders,"linkedProviders",
+      "--------------------------------");
+
     let user = await User.findOne({ firebaseUid });
 
     if (!user) {

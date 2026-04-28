@@ -3,17 +3,11 @@ const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const { uploadFile, deleteFile } = require("../services/s3Service");
 
-const getUploadedMediaUrls = async (files = {}) => {
-  const imageFile = files.image?.[0];
-  const audioFile = files.audio?.[0];
-  const videoFile = files.video?.[0];
-
-  return {
-    imageUrl: imageFile ? await uploadFile(imageFile, "general") : undefined,
-    audioUrl: audioFile ? await uploadFile(audioFile, "general") : undefined,
-    videoUrl: videoFile ? await uploadFile(videoFile, "general") : undefined,
-  };
-};
+const getUploadedMediaUrls = async (files = {}) => ({
+  images: await Promise.all((files.image || []).map((file) => uploadFile(file, "general"))),
+  audio: await Promise.all((files.audio || []).map((file) => uploadFile(file, "general"))),
+  videos: await Promise.all((files.video || []).map((file) => uploadFile(file, "general"))),
+});
 
 const parseStringArrayField = (value, fieldName) => {
   if (value === undefined) {
@@ -68,6 +62,30 @@ const parseObjectIdArrayField = (value, fieldName) => {
   return parsed.map((id) => String(id).trim());
 };
 
+const parseJsonField = (value, fieldName) => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value === "object" && value !== null) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+    try {
+      return JSON.parse(trimmed);
+    } catch (_error) {
+      throw new HttpError(`${fieldName} must be a valid JSON object/array`, 400);
+    }
+  }
+
+  throw new HttpError(`${fieldName} must be a valid JSON object/array`, 400);
+};
+
 const createPooja = async (req, res, next) => {
   try {
     const {
@@ -78,19 +96,25 @@ const createPooja = async (req, res, next) => {
       duration,
       description,
       status: requestedStatus,
-      audioUrl: audioUrlFromBody,
-      videoUrl: videoUrlFromBody,
       festivalIds: festivalIdsRaw,
       rating,
     } = req.body;
-    const steps = parseStringArrayField(req.body.steps, "steps") ?? [];
-    const requiredItems = parseStringArrayField(req.body.requiredItems, "requiredItems") ?? [];
+    const purpose = parseJsonField(req.body.purpose, "purpose");
+    const deitySummary = parseJsonField(req.body.deitySummary, "deitySummary");
+    const preparation = parseJsonField(req.body.preparation, "preparation");
+    const steps = parseJsonField(req.body.steps, "steps") ?? [];
+    const mantra = parseJsonField(req.body.mantra, "mantra");
+    const spiritualMeaning = parseJsonField(req.body.spiritualMeaning, "spiritualMeaning");
+    const guidance = parseJsonField(req.body.guidance, "guidance");
+    const completion = parseJsonField(req.body.completion, "completion");
+    const mediaFromBody = parseJsonField(req.body.media, "media") || {};
     const festivalIds = parseObjectIdArrayField(festivalIdsRaw, "festivalIds") ?? [];
-    const { imageUrl, audioUrl: audioFileUrl, videoUrl: videoFileUrl } = await getUploadedMediaUrls(
-      req.files
-    );
-    const audioUrl = audioFileUrl ?? audioUrlFromBody;
-    const videoUrl = videoFileUrl ?? videoUrlFromBody;
+    const uploadedMedia = await getUploadedMediaUrls(req.files);
+    const media = {
+      images: [...(mediaFromBody.images || []), ...uploadedMedia.images],
+      audio: [...(mediaFromBody.audio || []), ...uploadedMedia.audio],
+      videos: [...(mediaFromBody.videos || []), ...uploadedMedia.videos],
+    };
     const status = req.user.isSuperAdmin === true ? requestedStatus || "APPROVED" : "PENDING";
 
     const pooja = await Pooja.create({
@@ -100,12 +124,16 @@ const createPooja = async (req, res, next) => {
       difficulty,
       duration,
       description,
-      status,
-      imageUrl,
-      audioUrl,
-      videoUrl,
+      purpose,
+      deitySummary,
+      preparation,
       steps,
-      requiredItems,
+      mantra,
+      spiritualMeaning,
+      guidance,
+      completion,
+      media,
+      status,
       festivalIds,
       rating,
       createdBy: req.user.userId,
@@ -269,21 +297,22 @@ const updatePooja = async (req, res, next) => {
       duration,
       description,
       status,
-      audioUrl: audioUrlFromBody,
-      videoUrl: videoUrlFromBody,
       festivalIds: festivalIdsRaw,
       rating,
     } = req.body;
-    const steps = parseStringArrayField(req.body.steps, "steps");
-    const requiredItems = parseStringArrayField(req.body.requiredItems, "requiredItems");
+    const purpose = parseJsonField(req.body.purpose, "purpose");
+    const deitySummary = parseJsonField(req.body.deitySummary, "deitySummary");
+    const preparation = parseJsonField(req.body.preparation, "preparation");
+    const steps = parseJsonField(req.body.steps, "steps");
+    const mantra = parseJsonField(req.body.mantra, "mantra");
+    const spiritualMeaning = parseJsonField(req.body.spiritualMeaning, "spiritualMeaning");
+    const guidance = parseJsonField(req.body.guidance, "guidance");
+    const completion = parseJsonField(req.body.completion, "completion");
+    const mediaFromBody = parseJsonField(req.body.media, "media");
     const festivalIds = parseObjectIdArrayField(festivalIdsRaw, "festivalIds");
-    const {
-      imageUrl: imageFileUrl,
-      audioUrl: audioFileUrl,
-      videoUrl: videoFileUrl,
-    } = await getUploadedMediaUrls(req.files);
-    const audioUrl = audioFileUrl ?? audioUrlFromBody;
-    const videoUrl = videoFileUrl ?? videoUrlFromBody;
+    const uploadedMedia = await getUploadedMediaUrls(req.files);
+    const hasUploadedMedia =
+      uploadedMedia.images.length > 0 || uploadedMedia.audio.length > 0 || uploadedMedia.videos.length > 0;
     const hasBodyUpdates =
       title !== undefined ||
       deity !== undefined ||
@@ -291,14 +320,19 @@ const updatePooja = async (req, res, next) => {
       difficulty !== undefined ||
       duration !== undefined ||
       description !== undefined ||
+      purpose !== undefined ||
+      deitySummary !== undefined ||
+      preparation !== undefined ||
       status !== undefined ||
-      audioUrl !== undefined ||
-      videoUrl !== undefined ||
+      mantra !== undefined ||
+      spiritualMeaning !== undefined ||
+      guidance !== undefined ||
+      completion !== undefined ||
+      mediaFromBody !== undefined ||
       rating !== undefined ||
       steps !== undefined ||
-      requiredItems !== undefined ||
       festivalIds !== undefined;
-    const hasMediaUpdate = Boolean(imageFileUrl || audioFileUrl || videoFileUrl);
+    const hasMediaUpdate = hasUploadedMedia;
 
     if (!hasBodyUpdates && !hasMediaUpdate) {
       throw new HttpError("Provide at least one field to update", 400);
@@ -328,26 +362,42 @@ const updatePooja = async (req, res, next) => {
       pooja.description = description;
     }
 
+    if (purpose !== undefined) {
+      pooja.purpose = purpose;
+    }
+
+    if (deitySummary !== undefined) {
+      pooja.deitySummary = deitySummary;
+    }
+
+    if (preparation !== undefined) {
+      pooja.preparation = preparation;
+    }
+
     if (status !== undefined) {
       if (req.user.isSuperAdmin === true) {
         pooja.status = status;
       }
     }
 
-    if (audioUrl !== undefined) {
-      pooja.audioUrl = audioUrl;
-    }
-
-    if (videoUrl !== undefined) {
-      pooja.videoUrl = videoUrl;
-    }
-
     if (steps !== undefined) {
       pooja.steps = steps;
     }
 
-    if (requiredItems !== undefined) {
-      pooja.requiredItems = requiredItems;
+    if (mantra !== undefined) {
+      pooja.mantra = mantra;
+    }
+
+    if (spiritualMeaning !== undefined) {
+      pooja.spiritualMeaning = spiritualMeaning;
+    }
+
+    if (guidance !== undefined) {
+      pooja.guidance = guidance;
+    }
+
+    if (completion !== undefined) {
+      pooja.completion = completion;
     }
 
     if (festivalIds !== undefined) {
@@ -358,22 +408,19 @@ const updatePooja = async (req, res, next) => {
       pooja.rating = rating;
     }
 
-    if (imageFileUrl) {
-      const previousImageUrl = pooja.imageUrl;
-      pooja.imageUrl = imageFileUrl;
-      await deleteFile(previousImageUrl).catch(() => {});
-    }
-
-    if (audioFileUrl) {
-      const previousAudioUrl = pooja.audioUrl;
-      pooja.audioUrl = audioFileUrl;
-      await deleteFile(previousAudioUrl).catch(() => {});
-    }
-
-    if (videoFileUrl) {
-      const previousVideoUrl = pooja.videoUrl;
-      pooja.videoUrl = videoFileUrl;
-      await deleteFile(previousVideoUrl).catch(() => {});
+    if (mediaFromBody !== undefined || hasUploadedMedia) {
+      const currentMedia = pooja.media || { images: [], audio: [], videos: [] };
+      pooja.media = {
+        images: [
+          ...((mediaFromBody && mediaFromBody.images) || currentMedia.images || []),
+          ...uploadedMedia.images,
+        ],
+        audio: [...((mediaFromBody && mediaFromBody.audio) || currentMedia.audio || []), ...uploadedMedia.audio],
+        videos: [
+          ...((mediaFromBody && mediaFromBody.videos) || currentMedia.videos || []),
+          ...uploadedMedia.videos,
+        ],
+      };
     }
 
     if (req.user.isSuperAdmin !== true) {
@@ -416,9 +463,9 @@ const deletePooja = async (req, res, next) => {
     }
 
     await Promise.all([
-      deleteFile(pooja.imageUrl).catch(() => {}),
-      deleteFile(pooja.audioUrl).catch(() => {}),
-      deleteFile(pooja.videoUrl).catch(() => {}),
+      ...((pooja.media?.images || []).map((url) => deleteFile(url).catch(() => {}))),
+      ...((pooja.media?.audio || []).map((url) => deleteFile(url).catch(() => {}))),
+      ...((pooja.media?.videos || []).map((url) => deleteFile(url).catch(() => {}))),
     ]);
     await pooja.deleteOne();
 
