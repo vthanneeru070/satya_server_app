@@ -10,6 +10,8 @@ const createDailySlokaSchema = Joi.object({
   sloka: Joi.string().trim().min(2).max(5000).required(),
   author: Joi.string().trim().max(200).optional().allow(""),
   meaning: Joi.string().trim().max(5000).optional().allow(""),
+  contemplation: Joi.string().trim().max(5000).optional().allow(""),
+  prayer: Joi.string().trim().max(5000).optional().allow(""),
   date: datePattern.required(),
 });
 

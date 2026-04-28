@@ -46,6 +46,10 @@ const router = express.Router();
  *                 type: string
  *               meaning:
  *                 type: string
+ *               contemplation:
+ *                 type: string
+ *               prayer:
+ *                 type: string
  *               date:
  *                 type: string
  *                 example: 20-04-2026

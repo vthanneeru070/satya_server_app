@@ -33,7 +33,7 @@ const router = express.Router();
  *         schema:
  *           type: string
  *           example: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IkZJUkVCQVNFX0lEX1RPS0VOIiwi...
- *         description: Firebase ID token from client auth provider (phone/google/apple), prefixed with Bearer.
+ *         description: Firebase ID token from client auth provider (google/password/apple), prefixed with Bearer.
  *     responses:
  *       200:
  *         description: Login successful

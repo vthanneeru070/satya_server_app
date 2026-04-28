@@ -17,6 +17,16 @@ const dailySlokaSchema = new mongoose.Schema(
       required: false,
       trim: true,
     },
+    contemplation:{
+      type: String,
+      required: false,
+      trim: true,
+    },
+    prayer:{
+      type: String,
+      required: false,
+      trim: true,
+    },
     date: {
       type: Date,
       required: true,
@@ -35,7 +45,5 @@ const dailySlokaSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
-
-dailySlokaSchema.index({ dateKey: 1 }, { unique: true });
 
 module.exports = mongoose.model("DailySloka", dailySlokaSchema);

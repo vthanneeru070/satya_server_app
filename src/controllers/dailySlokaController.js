@@ -147,10 +147,12 @@ const bulkImportDailySlokas = async (req, res, next) => {
 
     rows.forEach((row, index) => {
       const rowNumber = index + 2;
-      const dateRaw = getCellValue(row, ["date", "datekey"]);
-      const sloka = getCellValue(row, ["sloka", "shloka"]);
-      const author = getCellValue(row, ["author", "source"]);
-      const meaning = getCellValue(row, ["meaning", "explanation"]);
+      const dateRaw = getCellValue(row, ["date", "datekey","Date"]);
+      const sloka = getCellValue(row, ["sloka", "shloka","Shloka","Sloka"]);
+      const author = getCellValue(row, ["author", "source","Author/Source","Author","Source"]);
+      const meaning = getCellValue(row, ["meaning", "explanation","Meaning"]);
+      const contemplation = getCellValue(row, ["contemplation","Contemplation"])
+      const prayer = getCellValue(row, ["prayer","Prayer","Resolve","Prayer/Resolve"])
 
       if (!dateRaw) {
         invalidRows.push({ row: rowNumber, reason: "date is required" });
@@ -174,6 +176,8 @@ const bulkImportDailySlokas = async (req, res, next) => {
           sloka,
           author: author || undefined,
           meaning: meaning || undefined,
+          contemplation: contemplation || undefined,
+          prayer: prayer || undefined
         });
       } catch (error) {
         invalidRows.push({
@@ -196,6 +200,8 @@ const bulkImportDailySlokas = async (req, res, next) => {
             sloka: entry.sloka,
             author: entry.author,
             meaning: entry.meaning,
+            contemplation: entry.contemplation,
+            prayer:entry.prayer,
             date: entry.date,
             dateKey: entry.dateKey,
             createdBy: req.user.userId,
@@ -238,6 +244,8 @@ const createDailySloka = async (req, res, next) => {
         sloka,
         author,
         meaning,
+        contemplation,
+        prayer,
         date: normalizedDate,
         dateKey,
         createdBy: req.user.userId,

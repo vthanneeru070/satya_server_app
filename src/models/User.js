@@ -19,8 +19,13 @@ const userSchema = new mongoose.Schema(
     },
     provider: {
       type: String,
-      enum: [ "google", "apple", "email/password"],
+      enum: [ "google", "apple", "password"],
       required: true,
+    },
+    linkedProviders: {
+      type: [String],
+      enum: ["google", "apple", "password"],
+      default: [],
     },
     role: {
       type: String,
@@ -49,5 +54,6 @@ const userSchema = new mongoose.Schema(
 
 userSchema.index({ role: 1 });
 userSchema.index({ email: 1 });
+userSchema.index({ linkedProviders: 1 });
 
 module.exports = mongoose.model("User", userSchema);

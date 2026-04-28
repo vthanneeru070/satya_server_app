@@ -7,12 +7,35 @@ const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const { generateAccessToken, generateRefreshToken } = require("../utils/jwt");
 
+const toProviderValue = (provider = "") => {
+  const normalized = String(provider || "").toLowerCase();
+  if (normalized.includes("google")) return "google";
+  if (normalized.includes("apple")) return "apple";
+  if (normalized.includes("email") || normalized.includes("password")) return "password";
+  return null;
+};
+
 const getProvider = (decodedToken) => {
-  const provider = decodedToken.firebase?.sign_in_provider || "email/password";
-  if (provider.includes("google")) return "google";
-  if (provider.includes("apple")) return "apple";
-  if (provider.includes("email") || provider.includes("password")) return "email/password";
-  return "email/password";
+  const providerFromSignIn = toProviderValue(decodedToken.firebase?.sign_in_provider);
+  return providerFromSignIn || "password";
+};
+
+const getLinkedProviders = (decodedToken) => {
+  const identities = decodedToken.firebase?.identities || {};
+  const candidates = [
+    decodedToken.firebase?.sign_in_provider,
+    ...Object.keys(identities),
+  ];
+
+  const normalizedProviders = Array.from(
+    new Set(candidates.map(toProviderValue).filter(Boolean))
+  );
+
+  if (!normalizedProviders.length) {
+    return ["password"];
+  }
+
+  return normalizedProviders;
 };
 
 const parseFirebaseTokenFromHeader = (req) => {
@@ -53,6 +76,7 @@ const login = async (req, res, next) => {
     const decodedToken = await admin.auth().verifyIdToken(firebaseIdToken);
     const firebaseUid = decodedToken.uid;
     const provider = getProvider(decodedToken);
+    const linkedProviders = getLinkedProviders(decodedToken);
 
     let user = await User.findOne({ firebaseUid });
 
@@ -62,7 +86,37 @@ const login = async (req, res, next) => {
         phone: decodedToken.phone_number || null,
         email: decodedToken.email || null,
         provider,
+        linkedProviders,
       });
+    } else {
+      let hasUpdates = false;
+      const mergedLinkedProviders = Array.from(
+        new Set([...(user.linkedProviders || []), ...linkedProviders])
+      );
+
+      if (provider && user.provider !== provider) {
+        user.provider = provider;
+        hasUpdates = true;
+      }
+
+      if (JSON.stringify(mergedLinkedProviders) !== JSON.stringify(user.linkedProviders || [])) {
+        user.linkedProviders = mergedLinkedProviders;
+        hasUpdates = true;
+      }
+
+      if (!user.email && decodedToken.email) {
+        user.email = decodedToken.email;
+        hasUpdates = true;
+      }
+
+      if (!user.phone && decodedToken.phone_number) {
+        user.phone = decodedToken.phone_number;
+        hasUpdates = true;
+      }
+
+      if (hasUpdates) {
+        await user.save();
+      }
     }
 
     const { accessToken, refreshToken } = await issueTokens(user);
