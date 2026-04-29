@@ -57,7 +57,23 @@ const router = express.Router();
  *                 type: array
  *                 items:
  *                   type: string
- *               sections:
+ *               lineage:
+ *                 type: object
+ *               appearance:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *               spiritual_significance:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *               connecting:
+ *                 type: object
+ *               chanting:
+ *                 type: object
+ *               home_practice:
+ *                 type: object
+ *               stories:
  *                 type: array
  *                 items:
  *                   type: object
@@ -98,7 +114,7 @@ router.post(
 
 /**
  * @swagger
- * /deities:
+ * /deities/all:
  *   get:
  *     summary: Get all deities
  *     tags: [Deities]
@@ -200,7 +216,23 @@ router.get(
  *                 type: array
  *                 items:
  *                   type: string
- *               sections:
+ *               lineage:
+ *                 type: object
+ *               appearance:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *               spiritual_significance:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *               connecting:
+ *                 type: object
+ *               chanting:
+ *                 type: object
+ *               home_practice:
+ *                 type: object
+ *               stories:
  *                 type: array
  *                 items:
  *                   type: object

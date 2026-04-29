@@ -1,25 +1,48 @@
 const Joi = require("joi");
 
-const sectionContentSchema = Joi.object({
+const titleDescSchema = Joi.object({
   title: Joi.string().trim().min(1).required(),
   description: Joi.string().trim().min(1).required(),
 });
 
-const sectionTitleSchema = Joi.object({
-  key: Joi.string().trim().min(1).required(),
-  value: Joi.string().trim().min(1).required(),
+const lineageSchema = Joi.object({
+  parents: Joi.array().items(Joi.string().trim()).default([]),
+  consort: Joi.string().trim().allow("").optional(),
+  children: Joi.array().items(Joi.string().trim()).default([]),
+  vehicle: Joi.string().trim().allow("").optional(),
+  abode: Joi.string().trim().allow("").optional(),
 });
 
-const sectionSchema = Joi.object({
-  key: Joi.string().trim().min(1).required(),
-  title: sectionTitleSchema.required(),
-  content: Joi.array().items(sectionContentSchema).default([]),
+const connectingSchema = Joi.object({
+  how_to_pray: Joi.string().trim().allow("").optional(),
+  what_pleases: Joi.array().items(Joi.string().trim()).default([]),
+  ideal_time: Joi.string().trim().allow("").optional(),
+});
+
+const chantingSchema = Joi.object({
+  mantra: Joi.string().trim().allow("").optional(),
+  repetitions: Joi.string().trim().allow("").optional(),
+  benefits: Joi.array().items(Joi.string().trim()).default([]),
+});
+
+const homePracticeSchema = Joi.object({
+  placement: Joi.string().trim().allow("").optional(),
+  offerings: Joi.array().items(Joi.string().trim()).default([]),
+  do_and_dont: Joi.object({
+    do: Joi.array().items(Joi.string().trim()).default([]),
+    dont: Joi.array().items(Joi.string().trim()).default([]),
+  }).optional(),
+});
+
+const storiesSchema = Joi.object({
+  title: Joi.string().trim().allow("").required(),
+  description: Joi.string().trim().allow("").required(),
 });
 
 const mediaSchema = Joi.object({
-  images: Joi.array().items(Joi.string().trim().uri()).default([]),
-  audio: Joi.array().items(Joi.string().trim().uri()).default([]),
-  videos: Joi.array().items(Joi.string().trim().uri()).default([]),
+  images: Joi.array().items(Joi.string().trim()).default([]),
+  audio: Joi.array().items(Joi.string().trim()).default([]),
+  videos: Joi.array().items(Joi.string().trim()).default([]),
 });
 
 const createDeitySchema = Joi.object({
@@ -27,7 +50,13 @@ const createDeitySchema = Joi.object({
   alternate_names: Joi.array().items(Joi.string().trim().min(1)).default([]),
   description: Joi.string().trim().allow("").max(5000).optional(),
   roles: Joi.array().items(Joi.string().trim().min(1)).default([]),
-  sections: Joi.array().items(sectionSchema).default([]),
+  lineage: lineageSchema.optional(),
+  appearance: Joi.array().items(titleDescSchema).default([]),
+  spiritual_significance: Joi.array().items(titleDescSchema).default([]),
+  connecting: connectingSchema.optional(),
+  chanting: chantingSchema.optional(),
+  home_practice: homePracticeSchema.optional(),
+  stories: Joi.array().items(storiesSchema).default([]),
   rituals: Joi.array().items(Joi.string().trim().hex().length(24)).default([]),
   media: mediaSchema.default({}),
   status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED").optional(),
@@ -38,7 +67,13 @@ const updateDeitySchema = Joi.object({
   alternate_names: Joi.array().items(Joi.string().trim().min(1)),
   description: Joi.string().trim().allow("").max(5000),
   roles: Joi.array().items(Joi.string().trim().min(1)),
-  sections: Joi.array().items(sectionSchema),
+  lineage: lineageSchema,
+  appearance: Joi.array().items(titleDescSchema),
+  spiritual_significance: Joi.array().items(titleDescSchema),
+  connecting: connectingSchema,
+  chanting: chantingSchema,
+  home_practice: homePracticeSchema,
+  stories: Joi.array().items(storiesSchema),
   rituals: Joi.array().items(Joi.string().trim().hex().length(24)),
   media: mediaSchema,
   status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"),
