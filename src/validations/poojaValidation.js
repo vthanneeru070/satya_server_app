@@ -62,9 +62,9 @@ const completionSchema = Joi.object({
 });
 
 const mediaSchema = Joi.object({
-  images: Joi.array().items(Joi.string().trim().uri()).default([]),
-  audio: Joi.array().items(Joi.string().trim().uri()).default([]),
-  videos: Joi.array().items(Joi.string().trim().uri()).default([]),
+  images: Joi.array().items(Joi.string().trim()).default([]),
+  audio: Joi.array().items(Joi.string().trim()).default([]),
+  videos: Joi.array().items(Joi.string().trim()).default([]),
 });
 
 const createPoojaSchema = Joi.object({

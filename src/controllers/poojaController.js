@@ -109,6 +109,7 @@ const createPooja = async (req, res, next) => {
     const guidance = parseJsonField(req.body.guidance, "guidance");
     const completion = parseJsonField(req.body.completion, "completion");
     const mediaFromBody = parseJsonField(req.body.media, "media") || {};
+    const parsedBlessings = parseStringArrayField(blessings, "blessings");
     const festivalIds = parseObjectIdArrayField(festivalIdsRaw, "festivalIds") ?? [];
     const uploadedMedia = await getUploadedMediaUrls(req.files);
     const media = {
@@ -136,7 +137,7 @@ const createPooja = async (req, res, next) => {
       media,
       status,
       festivalIds,
-      blessings,
+      blessings: parsedBlessings ?? [],
       rating,
       createdBy: req.user.userId,
     });
