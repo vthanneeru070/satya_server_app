@@ -1,0 +1,1767 @@
+{
+    "id": 5587,
+    "url": "https://svs.gsfc.nasa.gov/5587/",
+    "page_type": "Visualization",
+    "title": "Moon Phase and Libration, 2026",
+    "description": "The animation archived on this page shows the geocentric phase, libration, position angle of the axis, and apparent diameter of the Moon throughout the year 2026, at hourly intervals.",
+    "release_date": "2025-12-11T12:00:00-05:00",
+    "update_date": "2026-02-18T11:03:15.280219-05:00",
+    "main_image": {
+        "id": 1158883,
+        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/preview_fancy.jpg",
+        "filename": "preview_fancy.jpg",
+        "media_type": "Image",
+        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is a diagram of the Moon's position in its orbit around Earth. In the lower left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+        "width": 1920,
+        "height": 1080,
+        "pixels": 2073600
+    },
+    "main_video": {
+        "id": 1158884,
+        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phases_2026_fancy_1080p30.mp4",
+        "filename": "phases_2026_fancy_1080p30.mp4",
+        "media_type": "Movie",
+        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is a diagram of the Moon's position in its orbit around Earth. In the lower left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+        "width": 1920,
+        "height": 1080,
+        "pixels": 2073600
+    },
+    "main_credits": {},
+    "progress": "Complete",
+    "media_groups": [
+        {
+            "id": 379188,
+            "url": "https://svs.gsfc.nasa.gov/5587/#media_group_379188",
+            "widget": "Dial-A-Moon",
+            "title": "",
+            "caption": "",
+            "description": "The data in the table for all of 2026 can be downloaded [as a JSON file](/vis/a000000/a005500/a005587/mooninfo_2026.json) or [as a text file](/vis/a000000/a005500/a005587/mooninfo_2026.json).",
+            "items": [],
+            "extra_data": {}
+        },
+        {
+            "id": 379009,
+            "url": "https://svs.gsfc.nasa.gov/5587/#media_group_379009",
+            "widget": "Basic text",
+            "title": "",
+            "caption": "",
+            "description": "Click on the image to download a high-resolution version with feature labels and additional graphics. Hover over the image to reveal the animation frame number, which can be used to locate and download the corresponding frame from any of the animations on this page, including [unlabeled high-resolution Moon images](#media_group_379015).\r\n\r\nThe animation archived on this page shows the geocentric phase, libration, position angle of the axis, and apparent diameter of the Moon throughout the year 2026, at hourly intervals. Until the end of 2026, the initial Dial-A-Moon image will be the frame from this animation for the current hour.\r\n\r\n> **More in this series:**  \r\n> [Moon Phase and Libration Gallery](https://svs.gsfc.nasa.gov/Gallery/moonphase.html)\r\n\r\nLunar Reconnaissance Orbiter ([LRO](https://science.nasa.gov/mission/lro/)) has been in orbit around the Moon since the summer of 2009. Its laser altimeter ([LOLA](https://science.nasa.gov/mission/lro/lola)) and camera ([LROC](https://lroc.im-ldi.com)) are recording the rugged, airless lunar terrain in exceptional detail, making it possible to visualize the Moon with unprecedented fidelity. This is especially evident in the long shadows cast near the terminator, or day-night line. The pummeled, craggy landscape thrown into high relief at the terminator would be impossible to recreate in the computer without [global terrain maps](https://svs.gsfc.nasa.gov/4720) like those from LRO.\r\n\r\nThe Moon always keeps the same face to us, but not _exactly_ the same face. Because of the tilt and shape of its orbit, we see the Moon from slightly different angles over the course of a month. When a month is compressed into 24 seconds, as it is in this animation, our changing view of the Moon makes it look like it's wobbling. This wobble is called [libration](https://svs.gsfc.nasa.gov/5195).\r\n\r\nThe word comes from the Latin for \"balance scale\" (as does the name of the zodiac constellation Libra) and refers to the way such a scale tips up and down on alternating sides. The **sub-Earth** point gives the amount of libration in longitude and latitude. The sub-Earth point is also the apparent center of the Moon's disk and the location on the Moon where the Earth is directly overhead.\r\n\r\nThe Moon is subject to other motions as well. It appears to roll back and forth around the sub-Earth point. The roll angle is given by the **position angle** of the axis, which is the angle of the Moon's north pole relative to celestial north. The Moon also approaches and recedes from us, appearing to grow and shrink. The two extremes, called perigee (near) and apogee (far), differ by as much as 14%.\r\n\r\nThe most noticed monthly variation in the Moon's appearance is the cycle of **phases**, caused by the changing angle of the Sun as the Moon orbits the Earth. The cycle begins with the waxing (growing) crescent Moon visible in the west just after sunset. By first quarter, the Moon is high in the sky at sunset and sets around midnight. The full Moon rises at sunset and is high in the sky at midnight. The third quarter Moon is often surprisingly conspicuous in the daylit western sky long after sunrise.\r\n\r\nCelestial north is up in these images, corresponding to the view from the northern hemisphere. The descriptions of the print resolution stills also assume a northern hemisphere orientation. (There is also a [south-up version of this page](/5588).)",
+            "items": [],
+            "extra_data": {}
+        },
+        {
+            "id": 379010,
+            "url": "https://svs.gsfc.nasa.gov/5587/#media_group_379010",
+            "widget": "Video player",
+            "title": "",
+            "caption": "",
+            "description": "The phase and libration of the Moon for 2026, at hourly intervals. Includes supplemental graphics that display the Moon's orbit, subsolar and sub-Earth points, and the Moon's distance from Earth at true scale. Craters near the terminator are labeled, as are Apollo landing sites, maria, and other albedo features in sunlight.",
+            "items": [
+                {
+                    "id": 492951,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158884,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phases_2026_fancy_1080p30.mp4",
+                        "filename": "phases_2026_fancy_1080p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is a diagram of the Moon's position in its orbit around Earth. In the lower left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+                        "width": 1920,
+                        "height": 1080,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 492953,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158886,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phases_2026_fancy_2160p30.mp4",
+                        "filename": "phases_2026_fancy_2160p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is a diagram of the Moon's position in its orbit around Earth. In the lower left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+                        "width": 3840,
+                        "height": 2160,
+                        "pixels": 8294400
+                    }
+                },
+                {
+                    "id": 492952,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158885,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phases_2026_fancy_2160p30.mov",
+                        "filename": "phases_2026_fancy_2160p30.mov",
+                        "media_type": "Movie",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is a diagram of the Moon's position in its orbit around Earth. In the lower left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+                        "width": 3840,
+                        "height": 2160,
+                        "pixels": 8294400
+                    }
+                },
+                {
+                    "id": 492955,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158888,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phases_2026_fancy_720p30.mp4",
+                        "filename": "phases_2026_fancy_720p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is a diagram of the Moon's position in its orbit around Earth. In the lower left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+                        "width": 1280,
+                        "height": 720,
+                        "pixels": 921600
+                    }
+                },
+                {
+                    "id": 492954,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158887,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phases_2026_fancy_360p30.mp4",
+                        "filename": "phases_2026_fancy_360p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is a diagram of the Moon's position in its orbit around Earth. In the lower left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+                        "width": 640,
+                        "height": 360,
+                        "pixels": 230400
+                    }
+                },
+                {
+                    "id": 492956,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158889,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/1920x1080_16x9_30p/fancy/",
+                        "filename": "fancy",
+                        "media_type": "Frames",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is a diagram of the Moon's position in its orbit around Earth. In the lower left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+                        "width": 1920,
+                        "height": 1080,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 492957,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158890,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/3840x2160_16x9_30p/fancy/",
+                        "filename": "fancy",
+                        "media_type": "Frames",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is a diagram of the Moon's position in its orbit around Earth. In the lower left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+                        "width": 3840,
+                        "height": 2160,
+                        "pixels": 8294400
+                    }
+                },
+                {
+                    "id": 492958,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158891,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/5760x3240_16x9_30p/fancy/",
+                        "filename": "fancy",
+                        "media_type": "Frames",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is a diagram of the Moon's position in its orbit around Earth. In the lower left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+                        "width": 5760,
+                        "height": 3240,
+                        "pixels": 18662400
+                    }
+                },
+                {
+                    "id": 492950,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158883,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/preview_fancy.jpg",
+                        "filename": "preview_fancy.jpg",
+                        "media_type": "Image",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is a diagram of the Moon's position in its orbit around Earth. In the lower left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+                        "width": 1920,
+                        "height": 1080,
+                        "pixels": 2073600
+                    }
+                }
+            ],
+            "extra_data": {}
+        },
+        {
+            "id": 379011,
+            "url": "https://svs.gsfc.nasa.gov/5587/#media_group_379011",
+            "widget": "Video player",
+            "title": "",
+            "caption": "",
+            "description": "The phase and libration of the Moon for 2026, at hourly intervals. Includes music, supplemental graphics that display the Moon's orbit, subsolar and sub-Earth points, and the Moon's distance from Earth at true scale. Craters near the terminator are labeled, as are Apollo landing sites, maria and other albedo features in sunlight.\r\n\r\nMusic provided by Universal Production Music: \"Places\" and \"Reverse Dream\" – Matthew Lawrenson\r\n\r\nThis video can also be viewed on the [NASA Goddard YouTube channel](https://youtu.be/J40sjWID3e8)",
+            "items": [
+                {
+                    "id": 502936,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1159943,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phasesYT_2026_fancy_1080p30.mp4",
+                        "filename": "phasesYT_2026_fancy_1080p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is a diagram of the Moon's position in its orbit around Earth. In the lower left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale. Music plays throughout the video.",
+                        "width": 1920,
+                        "height": 1080,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 502935,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1159942,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phasesYT_2026_fancy_2160p30.mp4",
+                        "filename": "phasesYT_2026_fancy_2160p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is a diagram of the Moon's position in its orbit around Earth. In the lower left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale. Music plays throughout the video.",
+                        "width": 3840,
+                        "height": 2160,
+                        "pixels": 8294400
+                    }
+                },
+                {
+                    "id": 493100,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158898,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/preview_music.jpg",
+                        "filename": "preview_music.jpg",
+                        "media_type": "Image",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is a diagram of the Moon's position in its orbit around Earth. In the lower left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale. Music plays throughout the video.",
+                        "width": 1920,
+                        "height": 1080,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 502939,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1159946,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phases_2026_captions.en_US.srt",
+                        "filename": "phases_2026_captions.en_US.srt",
+                        "media_type": "Captions",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is a diagram of the Moon's position in its orbit around Earth. In the lower left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale. Music plays throughout the video.",
+                        "label": "English",
+                        "language_code": "en-US"
+                    }
+                },
+                {
+                    "id": 502940,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1159947,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phases_2026_captions.en_US.vtt",
+                        "filename": "phases_2026_captions.en_US.vtt",
+                        "media_type": "Captions",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is a diagram of the Moon's position in its orbit around Earth. In the lower left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale. Music plays throughout the video.",
+                        "label": "English",
+                        "language_code": "en-US"
+                    }
+                }
+            ],
+            "extra_data": {}
+        },
+        {
+            "id": 379012,
+            "url": "https://svs.gsfc.nasa.gov/5587/#media_group_379012",
+            "widget": "Video player",
+            "title": "",
+            "caption": "",
+            "description": "The phase and libration of the Moon for 2026, at hourly intervals. The vertical (portrait) aspect ratio is targeted for viewing on mobile devices. Includes supplemental graphics that display the Moon's orbit, subsolar and sub-Earth points, and the Moon's distance from Earth at true scale. Craters near the terminator are labeled, as are Apollo landing sites.",
+            "items": [
+                {
+                    "id": 493117,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158899,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phases_2026_fancy_v1_1920p30.mp4",
+                        "filename": "phases_2026_fancy_v1_1920p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the lower left is a diagram of the Moon's position in its orbit around Earth. In the upper left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+                        "width": 1080,
+                        "height": 1920,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 493118,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158900,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/preview_v.jpg",
+                        "filename": "preview_v.jpg",
+                        "media_type": "Image",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the lower left is a diagram of the Moon's position in its orbit around Earth. In the upper left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+                        "width": 1080,
+                        "height": 1920,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 493120,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158902,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/1080x1920_9x16_30p/v1/",
+                        "filename": "v1",
+                        "media_type": "Frames",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the lower left is a diagram of the Moon's position in its orbit around Earth. In the upper left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+                        "width": 1080,
+                        "height": 1920,
+                        "pixels": 2073600
+                    }
+                }
+            ],
+            "extra_data": {}
+        },
+        {
+            "id": 379013,
+            "url": "https://svs.gsfc.nasa.gov/5587/#media_group_379013",
+            "widget": "Video player",
+            "title": "",
+            "caption": "",
+            "description": "The phase and libration of the Moon for 2026, at hourly intervals. This is an alternate portrait aspect version that may be more suitable for some social media posts.",
+            "items": [
+                {
+                    "id": 493124,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158905,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phases_2026_fancy_v2_1920p30.mp4",
+                        "filename": "phases_2026_fancy_v2_1920p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+                        "width": 1080,
+                        "height": 1920,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 493125,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158906,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/preview_v2.jpg",
+                        "filename": "preview_v2.jpg",
+                        "media_type": "Image",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+                        "width": 1080,
+                        "height": 1920,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 493126,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158907,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/1080x1920_9x16_30p/v2/",
+                        "filename": "v2",
+                        "media_type": "Frames",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+                        "width": 1080,
+                        "height": 1920,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 503011,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1159987,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phases_2026_fancy_v2_music_1920p30.mp4",
+                        "filename": "phases_2026_fancy_v2_music_1920p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. Crater labels near the terminator appear and fade out as the terminator moves across the Moon's face. In the upper left is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+                        "width": 1080,
+                        "height": 1920,
+                        "pixels": 2073600
+                    }
+                }
+            ],
+            "extra_data": {}
+        },
+        {
+            "id": 379014,
+            "url": "https://svs.gsfc.nasa.gov/5587/#media_group_379014",
+            "widget": "Video player",
+            "title": "",
+            "caption": "",
+            "description": "The phase and libration of the Moon for 2026, at hourly intervals. This portrait aspect version is \"plain,\" showing only the Moon.",
+            "items": [
+                {
+                    "id": 493129,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158909,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phases_2026_plain_v_1920p30.mp4",
+                        "filename": "phases_2026_plain_v_1920p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "A rendering of the Moon showing its phase and libration.",
+                        "width": 1080,
+                        "height": 1920,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 493130,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158910,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/preview_vplain.jpg",
+                        "filename": "preview_vplain.jpg",
+                        "media_type": "Image",
+                        "alt_text": "A rendering of the Moon showing its phase and libration.",
+                        "width": 1080,
+                        "height": 1920,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 493131,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158911,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/1080x1920_9x16_30p/vplain/",
+                        "filename": "vplain",
+                        "media_type": "Frames",
+                        "alt_text": "A rendering of the Moon showing its phase and libration.",
+                        "width": 1080,
+                        "height": 1920,
+                        "pixels": 2073600
+                    }
+                }
+            ],
+            "extra_data": {}
+        },
+        {
+            "id": 379015,
+            "url": "https://svs.gsfc.nasa.gov/5587/#media_group_379015",
+            "widget": "Video player",
+            "title": "",
+            "caption": "",
+            "description": "The phase and libration of the Moon for 2026, at hourly intervals. The HD and higher resolution frames include an alpha channel, and the EXR frames are HDR (high dynamic range). The .mov file is a ProRes 4444 movie with alpha.",
+            "items": [
+                {
+                    "id": 493132,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158912,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phases_2026_plain_1080p30.mp4",
+                        "filename": "phases_2026_plain_1080p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "A rendering of the Moon showing its phase and libration.",
+                        "width": 1920,
+                        "height": 1080,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 493134,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158914,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phases_2026_plain_2160p30.mp4",
+                        "filename": "phases_2026_plain_2160p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "A rendering of the Moon showing its phase and libration.",
+                        "width": 3840,
+                        "height": 2160,
+                        "pixels": 8294400
+                    }
+                },
+                {
+                    "id": 493133,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158913,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phases_2026_plain_2160p30.mov",
+                        "filename": "phases_2026_plain_2160p30.mov",
+                        "media_type": "Movie",
+                        "alt_text": "A rendering of the Moon showing its phase and libration.",
+                        "width": 3840,
+                        "height": 2160,
+                        "pixels": 8294400
+                    }
+                },
+                {
+                    "id": 493136,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158916,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phases_2026_plain_720p30.mp4",
+                        "filename": "phases_2026_plain_720p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "A rendering of the Moon showing its phase and libration.",
+                        "width": 1280,
+                        "height": 720,
+                        "pixels": 921600
+                    }
+                },
+                {
+                    "id": 493135,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158915,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/phases_2026_plain_360p30.mp4",
+                        "filename": "phases_2026_plain_360p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "A rendering of the Moon showing its phase and libration.",
+                        "width": 640,
+                        "height": 360,
+                        "pixels": 230400
+                    }
+                },
+                {
+                    "id": 493137,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158921,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/5760x3240_16x9_30p/plain/",
+                        "filename": "plain",
+                        "media_type": "Frames",
+                        "alt_text": "A rendering of the Moon showing its phase and libration.",
+                        "width": 5760,
+                        "height": 3240,
+                        "pixels": 18662400
+                    }
+                },
+                {
+                    "id": 493138,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158918,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/1920x1080_16x9_30p/plain/",
+                        "filename": "plain",
+                        "media_type": "Frames",
+                        "alt_text": "A rendering of the Moon showing its phase and libration.",
+                        "width": 1920,
+                        "height": 1080,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 493142,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158920,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/3840x2160_16x9_30p/plain/",
+                        "filename": "plain",
+                        "media_type": "Frames",
+                        "alt_text": "A rendering of the Moon showing its phase and libration.",
+                        "width": 3840,
+                        "height": 2160,
+                        "pixels": 8294400
+                    }
+                },
+                {
+                    "id": 493143,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158892,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/5760x3240_16x9_30p/exr/",
+                        "filename": "exr",
+                        "media_type": "Frames",
+                        "alt_text": "A rendering of the Moon showing its phase and libration.",
+                        "width": 5760,
+                        "height": 3240,
+                        "pixels": 18662400
+                    }
+                },
+                {
+                    "id": 493144,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158922,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/730x730_1x1_30p/",
+                        "filename": "730x730_1x1_30p",
+                        "media_type": "Frames",
+                        "alt_text": "A rendering of the Moon showing its phase and libration.",
+                        "width": 730,
+                        "height": 730,
+                        "pixels": 532900
+                    }
+                },
+                {
+                    "id": 493146,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158923,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/216x216_1x1_30p/",
+                        "filename": "216x216_1x1_30p",
+                        "media_type": "Frames",
+                        "alt_text": "A rendering of the Moon showing its phase and libration.",
+                        "width": 216,
+                        "height": 216,
+                        "pixels": 46656
+                    }
+                },
+                {
+                    "id": 493147,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158917,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/preview_plain.jpg",
+                        "filename": "preview_plain.jpg",
+                        "media_type": "Image",
+                        "alt_text": "A rendering of the Moon showing its phase and libration.",
+                        "width": 1920,
+                        "height": 1080,
+                        "pixels": 2073600
+                    }
+                }
+            ],
+            "extra_data": {}
+        },
+        {
+            "id": 379016,
+            "url": "https://svs.gsfc.nasa.gov/5587/#media_group_379016",
+            "widget": "Video player",
+            "title": "The Moon's Orbit",
+            "caption": "",
+            "description": "The orbit of the Moon in 2026, viewed from the north pole of the ecliptic, with the vernal equinox to the right. The sizes of the Earth and Moon are exaggerated.",
+            "items": [
+                {
+                    "id": 493167,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158924,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/moon_orbit_2026_1080p30.mp4",
+                        "filename": "moon_orbit_2026_1080p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "An \"overhead\" diagram of the Moon's orbit around the Earth. A thin, tapering white line is the path of the Moon in the previous month. A blue-green racetrack represents the range of the Moon's distance and the plane of its orbit relative to the ecliptic; it is darker where it dips below the ecliptic plane. Apses and nodes are labeled. A yellow arrow points toward the Sun.",
+                        "width": 1080,
+                        "height": 1080,
+                        "pixels": 1166400
+                    }
+                },
+                {
+                    "id": 493168,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158925,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/preview_orbit.jpg",
+                        "filename": "preview_orbit.jpg",
+                        "media_type": "Image",
+                        "alt_text": "An \"overhead\" diagram of the Moon's orbit around the Earth. A thin, tapering white line is the path of the Moon in the previous month. A blue-green racetrack represents the range of the Moon's distance and the plane of its orbit relative to the ecliptic; it is darker where it dips below the ecliptic plane. Apses and nodes are labeled. A yellow arrow points toward the Sun.",
+                        "width": 1080,
+                        "height": 1080,
+                        "pixels": 1166400
+                    }
+                },
+                {
+                    "id": 493169,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158926,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/1080x1080_1x1_30p/",
+                        "filename": "1080x1080_1x1_30p",
+                        "media_type": "Frames",
+                        "alt_text": "An \"overhead\" diagram of the Moon's orbit around the Earth. A thin, tapering white line is the path of the Moon in the previous month. A blue-green racetrack represents the range of the Moon's distance and the plane of its orbit relative to the ecliptic; it is darker where it dips below the ecliptic plane. Apses and nodes are labeled. A yellow arrow points toward the Sun.",
+                        "width": 1080,
+                        "height": 1080,
+                        "pixels": 1166400
+                    }
+                },
+                {
+                    "id": 493170,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158927,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/850x850_1x1_30p/",
+                        "filename": "850x850_1x1_30p",
+                        "media_type": "Frames",
+                        "alt_text": "An \"overhead\" diagram of the Moon's orbit around the Earth. A thin, tapering white line is the path of the Moon in the previous month. A blue-green racetrack represents the range of the Moon's distance and the plane of its orbit relative to the ecliptic; it is darker where it dips below the ecliptic plane. Apses and nodes are labeled. A yellow arrow points toward the Sun.",
+                        "width": 850,
+                        "height": 850,
+                        "pixels": 722500
+                    }
+                },
+                {
+                    "id": 493171,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158928,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/420x420_1x1_30p/",
+                        "filename": "420x420_1x1_30p",
+                        "media_type": "Frames",
+                        "alt_text": "An \"overhead\" diagram of the Moon's orbit around the Earth. A thin, tapering white line is the path of the Moon in the previous month. A blue-green racetrack represents the range of the Moon's distance and the plane of its orbit relative to the ecliptic; it is darker where it dips below the ecliptic plane. Apses and nodes are labeled. A yellow arrow points toward the Sun.",
+                        "width": 420,
+                        "height": 420,
+                        "pixels": 176400
+                    }
+                }
+            ],
+            "extra_data": {}
+        },
+        {
+            "id": 379017,
+            "url": "https://svs.gsfc.nasa.gov/5587/#media_group_379017",
+            "widget": "Basic text",
+            "title": "",
+            "caption": "",
+            "description": "From this birdseye view, it's somewhat easier to see that the phases of the Moon are an effect of the changing angles of the Sun, Moon and Earth. The Moon is full when its orbit places it in the middle of the night side of the Earth. First and Third Quarter Moon occur when the Moon is along the day-night line on the Earth. The Sun's direction is indicated by the yellow arrow.\r\n\r\nThe view here is perpendicular to the plane of the Earth's orbit around the Sun, called the **ecliptic**. The teal-colored ring is the plane of the Moon's orbit around the Earth, which is tilted about five degrees to the ecliptic. The thickness of the ring shows the range of the Moon's distance, and the darker half is the part below (south of) the ecliptic. The two points where the orbit crosses the ecliptic are the ascending and descending nodes. Also labeled are the perigee and apogee, the points along the orbit that are nearest to and farthest from Earth.\r\n\r\nThe First Point of Aries is at the 3 o'clock position in the image. The Sun is in this direction at the March equinox. You can check this by freezing the animation at around the 1:03 mark, or by freezing the full animation with the time stamp near March 20. This direction serves as the zero point for both ecliptic longitude and right ascension.\r\n\r\nThe north pole of the Earth is tilted 23.5 degrees toward the 12 o'clock position at the top of the image. The tilt of the Earth is important for understanding why the north pole of the Moon seems to swing back and forth. In the full animation, watch both the orbit and the \"gyroscope\" Moon in the lower left. The widest swings happen when the Moon is at the 3 o'clock and 9 o'clock positions. When the Moon is at the 3 o'clock position, the ground we're standing on is tilted to the left when we look at the Moon. At the 9 o'clock position, it's tilted to the right. The tilt itself doesn't change. We're just turned around, looking in the opposite direction.",
+            "items": [],
+            "extra_data": {}
+        },
+        {
+            "id": 379018,
+            "url": "https://svs.gsfc.nasa.gov/5587/#media_group_379018",
+            "widget": "Video player",
+            "title": "",
+            "caption": "",
+            "description": "An animated diagram of the subsolar and sub-Earth points for 2026. The Moon's north pole, equator, and meridian are indicated. The frames include an alpha channel.",
+            "items": [
+                {
+                    "id": 493174,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158929,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/moon_subpts_2026_960p30.mp4",
+                        "filename": "moon_subpts_2026_960p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "An animated diagram of the subsolar and sub-Earth points for 2026. The Moon's north pole, equator, and meridian are indicated.",
+                        "width": 960,
+                        "height": 960,
+                        "pixels": 921600
+                    }
+                },
+                {
+                    "id": 493175,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158930,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/preview_globe.jpg",
+                        "filename": "preview_globe.jpg",
+                        "media_type": "Image",
+                        "alt_text": "An animated diagram of the subsolar and sub-Earth points for 2026. The Moon's north pole, equator, and meridian are indicated.",
+                        "width": 960,
+                        "height": 960,
+                        "pixels": 921600
+                    }
+                },
+                {
+                    "id": 493176,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158931,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/320x320_1x1_30p/",
+                        "filename": "320x320_1x1_30p",
+                        "media_type": "Frames",
+                        "alt_text": "An animated diagram of the subsolar and sub-Earth points for 2026. The Moon's north pole, equator, and meridian are indicated.",
+                        "width": 320,
+                        "height": 320,
+                        "pixels": 102400
+                    }
+                },
+                {
+                    "id": 493177,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158932,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/640x640_1x1_30p/",
+                        "filename": "640x640_1x1_30p",
+                        "media_type": "Frames",
+                        "alt_text": "An animated diagram of the subsolar and sub-Earth points for 2026. The Moon's north pole, equator, and meridian are indicated.",
+                        "width": 640,
+                        "height": 640,
+                        "pixels": 409600
+                    }
+                },
+                {
+                    "id": 493178,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158933,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/960x960_1x1_30p/",
+                        "filename": "960x960_1x1_30p",
+                        "media_type": "Frames",
+                        "alt_text": "An animated diagram of the subsolar and sub-Earth points for 2026. The Moon's north pole, equator, and meridian are indicated.",
+                        "width": 960,
+                        "height": 960,
+                        "pixels": 921600
+                    }
+                }
+            ],
+            "extra_data": {}
+        },
+        {
+            "id": 379019,
+            "url": "https://svs.gsfc.nasa.gov/5587/#media_group_379019",
+            "widget": "Basic text",
+            "title": "",
+            "caption": "",
+            "description": "The subsolar and sub-Earth points are the locations on the Moon's surface where the Sun or the Earth are directly overhead, at the zenith. A line pointing straight up at one of these points will be pointing toward the Sun or the Earth. The sub-Earth point is also the apparent center of the Moon's disk as observed from the Earth.\r\n\r\nIn the animation, the blue dot is the sub-Earth point, and the yellow cone is the subsolar point. The lunar latitude and longitude of the sub-Earth point is a measure of the Moon's libration. For example, when the blue dot moves to the left of the meridian (the line at 0 degrees longitude), an extra bit of the Moon's western limb is rotating into view, and when it moves above the equator, a bit of the far side beyond the north pole becomes visible.\r\n\r\nAt any given time, half of the Moon is in sunlight, and the subsolar point is in the center of the lit half. Full Moon occurs when the subsolar point is near the center of the Moon's disk. When the subsolar point is somewhere on the far side of the Moon, observers on Earth see a crescent phase.",
+            "items": [],
+            "extra_data": {}
+        },
+        {
+            "id": 379020,
+            "url": "https://svs.gsfc.nasa.gov/5587/#media_group_379020",
+            "widget": "Video player",
+            "title": "",
+            "caption": "",
+            "description": "An animated diagram of the Moon's distance from the Earth for 2026. The sizes and distances are true to scale, and the lighting and Earth tilt are correct. The frames include an alpha channel.",
+            "items": [
+                {
+                    "id": 493180,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158934,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/moon_distance_2026_1080p30.mp4",
+                        "filename": "moon_distance_2026_1080p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "An animated diagram of the Moon's distance from the Earth. The Earth rotates but otherwise appears stationary on the left. A scale bar runs from the Earth to the Moon on the right. The Moon slides back and forth on the scale, indicating its varying distance.",
+                        "width": 1920,
+                        "height": 1080,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 493181,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158935,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/moon_distance_2026_2160p30.mp4",
+                        "filename": "moon_distance_2026_2160p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "An animated diagram of the Moon's distance from the Earth. The Earth rotates but otherwise appears stationary on the left. A scale bar runs from the Earth to the Moon on the right. The Moon slides back and forth on the scale, indicating its varying distance.",
+                        "width": 3840,
+                        "height": 2160,
+                        "pixels": 8294400
+                    }
+                },
+                {
+                    "id": 493182,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158936,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/moon_distance_2026_360p30.mp4",
+                        "filename": "moon_distance_2026_360p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "An animated diagram of the Moon's distance from the Earth. The Earth rotates but otherwise appears stationary on the left. A scale bar runs from the Earth to the Moon on the right. The Moon slides back and forth on the scale, indicating its varying distance.",
+                        "width": 640,
+                        "height": 360,
+                        "pixels": 230400
+                    }
+                },
+                {
+                    "id": 493183,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158937,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/moon_distance_2026_720p30.mp4",
+                        "filename": "moon_distance_2026_720p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "An animated diagram of the Moon's distance from the Earth. The Earth rotates but otherwise appears stationary on the left. A scale bar runs from the Earth to the Moon on the right. The Moon slides back and forth on the scale, indicating its varying distance.",
+                        "width": 1280,
+                        "height": 720,
+                        "pixels": 921600
+                    }
+                },
+                {
+                    "id": 493184,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158938,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/preview_distance.jpg",
+                        "filename": "preview_distance.jpg",
+                        "media_type": "Image",
+                        "alt_text": "An animated diagram of the Moon's distance from the Earth. The Earth rotates but otherwise appears stationary on the left. A scale bar runs from the Earth to the Moon on the right. The Moon slides back and forth on the scale, indicating its varying distance.",
+                        "width": 1920,
+                        "height": 1080,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 493185,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158939,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/1920x1080_16x9_30p/distance/",
+                        "filename": "distance",
+                        "media_type": "Frames",
+                        "alt_text": "An animated diagram of the Moon's distance from the Earth. The Earth rotates but otherwise appears stationary on the left. A scale bar runs from the Earth to the Moon on the right. The Moon slides back and forth on the scale, indicating its varying distance.",
+                        "width": 1920,
+                        "height": 1080,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 493186,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158940,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/3840x2160_16x9_30p/distance/",
+                        "filename": "distance",
+                        "media_type": "Frames",
+                        "alt_text": "An animated diagram of the Moon's distance from the Earth. The Earth rotates but otherwise appears stationary on the left. A scale bar runs from the Earth to the Moon on the right. The Moon slides back and forth on the scale, indicating its varying distance.",
+                        "width": 3840,
+                        "height": 2160,
+                        "pixels": 8294400
+                    }
+                },
+                {
+                    "id": 493187,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158941,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/5760x3240_16x9_30p/distance/",
+                        "filename": "distance",
+                        "media_type": "Frames",
+                        "alt_text": "An animated diagram of the Moon's distance from the Earth. The Earth rotates but otherwise appears stationary on the left. A scale bar runs from the Earth to the Moon on the right. The Moon slides back and forth on the scale, indicating its varying distance.",
+                        "width": 5760,
+                        "height": 3240,
+                        "pixels": 18662400
+                    }
+                }
+            ],
+            "extra_data": {}
+        },
+        {
+            "id": 379021,
+            "url": "https://svs.gsfc.nasa.gov/5587/#media_group_379021",
+            "widget": "Basic text",
+            "title": "",
+            "caption": "",
+            "description": "The Moon's orbit around the Earth isn't a perfect circle. The orbit is slightly elliptical, and because of that, the Moon's distance from the Earth varies between 28 and 32 Earth diameters, or about 356,400 and 406,700 kilometers. In each orbit, the smallest distance is called perigee, from Greek words meaning \"near earth,\" while the greatest distance is called apogee. The Moon looks largest at perigee because that's when it's closest to us.\r\n\r\nThe animation follows the imaginary line connecting the Earth and the Moon as it sweeps around the Moon's orbit. From this vantage point, it's easy to see the variation in the Moon's distance. Both the distance and the sizes of the Earth and Moon are to scale in this view. In the HD-resolution frames, the Earth is 50 pixels wide, the Moon is 14 pixels wide, and the distance between them is about 1500 pixels, on average.\r\n\r\nNote too that the Earth appears to go through phases just like the Moon does. For someone standing on the surface of the Moon, the Sun and the stars rise and set, but the Earth doesn't move very much in the sky. It goes through a monthly sequence of phases as the Sun angle changes. The phases are the opposite of the Moon's. During New Moon here, the Earth is full as viewed from the Moon.",
+            "items": [],
+            "extra_data": {}
+        },
+        {
+            "id": 379022,
+            "url": "https://svs.gsfc.nasa.gov/5587/#media_group_379022",
+            "widget": "Video player",
+            "title": "",
+            "caption": "",
+            "description": "Feature labels. Crater labels appear when the center of the crater is within 20 degrees of the terminator (the day-night line). They are on the western edge of the crater during waxing phases (before Full Moon) and to the east during waning phases. Mare, sinus, and lacus features are labeled when in sunlight. Apollo landing site labels are always visible. The frames include an alpha channel.",
+            "items": [
+                {
+                    "id": 493190,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158942,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/moon_labels_2026_1080p30.mp4",
+                        "filename": "moon_labels_2026_1080p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "Crater labels appear and fade against a black background.",
+                        "width": 1920,
+                        "height": 1080,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 493191,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158943,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/moon_labels_2026_2160p30.mp4",
+                        "filename": "moon_labels_2026_2160p30.mp4",
+                        "media_type": "Movie",
+                        "alt_text": "Crater labels appear and fade against a black background.",
+                        "width": 3840,
+                        "height": 2160,
+                        "pixels": 8294400
+                    }
+                },
+                {
+                    "id": 493192,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158944,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/preview_labels.jpg",
+                        "filename": "preview_labels.jpg",
+                        "media_type": "Image",
+                        "alt_text": "Crater labels appear and fade against a black background.",
+                        "width": 1920,
+                        "height": 1080,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 493193,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158945,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/1920x1080_16x9_30p/labels/",
+                        "filename": "labels",
+                        "media_type": "Frames",
+                        "alt_text": "Crater labels appear and fade against a black background.",
+                        "width": 1920,
+                        "height": 1080,
+                        "pixels": 2073600
+                    }
+                },
+                {
+                    "id": 493194,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158946,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/3840x2160_16x9_30p/labels/",
+                        "filename": "labels",
+                        "media_type": "Frames",
+                        "alt_text": "Crater labels appear and fade against a black background.",
+                        "width": 3840,
+                        "height": 2160,
+                        "pixels": 8294400
+                    }
+                },
+                {
+                    "id": 493195,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": "",
+                    "instance": {
+                        "id": 1158947,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005587/frames/5760x3240_16x9_30p/labels/",
+                        "filename": "labels",
+                        "media_type": "Frames",
+                        "alt_text": "Crater labels appear and fade against a black background.",
+                        "width": 5760,
+                        "height": 3240,
+                        "pixels": 18662400
+                    }
+                }
+            ],
+            "extra_data": {}
+        },
+        {
+            "id": 379023,
+            "url": "https://svs.gsfc.nasa.gov/5587/#media_group_379023",
+            "widget": "Basic text",
+            "title": "The Named Phases",
+            "caption": "",
+            "description": "The following is a gallery containing examples of each of the Moon phases that have names in English. New, full, and quarter phases occur on specific days, while crescent and gibbous phases are the transitions between these points and span multiple days. The quarters are so named because they occur when the Moon is one fourth or three fourths of the way through its cycle of phases. Many people find this confusing, though, since visually they are half moons. It might be helpful to remember that the visible half of the Moon's disk is really only one quarter of its spherical surface.",
+            "items": [],
+            "extra_data": {}
+        },
+        {
+            "id": 313513,
+            "url": "https://svs.gsfc.nasa.gov/5048/#media_group_313513",
+            "widget": "Single image",
+            "title": "",
+            "caption": "",
+            "description": "Waxing crescent. Visible toward the southwest in early evening.",
+            "items": [
+                {
+                    "id": 209285,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": null,
+                    "instance": {
+                        "id": 368390,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005000/a005048/phase_waxing_crescent.2028_print.jpg",
+                        "filename": "phase_waxing_crescent.2028_print.jpg",
+                        "media_type": "Image",
+                        "alt_text": "Waxing crescent. Visible toward the southwest in early evening.",
+                        "width": 1024,
+                        "height": 1024,
+                        "pixels": 1048576
+                    }
+                },
+                {
+                    "id": 209284,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": null,
+                    "instance": {
+                        "id": 368389,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005000/a005048/phase_waxing_crescent.2028.tif",
+                        "filename": "phase_waxing_crescent.2028.tif",
+                        "media_type": "Image",
+                        "alt_text": "Waxing crescent. Visible toward the southwest in early evening.",
+                        "width": 3240,
+                        "height": 3240,
+                        "pixels": 10497600
+                    }
+                }
+            ],
+            "extra_data": {}
+        },
+        {
+            "id": 313514,
+            "url": "https://svs.gsfc.nasa.gov/5048/#media_group_313514",
+            "widget": "Single image",
+            "title": "",
+            "caption": "",
+            "description": "First quarter. Visible high in the southern sky in early evening.",
+            "items": [
+                {
+                    "id": 209287,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": null,
+                    "instance": {
+                        "id": 368392,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005000/a005048/phase_first_quarter.2091_print.jpg",
+                        "filename": "phase_first_quarter.2091_print.jpg",
+                        "media_type": "Image",
+                        "alt_text": "First quarter. Visible high in the southern sky in early evening.",
+                        "width": 1024,
+                        "height": 1024,
+                        "pixels": 1048576
+                    }
+                },
+                {
+                    "id": 209286,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": null,
+                    "instance": {
+                        "id": 368391,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005000/a005048/phase_first_quarter.2091.tif",
+                        "filename": "phase_first_quarter.2091.tif",
+                        "media_type": "Image",
+                        "alt_text": "First quarter. Visible high in the southern sky in early evening.",
+                        "width": 3240,
+                        "height": 3240,
+                        "pixels": 10497600
+                    }
+                }
+            ],
+            "extra_data": {}
+        },
+        {
+            "id": 313515,
+            "url": "https://svs.gsfc.nasa.gov/5048/#media_group_313515",
+            "widget": "Single image",
+            "title": "",
+            "caption": "",
+            "description": "Waxing gibbous. Visible to the southeast in early evening, up for most of the night.",
+            "items": [
+                {
+                    "id": 209289,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": null,
+                    "instance": {
+                        "id": 368394,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005000/a005048/phase_waxing_gibbous.2158_print.jpg",
+                        "filename": "phase_waxing_gibbous.2158_print.jpg",
+                        "media_type": "Image",
+                        "alt_text": "Waxing gibbous. Visible to the southeast in early evening, up for most of the night.",
+                        "width": 1024,
+                        "height": 1024,
+                        "pixels": 1048576
+                    }
+                },
+                {
+                    "id": 209288,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": null,
+                    "instance": {
+                        "id": 368393,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005000/a005048/phase_waxing_gibbous.2158.tif",
+                        "filename": "phase_waxing_gibbous.2158.tif",
+                        "media_type": "Image",
+                        "alt_text": "Waxing gibbous. Visible to the southeast in early evening, up for most of the night.",
+                        "width": 3240,
+                        "height": 3240,
+                        "pixels": 10497600
+                    }
+                }
+            ],
+            "extra_data": {}
+        },
+        {
+            "id": 313516,
+            "url": "https://svs.gsfc.nasa.gov/5048/#media_group_313516",
+            "widget": "Single image",
+            "title": "",
+            "caption": "",
+            "description": "Full Moon. Rises at sunset, high in the sky around midnight. Visible all night.",
+            "items": [
+                {
+                    "id": 209291,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": null,
+                    "instance": {
+                        "id": 368396,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005000/a005048/phase_full.1571_print.jpg",
+                        "filename": "phase_full.1571_print.jpg",
+                        "media_type": "Image",
+                        "alt_text": "Full Moon. Rises at sunset, high in the sky around midnight. Visible all night.",
+                        "width": 1024,
+                        "height": 1024,
+                        "pixels": 1048576
+                    }
+                },
+                {
+                    "id": 209290,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": null,
+                    "instance": {
+                        "id": 368395,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005000/a005048/phase_full.1571.tif",
+                        "filename": "phase_full.1571.tif",
+                        "media_type": "Image",
+                        "alt_text": "Full Moon. Rises at sunset, high in the sky around midnight. Visible all night.",
+                        "width": 3240,
+                        "height": 3240,
+                        "pixels": 10497600
+                    }
+                }
+            ],
+            "extra_data": {}
+        },
+        {
+            "id": 313517,
+            "url": "https://svs.gsfc.nasa.gov/5048/#media_group_313517",
+            "widget": "Single image",
+            "title": "",
+            "caption": "",
+            "description": "Waning gibbous. Rises after sunset, high in the sky after midnight, visible to the southwest after sunrise.",
+            "items": [
+                {
+                    "id": 209293,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": null,
+                    "instance": {
+                        "id": 368398,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005000/a005048/phase_waning_gibbous.2403_print.jpg",
+                        "filename": "phase_waning_gibbous.2403_print.jpg",
+                        "media_type": "Image",
+                        "alt_text": "Waning gibbous. Rises after sunset, high in the sky after midnight, visible to the southwest after sunrise.",
+                        "width": 1024,
+                        "height": 1024,
+                        "pixels": 1048576
+                    }
+                },
+                {
+                    "id": 209292,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": null,
+                    "instance": {
+                        "id": 368397,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005000/a005048/phase_waning_gibbous.2403.tif",
+                        "filename": "phase_waning_gibbous.2403.tif",
+                        "media_type": "Image",
+                        "alt_text": "Waning gibbous. Rises after sunset, high in the sky after midnight, visible to the southwest after sunrise.",
+                        "width": 3240,
+                        "height": 3240,
+                        "pixels": 10497600
+                    }
+                }
+            ],
+            "extra_data": {}
+        },
+        {
+            "id": 313518,
+            "url": "https://svs.gsfc.nasa.gov/5048/#media_group_313518",
+            "widget": "Single image",
+            "title": "",
+            "caption": "",
+            "description": "Third quarter. Rises around midnight, visible to the south after sunrise.",
+            "items": [
+                {
+                    "id": 209295,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": null,
+                    "instance": {
+                        "id": 368400,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005000/a005048/phase_third_quarter.1755_print.jpg",
+                        "filename": "phase_third_quarter.1755_print.jpg",
+                        "media_type": "Image",
+                        "alt_text": "Third quarter. Rises around midnight, visible to the south after sunrise.",
+                        "width": 1024,
+                        "height": 1024,
+                        "pixels": 1048576
+                    }
+                },
+                {
+                    "id": 209294,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": null,
+                    "instance": {
+                        "id": 368399,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005000/a005048/phase_third_quarter.1755.tif",
+                        "filename": "phase_third_quarter.1755.tif",
+                        "media_type": "Image",
+                        "alt_text": "Third quarter. Rises around midnight, visible to the south after sunrise.",
+                        "width": 3240,
+                        "height": 3240,
+                        "pixels": 10497600
+                    }
+                }
+            ],
+            "extra_data": {}
+        },
+        {
+            "id": 313519,
+            "url": "https://svs.gsfc.nasa.gov/5048/#media_group_313519",
+            "widget": "Single image",
+            "title": "",
+            "caption": "",
+            "description": "Waning crescent. Low to the east before sunrise.",
+            "items": [
+                {
+                    "id": 209297,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": null,
+                    "instance": {
+                        "id": 368402,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005000/a005048/phase_waning_crescent.1810_print.jpg",
+                        "filename": "phase_waning_crescent.1810_print.jpg",
+                        "media_type": "Image",
+                        "alt_text": "Waning crescent. Low to the east before sunrise.",
+                        "width": 1024,
+                        "height": 1024,
+                        "pixels": 1048576
+                    }
+                },
+                {
+                    "id": 209296,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": null,
+                    "instance": {
+                        "id": 368401,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005000/a005048/phase_waning_crescent.1810.tif",
+                        "filename": "phase_waning_crescent.1810.tif",
+                        "media_type": "Image",
+                        "alt_text": "Waning crescent. Low to the east before sunrise.",
+                        "width": 3240,
+                        "height": 3240,
+                        "pixels": 10497600
+                    }
+                }
+            ],
+            "extra_data": {}
+        },
+        {
+            "id": 313520,
+            "url": "https://svs.gsfc.nasa.gov/5048/#media_group_313520",
+            "widget": "Single image",
+            "title": "",
+            "caption": "",
+            "description": "New Moon. By the modern definition, New Moon occurs when the Moon and Sun are at the same geocentric ecliptic longitude. The part of the Moon facing us is completely in shadow then. Pictured here is the traditional New Moon, the earliest visible waxing crescent, which signals the start of a new month in many lunar and lunisolar calendars.",
+            "items": [
+                {
+                    "id": 209299,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": null,
+                    "instance": {
+                        "id": 368404,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005000/a005048/phase_new.1933_print.jpg",
+                        "filename": "phase_new.1933_print.jpg",
+                        "media_type": "Image",
+                        "alt_text": "New Moon. By the modern definition, New Moon occurs when the Moon and Sun are at the same geocentric ecliptic longitude. The part of the Moon facing us is completely in shadow then. Pictured here is the traditional New Moon, the earliest visible waxing crescent, which signals the start of a new month in many lunar and lunisolar calendars.",
+                        "width": 1024,
+                        "height": 1024,
+                        "pixels": 1048576
+                    }
+                },
+                {
+                    "id": 209298,
+                    "type": "media",
+                    "extra_data": null,
+                    "title": null,
+                    "caption": null,
+                    "instance": {
+                        "id": 368403,
+                        "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005000/a005048/phase_new.1933.tif",
+                        "filename": "phase_new.1933.tif",
+                        "media_type": "Image",
+                        "alt_text": "New Moon. By the modern definition, New Moon occurs when the Moon and Sun are at the same geocentric ecliptic longitude. The part of the Moon facing us is completely in shadow then. Pictured here is the traditional New Moon, the earliest visible waxing crescent, which signals the start of a new month in many lunar and lunisolar calendars.",
+                        "width": 3240,
+                        "height": 3240,
+                        "pixels": 10497600
+                    }
+                }
+            ],
+            "extra_data": {}
+        }
+    ],
+    "studio": "svs",
+    "funding_sources": [
+        "LRO"
+    ],
+    "credits": [
+        {
+            "role": "Visualizer",
+            "people": [
+                {
+                    "name": "Ernie Wright",
+                    "employer": "USRA"
+                }
+            ]
+        },
+        {
+            "role": "Planetary scientist",
+            "people": [
+                {
+                    "name": "Noah Petro",
+                    "employer": "NASA/GSFC"
+                }
+            ]
+        },
+        {
+            "role": "Producer",
+            "people": [
+                {
+                    "name": "James Tralie",
+                    "employer": "eMITS"
+                }
+            ]
+        }
+    ],
+    "missions": [
+        "LRO (Lunar Reconnaissance Orbiter)"
+    ],
+    "series": [
+        "LRO - Animations",
+        "The Moon"
+    ],
+    "tapes": [],
+    "papers": [],
+    "datasets": [
+        {
+            "name": "Digital Elevation Map",
+            "common_name": "DEM",
+            "platform": "LRO",
+            "sensor": "LOLA",
+            "type": "Other",
+            "organizations": [],
+            "description": "",
+            "credit": "",
+            "url": "",
+            "date_range": ""
+        },
+        {
+            "name": "Natural Color Hapke Normalized WAC Mosaic",
+            "common_name": "LROC WAC Color Mosaic",
+            "platform": "Lunar Reconnaissance Orbiter",
+            "sensor": "LRO Camera",
+            "type": "Mosaic",
+            "organizations": [
+                "Arizona State University"
+            ],
+            "description": "This natural-color global mosaic is based on the <a href='http://wms.lroc.asu.edu/lroc/view_rdr/WAC_HAPKE_NORMALIZED'>'Hapke normalized'</a> mosaic from LRO's wide-angle camera. The data has been gamma corrected, white balanced, and range adjusted to more closely match human vision.",
+            "credit": "",
+            "url": "",
+            "date_range": ""
+        },
+        {
+            "name": "JPL DE421",
+            "common_name": "DE421",
+            "platform": null,
+            "sensor": null,
+            "type": "Ephemeris",
+            "organizations": [
+                "NASA/JPL"
+            ],
+            "description": "Planetary ephemerides",
+            "credit": "",
+            "url": "http://ssd.jpl.nasa.gov/?ephemerides#planets",
+            "date_range": ""
+        }
+    ],
+    "nasa_science_categories": [
+        "Planets & Moons"
+    ],
+    "keywords": [
+        "Albedo",
+        "Elevation data",
+        "Laser Altimeter",
+        "LOLA",
+        "LRO",
+        "LROC",
+        "Lunar",
+        "Lunar Reconnaissance Orbiter",
+        "Lunar Surface",
+        "Lunar Topography",
+        "Moon"
+    ],
+    "recommended_pages": [
+        {
+            "id": 5610,
+            "url": "https://svs.gsfc.nasa.gov/5610/",
+            "page_type": "Visualization",
+            "title": "Nominal (reference) Artemis II mission trajectory",
+            "description": "Artemis II will launch four astronauts aboard NASA’s Orion spacecraft into Earth orbit, then send them on a loop around the Moon before returning safely to Earth. The mission follows a free-return trajectory that uses the gravity of the Earth and Moon to naturally guide the crew home. This visualization shows a nominal trajectory for Artemis II. The actual trajectory may vary slightly depending on the final launch timing.",
+            "release_date": "2026-01-27T17:00:00-05:00",
+            "update_date": "2026-02-12T14:26:10.466301-05:00",
+            "main_image": {
+                "id": 1201623,
+                "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005600/a005610/artemis2_full.00800_preview.jpg",
+                "filename": "artemis2_full.00800_preview.jpg",
+                "media_type": "Image",
+                "alt_text": "Nominal trajectory of NASA’s Artemis II mission, from Earth orbit around the Moon and back to Earth. The view starts close to Earth. A red dot and trail appears representing the path of Artemis II, which extends out in the direction of the Moon, before looping back and returning to Earth.",
+                "width": 1920,
+                "height": 1080,
+                "pixels": 2073600
+            }
+        }
+    ],
+    "related": [
+        {
+            "id": 5612,
+            "url": "https://svs.gsfc.nasa.gov/5612/",
+            "page_type": "Interactive",
+            "title": "Today's Moon Phase",
+            "description": "A view of the Moon with the current phase labeled",
+            "release_date": "2026-02-09T08:00:00-05:00",
+            "update_date": "2026-02-09T10:48:30.072601-05:00",
+            "main_image": {
+                "id": 1201854,
+                "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005600/a005612/moon.0953.jpg",
+                "filename": "moon.0953.jpg",
+                "media_type": "Image",
+                "alt_text": "A sample view of the Moon",
+                "width": 730,
+                "height": 730,
+                "pixels": 532900
+            }
+        },
+        {
+            "id": 5588,
+            "url": "https://svs.gsfc.nasa.gov/5588/",
+            "page_type": "Visualization",
+            "title": "Moon Phase and Libration, 2026 South Up",
+            "description": "The animation archived on this page shows the geocentric phase, libration, position angle of the axis, and apparent diameter of the Moon throughout the year 2026, at hourly intervals.",
+            "release_date": "2025-12-11T12:00:00-05:00",
+            "update_date": "2026-02-18T11:04:24.266214-05:00",
+            "main_image": {
+                "id": 1158972,
+                "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005500/a005588/preview_s_fancy.jpg",
+                "filename": "preview_s_fancy.jpg",
+                "media_type": "Image",
+                "alt_text": "A large rendering of the Moon is in the center, showing its phase and libration. In the upper left is a diagram of the Moon's position in its orbit around Earth. In the lower left is a diagram indicating the subsolar and sub-Earth points and the position angle of the north pole axis. In the lower right is text displaying the time and the Moon's position and orientation. Through the center and behind the Moon is a diagram showing the Earth-Moon distance to scale.",
+                "width": 1920,
+                "height": 1080,
+                "pixels": 2073600
+            }
+        }
+    ],
+    "sources": [],
+    "products": [
+        {
+            "id": 5612,
+            "url": "https://svs.gsfc.nasa.gov/5612/",
+            "page_type": "Interactive",
+            "title": "Today's Moon Phase",
+            "description": "A view of the Moon with the current phase labeled",
+            "release_date": "2026-02-09T08:00:00-05:00",
+            "update_date": "2026-02-09T10:48:30.072601-05:00",
+            "main_image": {
+                "id": 1201854,
+                "url": "https://svs.gsfc.nasa.gov/vis/a000000/a005600/a005612/moon.0953.jpg",
+                "filename": "moon.0953.jpg",
+                "media_type": "Image",
+                "alt_text": "A sample view of the Moon",
+                "width": 730,
+                "height": 730,
+                "pixels": 532900
+            }
+        }
+    ],
+    "newer_versions": [],
+    "older_versions": [],
+    "alternate_versions": []
+}

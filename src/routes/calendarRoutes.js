@@ -17,9 +17,9 @@ const router = express.Router();
  * @swagger
  * /calendar:
  *   get:
- *     summary: Get festivals and poojas by month and year
+ *     summary: Get festivals, poojas and moon phases by month and year
  *     description: |
- *       Returns all festivals and poojas for the given month/year.
+ *       Returns all festivals, poojas and moon phases for the given month/year.
  *       Users get approved items only, while admins get all statuses.
  *     tags: [Calendar]
  *     security:

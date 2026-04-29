@@ -2,15 +2,16 @@ const Festival = require("../models/Festival");
 const Pooja = require("../models/Pooja");
 const { sendSuccess } = require("../utils/response");
 const {
-  extractTimeZoneFromRequest,
+  getValidTimeZone,
   getMonthUtcRangeForTimeZone,
 } = require("../utils/timezone");
+const { getMoonPhasesForMonth } = require("../services/moonService");
 
 const getCalendarItems = async (req, res, next) => {
   try {
     const month = Number(req.query.month);
     const year = Number(req.query.year);
-    const timezone = extractTimeZoneFromRequest(req);
+    const timezone = getValidTimeZone(req.headers["x-timezone"] || "UTC");
     const { monthStartUtc, nextMonthStartUtc } = getMonthUtcRangeForTimeZone(
       year,
       month,
@@ -35,9 +36,10 @@ const getCalendarItems = async (req, res, next) => {
       poojaFilter.status = "APPROVED";
     }
 
-    const [festivals, poojas] = await Promise.all([
+    const [festivals, poojas, moonPhases] = await Promise.all([
       Festival.find(festivalFilter).sort({ date: 1 }).populate("createdBy", "email role"),
       Pooja.find(poojaFilter).sort({ createdAt: 1 }).populate("createdBy", "email role"),
+      getMoonPhasesForMonth(year, month, timezone),
     ]);
 
     return sendSuccess(
@@ -48,6 +50,7 @@ const getCalendarItems = async (req, res, next) => {
         timezone,
         festivals,
         poojas,
+        moonPhases,
       },
       "Calendar data fetched successfully"
     );
