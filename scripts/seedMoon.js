@@ -36,9 +36,15 @@ const seedMoonData = async () => {
 
       const result = await MoonEvent.bulkWrite(operations, { ordered: false });
 
+      const preview = moonEvents
+        .slice(0, 5)
+        .map((event) => `${event.type}@${event.eventTimeUtc.toISOString()}`)
+        .join(", ");
+
       console.log(
         `Seeded ${year}: fetched=${nasaData.length}, extracted=${moonEvents.length}, upserted=${result.upsertedCount || 0}, modified=${result.modifiedCount || 0}`
       );
+      console.log(`Extracted preview ${year}: ${preview}`);
     }
   } finally {
     await mongoose.connection.close();

@@ -9,7 +9,8 @@
     "test": "echo \"No tests configured\"",
     "prod": "cross-env NODE_ENV=production node src/server.js",
     "create:super-admin": "node scripts/createSuperAdmin.js",
-    "seed:moon": "node scripts/seedMoon.js"
+    "seed:moon": "node scripts/seedMoon.js",
+    "test:moon-april-2026": "node scripts/testMoonApril2026.js"
   },
   "keywords": [],
   "author": "",
