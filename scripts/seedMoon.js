@@ -26,6 +26,13 @@ const seedMoonData = async () => {
         continue;
       }
 
+      // Replace the year data to avoid stale events from older detection logic.
+      const yearStartUtc = new Date(Date.UTC(year, 0, 1, 0, 0, 0, 0));
+      const nextYearStartUtc = new Date(Date.UTC(year + 1, 0, 1, 0, 0, 0, 0));
+      const deleteResult = await MoonEvent.deleteMany({
+        eventTimeUtc: { $gte: yearStartUtc, $lt: nextYearStartUtc },
+      });
+
       const operations = moonEvents.map((event) => ({
         updateOne: {
           filter: { type: event.type, eventTimeUtc: event.eventTimeUtc },
@@ -42,7 +49,7 @@ const seedMoonData = async () => {
         .join(", ");
 
       console.log(
-        `Seeded ${year}: fetched=${nasaData.length}, extracted=${moonEvents.length}, upserted=${result.upsertedCount || 0}, modified=${result.modifiedCount || 0}`
+        `Seeded ${year}: removed=${deleteResult.deletedCount || 0}, fetched=${nasaData.length}, extracted=${moonEvents.length}, upserted=${result.upsertedCount || 0}, modified=${result.modifiedCount || 0}`
       );
       console.log(`Extracted preview ${year}: ${preview}`);
     }
