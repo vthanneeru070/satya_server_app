@@ -7,6 +7,7 @@ const {
   createDeity,
   getAllDeities,
   getDeities,
+  getDeityById,
   updateDeity,
   deleteDeity,
   reviewDeity,
@@ -180,6 +181,36 @@ router.get(
   authenticate,
   validate(allDeitiesQuerySchema, "query"),
   getDeities
+);
+
+/**
+ * @swagger
+ * /deities/{id}:
+ *   get:
+ *     summary: Get deity by ID
+ *     description: Returns deity details by ID. Non-admin users can access approved deities only.
+ *     tags: [Deities]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Deity fetched successfully
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Deity not found
+ */
+router.get(
+  "/:id",
+  authenticate,
+  validate(deityIdParamsSchema, "params"),
+  getDeityById
 );
 
 /**

@@ -65,6 +65,30 @@ const getAllDeities = async (req, res, next) => {
   }
 };
 
+const getDeityById = async (req, res, next) => {
+  try {
+    const filter = { _id: req.params.id };
+    const isAdmin = req.user?.role === "admin";
+    const isSuperAdmin = req.user?.isSuperAdmin === true;
+
+    if (!isAdmin && !isSuperAdmin) {
+      filter.status = "APPROVED";
+    }
+
+    const deity = await Deity.findOne(filter)
+      .populate("createdBy", "email role")
+      .populate("rituals", "title");
+
+    if (!deity) {
+      throw new HttpError("Deity not found", 404);
+    }
+
+    return sendSuccess(res, { deity }, "Deity fetched successfully");
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const updateDeity = async (req, res, next) => {
   try {
     const hasAnyField = Object.keys(req.body).length > 0;
@@ -127,6 +151,7 @@ module.exports = {
   createDeity,
   getDeities,
   getAllDeities,
+  getDeityById,
   updateDeity,
   deleteDeity,
   reviewDeity,
