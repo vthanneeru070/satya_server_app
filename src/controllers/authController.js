@@ -38,6 +38,17 @@ const getLinkedProviders = (decodedToken) => {
   return normalizedProviders;
 };
 
+const toTrimmedOrNull = (value) => {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const normalized = String(value).trim();
+  return normalized || null;
+};
+
+const normalizeProviderCandidates = (providers = []) =>
+  Array.from(new Set((Array.isArray(providers) ? providers : []).map(toProviderValue).filter(Boolean)));
+
 const parseFirebaseTokenFromHeader = (req) => {
   const authorizationHeader = req.headers.authorization || "";
   const [scheme, firebaseIdToken] = authorizationHeader.split(" ");
@@ -71,28 +82,46 @@ const issueTokens = async (user) => {
 
 const login = async (req, res, next) => {
   try {
+    const requestedUser = req.body?.user || {};
     const firebaseIdToken = parseFirebaseTokenFromHeader(req);
 
     const decodedToken = await admin.auth().verifyIdToken(firebaseIdToken);
     const firebaseUid = decodedToken.uid;
     const provider = getProvider(decodedToken);
-    const linkedProviders = getLinkedProviders(decodedToken);
+    const linkedProvidersFromToken = getLinkedProviders(decodedToken);
+    const linkedProvidersFromBody = normalizeProviderCandidates(requestedUser.providers);
+    const linkedProviders = Array.from(
+      new Set([...linkedProvidersFromToken, ...linkedProvidersFromBody])
+    );
 
-    console.log(
-      "--------------------------------",
-      firebaseIdToken,"firebaseIdToken",
-      decodedToken,"decodedToken",
-      provider,"provider",
-      linkedProviders,"linkedProviders",
-      "--------------------------------");
+    const profile = {
+      email: toTrimmedOrNull(requestedUser.email) || decodedToken.email || null,
+      phone: toTrimmedOrNull(requestedUser.phoneNumber) || decodedToken.phone_number || null,
+      fullName: toTrimmedOrNull(requestedUser.fullName),
+      firstName: toTrimmedOrNull(requestedUser.firstName),
+      lastName: toTrimmedOrNull(requestedUser.lastName),
+      gender: toTrimmedOrNull(requestedUser.gender),
+      photoUrl: toTrimmedOrNull(requestedUser.photoUrl),
+      emailVerified: requestedUser.emailVerified ?? decodedToken.email_verified ?? false,
+    };
+
+    if (requestedUser.firebaseUid && requestedUser.firebaseUid !== firebaseUid) {
+      throw new HttpError("firebaseUid does not match token user", 400);
+    }
 
     let user = await User.findOne({ firebaseUid });
 
     if (!user) {
       user = await User.create({
         firebaseUid,
-        phone: decodedToken.phone_number || null,
-        email: decodedToken.email || null,
+        phone: profile.phone,
+        email: profile.email,
+        fullName: profile.fullName,
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+        gender: profile.gender,
+        photoUrl: profile.photoUrl,
+        emailVerified: profile.emailVerified,
         provider,
         linkedProviders,
       });
@@ -112,13 +141,43 @@ const login = async (req, res, next) => {
         hasUpdates = true;
       }
 
-      if (!user.email && decodedToken.email) {
-        user.email = decodedToken.email;
+      if (profile.email && user.email !== profile.email) {
+        user.email = profile.email;
         hasUpdates = true;
       }
 
-      if (!user.phone && decodedToken.phone_number) {
-        user.phone = decodedToken.phone_number;
+      if (profile.phone && user.phone !== profile.phone) {
+        user.phone = profile.phone;
+        hasUpdates = true;
+      }
+
+      if (profile.fullName && user.fullName !== profile.fullName) {
+        user.fullName = profile.fullName;
+        hasUpdates = true;
+      }
+
+      if (profile.firstName && user.firstName !== profile.firstName) {
+        user.firstName = profile.firstName;
+        hasUpdates = true;
+      }
+
+      if (profile.lastName && user.lastName !== profile.lastName) {
+        user.lastName = profile.lastName;
+        hasUpdates = true;
+      }
+
+      if (profile.gender && user.gender !== profile.gender) {
+        user.gender = profile.gender;
+        hasUpdates = true;
+      }
+
+      if (profile.photoUrl && user.photoUrl !== profile.photoUrl) {
+        user.photoUrl = profile.photoUrl;
+        hasUpdates = true;
+      }
+
+      if (typeof profile.emailVerified === "boolean" && user.emailVerified !== profile.emailVerified) {
+        user.emailVerified = profile.emailVerified;
         hasUpdates = true;
       }
 

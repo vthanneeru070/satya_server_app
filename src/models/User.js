@@ -17,6 +17,33 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       default: null,
     },
+    fullName: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    firstName: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    lastName: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    gender: {
+      type: String,
+      default: null,
+    },
+    photoUrl: {
+      type: String,
+      default: null,
+    },
+    emailVerified: {
+      type: Boolean,
+      default: false,
+    },
     provider: {
       type: String,
       enum: [ "google", "apple", "password"],
