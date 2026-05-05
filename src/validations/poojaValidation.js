@@ -1,4 +1,6 @@
 const Joi = require("joi");
+const ddmmyyyyPattern = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])-[0-9]{4}$/;
+
 
 const festivalIdsField = Joi.alternatives().try(
   Joi.array().items(Joi.string().trim().hex().length(24)).default([]),
@@ -69,6 +71,7 @@ const mediaSchema = Joi.object({
 
 const createPoojaSchema = Joi.object({
   title: Joi.string().trim().min(2).max(150).required(),
+  date: Joi.string().trim().pattern(ddmmyyyyPattern).required(),
   deity: Joi.string().trim().hex().length(24).required(),
   category: Joi.string().trim().min(2).max(150).optional(),
   difficulty: Joi.string().trim().min(2).max(100).optional(),
@@ -91,6 +94,7 @@ const createPoojaSchema = Joi.object({
 
 const updatePoojaSchema = Joi.object({
   title: Joi.string().trim().min(2).max(150),
+  date: Joi.string().trim().pattern(ddmmyyyyPattern),
   deity: Joi.string().trim().hex().length(24),
   category: Joi.string().trim().min(2).max(150),
   difficulty: Joi.string().trim().min(2).max(100),

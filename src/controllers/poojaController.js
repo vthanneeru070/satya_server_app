@@ -86,10 +86,31 @@ const parseJsonField = (value, fieldName) => {
   throw new HttpError(`${fieldName} must be a valid JSON object/array`, 400);
 };
 
+const parseDdMmYyyyDate = (value, fieldName) => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const [day, month, year] = String(value).split("-").map(Number);
+  const parsedDate = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    Number.isNaN(parsedDate.getTime()) ||
+    parsedDate.getUTCDate() !== day ||
+    parsedDate.getUTCMonth() !== month - 1 ||
+    parsedDate.getUTCFullYear() !== year
+  ) {
+    throw new HttpError(`${fieldName} must be a valid date in dd-mm-yyyy format`, 400);
+  }
+
+  return parsedDate;
+};
+
 const createPooja = async (req, res, next) => {
   try {
     const {
       title,
+      date,
       deity,
       category,
       difficulty,
@@ -101,6 +122,7 @@ const createPooja = async (req, res, next) => {
       rating,
     } = req.body;
     const purpose = parseJsonField(req.body.purpose, "purpose");
+    const parsedDate = parseDdMmYyyyDate(date, "date");
     const deitySummary = parseJsonField(req.body.deitySummary, "deitySummary");
     const preparation = parseJsonField(req.body.preparation, "preparation");
     const steps = parseJsonField(req.body.steps, "steps") ?? [];
@@ -121,6 +143,7 @@ const createPooja = async (req, res, next) => {
 
     const pooja = await Pooja.create({
       title,
+      date: parsedDate,
       deity,
       category,
       difficulty,
@@ -294,6 +317,7 @@ const updatePooja = async (req, res, next) => {
 
     const {
       title,
+      date,
       deity,
       category,
       difficulty,
@@ -305,6 +329,7 @@ const updatePooja = async (req, res, next) => {
       rating,
     } = req.body;
     const purpose = parseJsonField(req.body.purpose, "purpose");
+    const parsedDate = parseDdMmYyyyDate(date, "date");
     const deitySummary = parseJsonField(req.body.deitySummary, "deitySummary");
     const preparation = parseJsonField(req.body.preparation, "preparation");
     const steps = parseJsonField(req.body.steps, "steps");
@@ -319,6 +344,7 @@ const updatePooja = async (req, res, next) => {
       uploadedMedia.images.length > 0 || uploadedMedia.audio.length > 0 || uploadedMedia.videos.length > 0;
     const hasBodyUpdates =
       title !== undefined ||
+      date !== undefined ||
       deity !== undefined ||
       category !== undefined ||
       difficulty !== undefined ||
@@ -349,6 +375,10 @@ const updatePooja = async (req, res, next) => {
 
     if (deity !== undefined) {
       pooja.deity = deity;
+    }
+
+    if (date !== undefined) {
+      pooja.date = parsedDate;
     }
 
     if (category !== undefined) {

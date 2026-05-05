@@ -67,9 +67,10 @@ const options = {
         },
         PoojaCreateMultipart: {
           type: "object",
-          required: ["title", "deity"],
+          required: ["title", "date", "deity"],
           properties: {
             title: { type: "string" },
+            date: { type: "string", format: "date-time", example: "2026-05-05T00:00:00.000Z" },
             deity: { type: "string", description: "Deity ObjectId" },
             category: { type: "string" },
             difficulty: { type: "string" },

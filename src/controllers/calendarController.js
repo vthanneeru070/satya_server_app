@@ -30,7 +30,7 @@ const getCalendarItems = async (req, res, next) => {
     }
 
     const poojaFilter = {
-      createdAt: { $gte: monthStartUtc, $lt: nextMonthStartUtc },
+      date: { $gte: monthStartUtc, $lt: nextMonthStartUtc },
     };
     if (!isAdminUser) {
       poojaFilter.status = "APPROVED";
@@ -38,7 +38,7 @@ const getCalendarItems = async (req, res, next) => {
 
     const [festivals, poojas, moonPhases] = await Promise.all([
       Festival.find(festivalFilter).sort({ date: 1 }).populate("createdBy", "email role"),
-      Pooja.find(poojaFilter).sort({ createdAt: 1 }).populate("createdBy", "email role"),
+      Pooja.find(poojaFilter).sort({ date: 1 }).populate("createdBy", "email role"),
       getMoonPhasesForMonth(year, month, timezone),
     ]);
 

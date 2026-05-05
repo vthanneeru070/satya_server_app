@@ -76,7 +76,10 @@ const poojaSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
-
+    date: {
+      type: Date,
+      required: true,
+    },
     deity: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Deity", // 🔥 changed to reference
