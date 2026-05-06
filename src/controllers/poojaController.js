@@ -1,4 +1,5 @@
 const Pooja = require("../models/Pooja");
+const Deity = require("../models/Deity");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const { uploadFile, deleteFile } = require("../services/s3Service");
@@ -165,6 +166,9 @@ const createPooja = async (req, res, next) => {
       createdBy: req.user.userId,
     });
 
+    // Keep Deity -> rituals in sync
+    await Deity.findByIdAndUpdate(deity, { $addToSet: { rituals: pooja._id } });
+
     return sendSuccess(res, { pooja }, "Pooja created successfully", 201);
   } catch (error) {
     return next(error);
@@ -328,6 +332,8 @@ const updatePooja = async (req, res, next) => {
       festivalIds: festivalIdsRaw,
       rating,
     } = req.body;
+
+    const previousDeityId = pooja.deity ? pooja.deity.toString() : null;
     const purpose = parseJsonField(req.body.purpose, "purpose");
     const parsedDate = parseDdMmYyyyDate(date, "date");
     const deitySummary = parseJsonField(req.body.deitySummary, "deitySummary");
@@ -360,7 +366,7 @@ const updatePooja = async (req, res, next) => {
       completion !== undefined ||
       mediaFromBody !== undefined ||
       blessings !== undefined ||
-      rating !== undefined ||
+    rating !== undefined ||
       steps !== undefined ||
       festivalIds !== undefined;
     const hasMediaUpdate = hasUploadedMedia;
@@ -469,6 +475,15 @@ const updatePooja = async (req, res, next) => {
     await pooja.save();
     await pooja.populate("createdBy", "email role");
 
+    // If deity changed, move pooja id from old deity to new deity
+    const newDeityId = pooja.deity ? pooja.deity.toString() : null;
+    if (deity !== undefined && previousDeityId && newDeityId && previousDeityId !== newDeityId) {
+      await Promise.all([
+        Deity.findByIdAndUpdate(previousDeityId, { $pull: { rituals: pooja._id } }),
+        Deity.findByIdAndUpdate(newDeityId, { $addToSet: { rituals: pooja._id } }),
+      ]);
+    }
+
     return sendSuccess(res, { pooja }, "Pooja updated successfully");
   } catch (error) {
     return next(error);
@@ -506,6 +521,12 @@ const deletePooja = async (req, res, next) => {
       ...((pooja.media?.audio || []).map((url) => deleteFile(url).catch(() => {}))),
       ...((pooja.media?.videos || []).map((url) => deleteFile(url).catch(() => {}))),
     ]);
+
+    // Remove from Deity -> rituals
+    if (pooja.deity) {
+      await Deity.findByIdAndUpdate(pooja.deity, { $pull: { rituals: pooja._id } });
+    }
+
     await pooja.deleteOne();
 
     return sendSuccess(res, null, "Pooja deleted successfully");
