@@ -1,6 +1,10 @@
 const Joi = require("joi");
 const ddmmyyyyPattern = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])-[0-9]{4}$/;
 
+const jsonStringField = Joi.string().trim().min(2);
+const jsonObjectOrStringField = (schema) => Joi.alternatives().try(schema, jsonStringField);
+const jsonArrayOrStringField = (schema) => Joi.alternatives().try(schema, jsonStringField);
+
 
 const festivalIdsField = Joi.alternatives().try(
   Joi.array().items(Joi.string().trim().hex().length(24)).default([]),
@@ -77,15 +81,15 @@ const createPoojaSchema = Joi.object({
   difficulty: Joi.string().trim().min(2).max(100).optional(),
   duration: Joi.string().trim().min(1).max(100).optional(),
   description: Joi.string().trim().min(2).max(3000).optional(),
-  purpose: purposeSchema.optional(),
-  deitySummary: deitySummarySchema.optional(),
-  preparation: preparationSchema.optional(),
-  steps: Joi.array().items(stepSchema).default([]),
-  mantra: mantraSchema.optional(),
-  spiritualMeaning: spiritualMeaningSchema.optional(),
-  guidance: guidanceSchema.optional(),
-  completion: completionSchema.optional(),
-  media: mediaSchema.optional(),
+  purpose: jsonObjectOrStringField(purposeSchema).optional(),
+  deitySummary: jsonObjectOrStringField(deitySummarySchema).optional(),
+  preparation: jsonObjectOrStringField(preparationSchema).optional(),
+  steps: jsonArrayOrStringField(Joi.array().items(stepSchema)).optional(),
+  mantra: jsonObjectOrStringField(mantraSchema).optional(),
+  spiritualMeaning: jsonObjectOrStringField(spiritualMeaningSchema).optional(),
+  guidance: jsonObjectOrStringField(guidanceSchema).optional(),
+  completion: jsonObjectOrStringField(completionSchema).optional(),
+  media: jsonObjectOrStringField(mediaSchema).optional(),
   blessings: blessingsField,
   status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED").optional(),
   festivalIds: festivalIdsField,
@@ -100,15 +104,15 @@ const updatePoojaSchema = Joi.object({
   difficulty: Joi.string().trim().min(2).max(100),
   duration: Joi.string().trim().min(1).max(100),
   description: Joi.string().trim().min(2).max(3000),
-  purpose: purposeSchema,
-  deitySummary: deitySummarySchema,
-  preparation: preparationSchema,
-  steps: Joi.array().items(stepSchema),
-  mantra: mantraSchema,
-  spiritualMeaning: spiritualMeaningSchema,
-  guidance: guidanceSchema,
-  completion: completionSchema,
-  media: mediaSchema,
+  purpose: jsonObjectOrStringField(purposeSchema),
+  deitySummary: jsonObjectOrStringField(deitySummarySchema),
+  preparation: jsonObjectOrStringField(preparationSchema),
+  steps: jsonArrayOrStringField(Joi.array().items(stepSchema)),
+  mantra: jsonObjectOrStringField(mantraSchema),
+  spiritualMeaning: jsonObjectOrStringField(spiritualMeaningSchema),
+  guidance: jsonObjectOrStringField(guidanceSchema),
+  completion: jsonObjectOrStringField(completionSchema),
+  media: jsonObjectOrStringField(mediaSchema),
   blessings: blessingsField,
   status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"),
   festivalIds: festivalIdsField,
