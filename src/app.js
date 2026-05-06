@@ -15,7 +15,7 @@ const app = express();
 app.use(helmet());
 app.use(
   cors({
-    origin: ["http://localhost:3000", "https://satya-devotte-app-yc6c-venkats-projects-9161ee90.vercel.app"],
+    origin: ["http://localhost:3000","https://satya-devotte-app-yc6c.vercel.app", "https://satya-devotte-app-yc6c-venkats-projects-9161ee90.vercel.app"],
     credentials: true,
   })
 );
