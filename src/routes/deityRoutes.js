@@ -3,6 +3,7 @@ const authenticate = require("../middleware/authenticate");
 const authorizeRoles = require("../middleware/authorizeRoles");
 const authorizeSuperAdmin = require("../middleware/authorizeSuperAdmin");
 const validate = require("../middleware/validate");
+const upload = require("../middleware/upload");
 const {
   createDeity,
   getAllDeities,
@@ -34,101 +35,39 @@ const router = express.Router();
  * /deities/create-deity:
  *   post:
  *     summary: Create deity
- *     description: Requires admin role.
+ *     description: Requires admin role. Accepts multipart/form-data with optional image/audio/video files. Nested fields can be sent as JSON strings.
  *     tags: [Deities]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
  *             type: object
  *             required: [name]
  *             properties:
- *               name:
+ *               name: { type: string }
+ *               description: { type: string }
+ *               alternate_names: { type: string, description: "JSON array string e.g. [\"Mahalakshmi\",\"Shri\"]" }
+ *               roles: { type: string, description: "JSON array string" }
+ *               lineage: { type: string, description: "JSON object string" }
+ *               structure: { type: string, description: "JSON array string of {title, description}" }
+ *               appearance: { type: string, description: "JSON array string of {title, description}" }
+ *               spiritual_significance: { type: string, description: "JSON array string of {title, description}" }
+ *               connecting: { type: string, description: "JSON object string" }
+ *               chanting: { type: string, description: "JSON object string" }
+ *               home_practice: { type: string, description: "JSON object string" }
+ *               devotional_experience: { type: string, description: "JSON object string" }
+ *               stories: { type: string, description: "JSON array string" }
+ *               rituals: { type: string, description: "ObjectId comma list or JSON array string" }
+ *               media: { type: string, description: "JSON object string with images/audio/videos" }
+ *               status:
  *                 type: string
- *               alternate_names:
- *                 type: array
- *                 items:
- *                   type: string
- *               description:
- *                 type: string
- *               roles:
- *                 type: array
- *                 items:
- *                   type: string
- *               lineage:
- *                 type: object
- *               appearance:
- *                 type: array
- *                 items:
- *                   type: object
- *               spiritual_significance:
- *                 type: array
- *                 items:
- *                   type: object
- *               connecting:
- *                 type: object
- *                 properties:
- *                   how_to_pray:
- *                     type: string
- *                   what_pleases:
- *                     type: array
- *                     items:
- *                       type: string
- *                   displeases:
- *                     type: array
- *                     items:
- *                       type: string
- *                   ideal_time:
- *                     type: array
- *                     items:
- *                       type: string
- *               chanting:
- *                 type: object
- *                 properties:
- *                   mantra:
- *                     type: string
- *                   repetitions:
- *                     type: string
- *                   benefits:
- *                     type: array
- *                     items:
- *                       type: string
- *                   preferred_days:
- *                     type: array
- *                     items:
- *                       type: string
- *                   associated_colors:
- *                     type: array
- *                     items:
- *                       type: string
- *               home_practice:
- *                 type: object
- *               stories:
- *                 type: array
- *                 items:
- *                   type: object
- *               rituals:
- *                 type: array
- *                 items:
- *                   type: string
- *               media:
- *                 type: object
- *                 properties:
- *                   images:
- *                     type: array
- *                     items:
- *                       type: string
- *                   audio:
- *                     type: array
- *                     items:
- *                       type: string
- *                   videos:
- *                     type: array
- *                     items:
- *                       type: string
+ *                 enum: [DRAFT, PENDING, APPROVED, REJECTED, QUEUED]
+ *               image: { type: string, format: binary }
+ *               audio: { type: string, format: binary }
+ *               video: { type: string, format: binary }
  *     responses:
  *       201:
  *         description: Deity created successfully
@@ -141,6 +80,11 @@ router.post(
   "/create-deity",
   authenticate,
   authorizeRoles("admin"),
+  upload.fields([
+    { name: "image", maxCount: 5 },
+    { name: "audio", maxCount: 5 },
+    { name: "video", maxCount: 5 },
+  ]),
   validate(createDeitySchema),
   createDeity
 );
@@ -250,7 +194,7 @@ router.get(
  * /deities/{id}:
  *   patch:
  *     summary: Update deity
- *     description: Requires admin role.
+ *     description: Requires admin role. Accepts multipart/form-data with optional image/audio/video files. Nested fields can be sent as JSON strings.
  *     tags: [Deities]
  *     security:
  *       - bearerAuth: []
@@ -263,80 +207,31 @@ router.get(
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
  *             type: object
  *             properties:
- *               name:
+ *               name: { type: string }
+ *               description: { type: string }
+ *               alternate_names: { type: string, description: "JSON array string" }
+ *               roles: { type: string, description: "JSON array string" }
+ *               lineage: { type: string, description: "JSON object string" }
+ *               structure: { type: string, description: "JSON array string" }
+ *               appearance: { type: string, description: "JSON array string" }
+ *               spiritual_significance: { type: string, description: "JSON array string" }
+ *               connecting: { type: string, description: "JSON object string" }
+ *               chanting: { type: string, description: "JSON object string" }
+ *               home_practice: { type: string, description: "JSON object string" }
+ *               devotional_experience: { type: string, description: "JSON object string" }
+ *               stories: { type: string, description: "JSON array string" }
+ *               rituals: { type: string, description: "ObjectId comma list or JSON array string" }
+ *               media: { type: string, description: "JSON object string with images/audio/videos" }
+ *               status:
  *                 type: string
- *               alternate_names:
- *                 type: array
- *                 items:
- *                   type: string
- *               description:
- *                 type: string
- *               roles:
- *                 type: array
- *                 items:
- *                   type: string
- *               lineage:
- *                 type: object
- *               appearance:
- *                 type: array
- *                 items:
- *                   type: object
- *               spiritual_significance:
- *                 type: array
- *                 items:
- *                   type: object
- *               connecting:
- *                 type: object
- *                 properties:
- *                   how_to_pray:
- *                     type: string
- *                   what_pleases:
- *                     type: array
- *                     items:
- *                       type: string
- *                   displeases:
- *                     type: array
- *                     items:
- *                       type: string
- *                   ideal_time:
- *                     type: array
- *                     items:
- *                       type: string
- *               chanting:
- *                 type: object
- *                 properties:
- *                   mantra:
- *                     type: string
- *                   repetitions:
- *                     type: string
- *                   benefits:
- *                     type: array
- *                     items:
- *                       type: string
- *                   preferred_days:
- *                     type: array
- *                     items:
- *                       type: string
- *                   associated_colors:
- *                     type: array
- *                     items:
- *                       type: string
- *               home_practice:
- *                 type: object
- *               stories:
- *                 type: array
- *                 items:
- *                   type: object
- *               rituals:
- *                 type: array
- *                 items:
- *                   type: string
- *               media:
- *                 type: object
+ *                 enum: [DRAFT, PENDING, APPROVED, REJECTED, QUEUED]
+ *               image: { type: string, format: binary }
+ *               audio: { type: string, format: binary }
+ *               video: { type: string, format: binary }
  *     responses:
  *       200:
  *         description: Deity updated successfully
@@ -351,6 +246,11 @@ router.patch(
   "/:id",
   authenticate,
   authorizeRoles("admin"),
+  upload.fields([
+    { name: "image", maxCount: 5 },
+    { name: "audio", maxCount: 5 },
+    { name: "video", maxCount: 5 },
+  ]),
   validate(deityIdParamsSchema, "params"),
   validate(updateDeitySchema),
   updateDeity

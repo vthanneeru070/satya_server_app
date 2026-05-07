@@ -1,5 +1,9 @@
 const Joi = require("joi");
 
+const jsonStringField = Joi.string().trim().min(2);
+const objectOrJsonString = (schema) => Joi.alternatives().try(schema, jsonStringField);
+const arrayOrJsonString = (schema) => Joi.alternatives().try(schema, jsonStringField);
+
 const titleDescSchema = Joi.object({
   title: Joi.string().trim().min(1).required(),
   description: Joi.string().trim().min(1).required(),
@@ -48,39 +52,46 @@ const mediaSchema = Joi.object({
   videos: Joi.array().items(Joi.string().trim()).default([]),
 });
 
+const devotionalExperienceSchema = Joi.object({
+  sign_of_connection: Joi.string().trim().allow("").optional(),
+  notes: Joi.string().trim().allow("").optional(),
+});
+
 const createDeitySchema = Joi.object({
   name: Joi.string().trim().min(2).max(200).required(),
-  alternate_names: Joi.array().items(Joi.string().trim().min(1)).default([]),
+  alternate_names: arrayOrJsonString(Joi.array().items(Joi.string().trim().min(1))).optional(),
   description: Joi.string().trim().allow("").max(5000).optional(),
-  roles: Joi.array().items(Joi.string().trim().min(1)).default([]),
-  lineage: lineageSchema.optional(),
-  structure: Joi.array().items(titleDescSchema).default([]),
-  appearance: Joi.array().items(titleDescSchema).default([]),
-  spiritual_significance: Joi.array().items(titleDescSchema).default([]),
-  connecting: connectingSchema.optional(),
-  chanting: chantingSchema.optional(),
-  home_practice: homePracticeSchema.optional(),
-  stories: Joi.array().items(storiesSchema).default([]),
-  rituals: Joi.array().items(Joi.string().trim().hex().length(24)).default([]),
-  media: mediaSchema.default({}),
+  roles: arrayOrJsonString(Joi.array().items(Joi.string().trim().min(1))).optional(),
+  lineage: objectOrJsonString(lineageSchema).optional(),
+  structure: arrayOrJsonString(Joi.array().items(titleDescSchema)).optional(),
+  appearance: arrayOrJsonString(Joi.array().items(titleDescSchema)).optional(),
+  spiritual_significance: arrayOrJsonString(Joi.array().items(titleDescSchema)).optional(),
+  connecting: objectOrJsonString(connectingSchema).optional(),
+  chanting: objectOrJsonString(chantingSchema).optional(),
+  home_practice: objectOrJsonString(homePracticeSchema).optional(),
+  devotional_experience: objectOrJsonString(devotionalExperienceSchema).optional(),
+  stories: arrayOrJsonString(Joi.array().items(storiesSchema)).optional(),
+  rituals: arrayOrJsonString(Joi.array().items(Joi.string().trim().hex().length(24))).optional(),
+  media: objectOrJsonString(mediaSchema).optional(),
   status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED").optional(),
 });
 
 const updateDeitySchema = Joi.object({
   name: Joi.string().trim().min(2).max(200),
-  alternate_names: Joi.array().items(Joi.string().trim().min(1)),
+  alternate_names: arrayOrJsonString(Joi.array().items(Joi.string().trim().min(1))),
   description: Joi.string().trim().allow("").max(5000),
-  roles: Joi.array().items(Joi.string().trim().min(1)),
-  lineage: lineageSchema,
-  structure: Joi.array().items(titleDescSchema),
-  appearance: Joi.array().items(titleDescSchema),
-  spiritual_significance: Joi.array().items(titleDescSchema),
-  connecting: connectingSchema,
-  chanting: chantingSchema,
-  home_practice: homePracticeSchema,
-  stories: Joi.array().items(storiesSchema),
-  rituals: Joi.array().items(Joi.string().trim().hex().length(24)),
-  media: mediaSchema,
+  roles: arrayOrJsonString(Joi.array().items(Joi.string().trim().min(1))),
+  lineage: objectOrJsonString(lineageSchema),
+  structure: arrayOrJsonString(Joi.array().items(titleDescSchema)),
+  appearance: arrayOrJsonString(Joi.array().items(titleDescSchema)),
+  spiritual_significance: arrayOrJsonString(Joi.array().items(titleDescSchema)),
+  connecting: objectOrJsonString(connectingSchema),
+  chanting: objectOrJsonString(chantingSchema),
+  home_practice: objectOrJsonString(homePracticeSchema),
+  devotional_experience: objectOrJsonString(devotionalExperienceSchema),
+  stories: arrayOrJsonString(Joi.array().items(storiesSchema)),
+  rituals: arrayOrJsonString(Joi.array().items(Joi.string().trim().hex().length(24))),
+  media: objectOrJsonString(mediaSchema),
   status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"),
 });
 

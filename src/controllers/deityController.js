@@ -1,12 +1,140 @@
 const Deity = require("../models/Deity");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
+const { uploadFile, deleteFile } = require("../services/s3Service");
+
+const getUploadedMediaUrls = async (files = {}) => ({
+  images: await Promise.all((files.image || []).map((file) => uploadFile(file, "deities"))),
+  audio: await Promise.all((files.audio || []).map((file) => uploadFile(file, "deities"))),
+  videos: await Promise.all((files.video || []).map((file) => uploadFile(file, "deities"))),
+});
+
+const parseStringArrayField = (value, fieldName) => {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) return value;
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (_error) {
+      // fall through
+    }
+
+    if (trimmed.includes(",")) {
+      return trimmed.split(",").map((item) => item.trim()).filter(Boolean);
+    }
+    return [trimmed];
+  }
+
+  throw new HttpError(`${fieldName} must be an array or JSON array string`, 400);
+};
+
+const parseObjectIdArrayField = (value, fieldName) => {
+  const parsed = parseStringArrayField(value, fieldName);
+  if (parsed === undefined) return undefined;
+
+  const objectIdRegex = /^[a-fA-F0-9]{24}$/;
+  const invalidId = parsed.find((id) => !objectIdRegex.test(String(id).trim()));
+  if (invalidId) {
+    throw new HttpError(`${fieldName} must contain valid ObjectId values`, 400);
+  }
+  return parsed.map((id) => String(id).trim());
+};
+
+const parseJsonField = (value, fieldName) => {
+  if (value === undefined) return undefined;
+  if (typeof value === "object" && value !== null) return value;
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    try {
+      return JSON.parse(trimmed);
+    } catch (_error) {
+      throw new HttpError(`${fieldName} must be a valid JSON object/array`, 400);
+    }
+  }
+
+  throw new HttpError(`${fieldName} must be a valid JSON object/array`, 400);
+};
+
+const buildDeityPayloadFromRequest = async (req) => {
+  const body = req.body || {};
+
+  const alternateNames = parseStringArrayField(body.alternate_names, "alternate_names");
+  const roles = parseStringArrayField(body.roles, "roles");
+  const lineage = parseJsonField(body.lineage, "lineage");
+  const structure = parseJsonField(body.structure, "structure");
+  const appearance = parseJsonField(body.appearance, "appearance");
+  const spiritualSignificance = parseJsonField(body.spiritual_significance, "spiritual_significance");
+  const connecting = parseJsonField(body.connecting, "connecting");
+  const chanting = parseJsonField(body.chanting, "chanting");
+  const homePractice = parseJsonField(body.home_practice, "home_practice");
+  const devotionalExperience = parseJsonField(body.devotional_experience, "devotional_experience");
+  const stories = parseJsonField(body.stories, "stories");
+  const rituals = parseObjectIdArrayField(body.rituals, "rituals");
+  const mediaFromBody = parseJsonField(body.media, "media");
+
+  const uploadedMedia = await getUploadedMediaUrls(req.files);
+  const hasUploadedMedia =
+    uploadedMedia.images.length > 0 ||
+    uploadedMedia.audio.length > 0 ||
+    uploadedMedia.videos.length > 0;
+
+  return {
+    body,
+    parsed: {
+      alternateNames,
+      roles,
+      lineage,
+      structure,
+      appearance,
+      spiritualSignificance,
+      connecting,
+      chanting,
+      homePractice,
+      devotionalExperience,
+      stories,
+      rituals,
+      mediaFromBody,
+    },
+    uploadedMedia,
+    hasUploadedMedia,
+  };
+};
 
 const createDeity = async (req, res, next) => {
   try {
-    const status = req.user.isSuperAdmin === true ? req.body.status || "APPROVED" : "PENDING";
+    const { body, parsed, uploadedMedia } = await buildDeityPayloadFromRequest(req);
+
+    const media = {
+      images: [...((parsed.mediaFromBody && parsed.mediaFromBody.images) || []), ...uploadedMedia.images],
+      audio: [...((parsed.mediaFromBody && parsed.mediaFromBody.audio) || []), ...uploadedMedia.audio],
+      videos: [...((parsed.mediaFromBody && parsed.mediaFromBody.videos) || []), ...uploadedMedia.videos],
+    };
+
+    const status = req.user.isSuperAdmin === true ? body.status || "APPROVED" : "PENDING";
+
     const deity = await Deity.create({
-      ...req.body,
+      name: body.name,
+      description: body.description,
+      ...(parsed.alternateNames !== undefined && { alternate_names: parsed.alternateNames }),
+      ...(parsed.roles !== undefined && { roles: parsed.roles }),
+      ...(parsed.lineage !== undefined && { lineage: parsed.lineage }),
+      ...(parsed.structure !== undefined && { structure: parsed.structure }),
+      ...(parsed.appearance !== undefined && { appearance: parsed.appearance }),
+      ...(parsed.spiritualSignificance !== undefined && { spiritual_significance: parsed.spiritualSignificance }),
+      ...(parsed.connecting !== undefined && { connecting: parsed.connecting }),
+      ...(parsed.chanting !== undefined && { chanting: parsed.chanting }),
+      ...(parsed.homePractice !== undefined && { home_practice: parsed.homePractice }),
+      ...(parsed.devotionalExperience !== undefined && { devotional_experience: parsed.devotionalExperience }),
+      ...(parsed.stories !== undefined && { stories: parsed.stories }),
+      ...(parsed.rituals !== undefined && { rituals: parsed.rituals }),
+      media,
       status,
       createdBy: req.user.userId,
     });
@@ -91,21 +219,80 @@ const getDeityById = async (req, res, next) => {
 
 const updateDeity = async (req, res, next) => {
   try {
-    const hasAnyField = Object.keys(req.body).length > 0;
-    if (!hasAnyField) {
-      throw new HttpError("Provide at least one field to update", 400);
-    }
-
-    const deity = await Deity.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
-    })
-      .populate("createdBy", "email role")
-      .populate("rituals", "title");
-
+    const deity = await Deity.findById(req.params.id);
     if (!deity) {
       throw new HttpError("Deity not found", 404);
     }
+
+    const { body, parsed, uploadedMedia, hasUploadedMedia } = await buildDeityPayloadFromRequest(req);
+
+    const hasBodyUpdates =
+      body.name !== undefined ||
+      body.description !== undefined ||
+      body.status !== undefined ||
+      parsed.alternateNames !== undefined ||
+      parsed.roles !== undefined ||
+      parsed.lineage !== undefined ||
+      parsed.structure !== undefined ||
+      parsed.appearance !== undefined ||
+      parsed.spiritualSignificance !== undefined ||
+      parsed.connecting !== undefined ||
+      parsed.chanting !== undefined ||
+      parsed.homePractice !== undefined ||
+      parsed.devotionalExperience !== undefined ||
+      parsed.stories !== undefined ||
+      parsed.rituals !== undefined ||
+      parsed.mediaFromBody !== undefined;
+
+    if (!hasBodyUpdates && !hasUploadedMedia) {
+      throw new HttpError("Provide at least one field to update", 400);
+    }
+
+    if (body.name !== undefined) deity.name = body.name;
+    if (body.description !== undefined) deity.description = body.description;
+    if (parsed.alternateNames !== undefined) deity.alternate_names = parsed.alternateNames;
+    if (parsed.roles !== undefined) deity.roles = parsed.roles;
+    if (parsed.lineage !== undefined) deity.lineage = parsed.lineage;
+    if (parsed.structure !== undefined) deity.structure = parsed.structure;
+    if (parsed.appearance !== undefined) deity.appearance = parsed.appearance;
+    if (parsed.spiritualSignificance !== undefined) deity.spiritual_significance = parsed.spiritualSignificance;
+    if (parsed.connecting !== undefined) deity.connecting = parsed.connecting;
+    if (parsed.chanting !== undefined) deity.chanting = parsed.chanting;
+    if (parsed.homePractice !== undefined) deity.home_practice = parsed.homePractice;
+    if (parsed.devotionalExperience !== undefined) deity.devotional_experience = parsed.devotionalExperience;
+    if (parsed.stories !== undefined) deity.stories = parsed.stories;
+    if (parsed.rituals !== undefined) deity.rituals = parsed.rituals;
+
+    if (body.status !== undefined && req.user.isSuperAdmin === true) {
+      deity.status = body.status;
+    }
+
+    if (parsed.mediaFromBody !== undefined || hasUploadedMedia) {
+      const currentMedia = deity.media || { images: [], audio: [], videos: [] };
+      const mediaFromBody = parsed.mediaFromBody;
+      deity.media = {
+        images: [
+          ...((mediaFromBody && mediaFromBody.images) || currentMedia.images || []),
+          ...uploadedMedia.images,
+        ],
+        audio: [
+          ...((mediaFromBody && mediaFromBody.audio) || currentMedia.audio || []),
+          ...uploadedMedia.audio,
+        ],
+        videos: [
+          ...((mediaFromBody && mediaFromBody.videos) || currentMedia.videos || []),
+          ...uploadedMedia.videos,
+        ],
+      };
+    }
+
+    if (req.user.isSuperAdmin !== true) {
+      deity.status = "PENDING";
+    }
+
+    await deity.save();
+    await deity.populate("createdBy", "email role");
+    await deity.populate("rituals", "title");
 
     return sendSuccess(res, { deity }, "Deity updated successfully");
   } catch (error) {
@@ -119,6 +306,12 @@ const deleteDeity = async (req, res, next) => {
     if (!deity) {
       throw new HttpError("Deity not found", 404);
     }
+
+    await Promise.all([
+      ...((deity.media?.images || []).map((url) => deleteFile(url).catch(() => {}))),
+      ...((deity.media?.audio || []).map((url) => deleteFile(url).catch(() => {}))),
+      ...((deity.media?.videos || []).map((url) => deleteFile(url).catch(() => {}))),
+    ]);
 
     await deity.deleteOne();
 
