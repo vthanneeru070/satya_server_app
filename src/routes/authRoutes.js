@@ -46,10 +46,15 @@ router.post("/login", login);
 
 /**
  * @swagger
- * /auth/admin/login:
+ * /auth/admin-login:
  *   post:
- *     summary: Admin login (Firebase)
- *     description: Logs in only users that already have `admin` role in MongoDB. Firebase is used only for identity verification.
+ *     summary: Admin Panel login (Firebase email/password)
+ *     description: |
+ *       Logs in dedicated admin / superadmin accounts. Strictly enforces:
+ *         - Firebase sign-in provider must be `password` (Google/Apple are user-only)
+ *         - role must be `admin` or `superadmin`
+ *         - canLoginAdminPanel must be `true`
+ *         - account must not be soft-deleted
  *     tags: [Auth]
  *     parameters:
  *       - in: header
@@ -58,17 +63,20 @@ router.post("/login", login);
  *         schema:
  *           type: string
  *           example: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IkZJUkVCQVNFX0lEX1RPS0VOIiwi...
- *         description: Firebase ID token prefixed with Bearer.
+ *         description: Firebase ID token (password provider only) prefixed with Bearer.
  *     responses:
  *       200:
  *         description: Admin login successful
  *       401:
  *         description: Firebase token verification failed
  *       403:
- *         description: Admin access denied
+ *         description: Forbidden (wrong provider / role / panel access disabled)
  *       404:
- *         description: Admin user not found
+ *         description: Admin account not found
  */
+router.post("/admin-login", adminLogin);
+
+// Legacy alias for backward compatibility with older clients.
 router.post("/admin/login", adminLogin);
 
 /**

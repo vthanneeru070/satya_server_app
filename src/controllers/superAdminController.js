@@ -8,6 +8,20 @@ const {
   deleteFirebaseUser,
   generatePasswordResetLink,
 } = require("../services/firebaseAuthService");
+const {
+  sendAdminInviteEmail,
+  sendPasswordResetEmail,
+} = require("../services/emailService");
+
+/**
+ * If ADMIN_PANEL_URL is set, the password-reset link will redirect there after
+ * the admin sets their password (better UX than landing on Firebase's default page).
+ */
+const buildResetActionCodeSettings = () => {
+  const url = process.env.ADMIN_PANEL_URL;
+  if (!url) return undefined;
+  return { url, handleCodeInApp: false };
+};
 
 /**
  * Create a dedicated admin account.
@@ -92,16 +106,36 @@ const createDedicatedAdmin = async (req, res, next) => {
       throw mongoErr;
     }
 
-    // 4) Generate the password reset link.
+    // 4) Generate the password reset link (with optional continue URL → admin panel).
     let passwordResetLink = null;
     try {
-      passwordResetLink = await generatePasswordResetLink(normalizedEmail);
+      passwordResetLink = await generatePasswordResetLink(
+        normalizedEmail,
+        buildResetActionCodeSettings()
+      );
     } catch (linkErr) {
       // Non-fatal: the admin can request a fresh reset link from the panel.
       console.error("[superAdminController] Failed to generate reset link:", linkErr.message);
     }
 
-    // 5) Audit log.
+    // 5) Email the invite to the new admin (non-blocking — don't fail the request).
+    let emailDelivered = false;
+    let emailError = null;
+    if (passwordResetLink) {
+      try {
+        await sendAdminInviteEmail({
+          to: normalizedEmail,
+          fullName,
+          resetLink: passwordResetLink,
+        });
+        emailDelivered = true;
+      } catch (mailErr) {
+        emailError = mailErr.message;
+        console.error("[superAdminController] Failed to send invite email:", mailErr.message);
+      }
+    }
+
+    // 6) Audit log.
     await AdminLog.create({
       action: "create_dedicated_admin",
       performedBy: req.user.userId,
@@ -113,8 +147,12 @@ const createDedicatedAdmin = async (req, res, next) => {
       {
         admin: mongoUser,
         passwordResetLink,
+        emailDelivered,
+        emailError,
       },
-      "Dedicated admin created successfully. Share the password reset link with the admin.",
+      emailDelivered
+        ? `Dedicated admin created. Invitation email sent to ${normalizedEmail}.`
+        : "Dedicated admin created. Email delivery failed — share the password reset link manually.",
       201
     );
   } catch (error) {
@@ -123,7 +161,8 @@ const createDedicatedAdmin = async (req, res, next) => {
 };
 
 /**
- * (Convenience) Re-issue a password reset link for an existing admin.
+ * Re-issue a password reset link for an existing admin AND email it to them.
+ * The link is also returned in the response (so the super-admin can copy/share manually).
  */
 const resendPasswordResetLink = async (req, res, next) => {
   try {
@@ -136,8 +175,32 @@ const resendPasswordResetLink = async (req, res, next) => {
       throw new HttpError("Target admin has no email on file", 400);
     }
 
-    const passwordResetLink = await generatePasswordResetLink(target.email);
-    return sendSuccess(res, { passwordResetLink }, "Password reset link generated");
+    const passwordResetLink = await generatePasswordResetLink(
+      target.email,
+      buildResetActionCodeSettings()
+    );
+
+    let emailDelivered = false;
+    let emailError = null;
+    try {
+      await sendPasswordResetEmail({
+        to: target.email,
+        fullName: target.fullName,
+        resetLink: passwordResetLink,
+      });
+      emailDelivered = true;
+    } catch (mailErr) {
+      emailError = mailErr.message;
+      console.error("[superAdminController] Failed to send reset email:", mailErr.message);
+    }
+
+    return sendSuccess(
+      res,
+      { passwordResetLink, emailDelivered, emailError },
+      emailDelivered
+        ? `Password reset link emailed to ${target.email}.`
+        : "Password reset link generated. Email delivery failed — share manually."
+    );
   } catch (error) {
     return next(error);
   }
