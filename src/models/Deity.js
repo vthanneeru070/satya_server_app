@@ -56,6 +56,7 @@ const deitySchema = new mongoose.Schema(
       how_to_pray: String,
       what_pleases: [String],
       displeases: [String],
+      ideal_time: [String],
     },
 
     // 🕉️ PRAYER & CHANTING

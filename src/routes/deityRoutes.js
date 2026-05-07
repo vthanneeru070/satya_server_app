@@ -70,8 +70,40 @@ const router = express.Router();
  *                   type: object
  *               connecting:
  *                 type: object
+ *                 properties:
+ *                   how_to_pray:
+ *                     type: string
+ *                   what_pleases:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                   displeases:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                   ideal_time:
+ *                     type: array
+ *                     items:
+ *                       type: string
  *               chanting:
  *                 type: object
+ *                 properties:
+ *                   mantra:
+ *                     type: string
+ *                   repetitions:
+ *                     type: string
+ *                   benefits:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                   preferred_days:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                   associated_colors:
+ *                     type: array
+ *                     items:
+ *                       type: string
  *               home_practice:
  *                 type: object
  *               stories:
@@ -259,8 +291,40 @@ router.get(
  *                   type: object
  *               connecting:
  *                 type: object
+ *                 properties:
+ *                   how_to_pray:
+ *                     type: string
+ *                   what_pleases:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                   displeases:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                   ideal_time:
+ *                     type: array
+ *                     items:
+ *                       type: string
  *               chanting:
  *                 type: object
+ *                 properties:
+ *                   mantra:
+ *                     type: string
+ *                   repetitions:
+ *                     type: string
+ *                   benefits:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                   preferred_days:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                   associated_colors:
+ *                     type: array
+ *                     items:
+ *                       type: string
  *               home_practice:
  *                 type: object
  *               stories:

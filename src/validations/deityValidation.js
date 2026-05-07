@@ -16,13 +16,16 @@ const lineageSchema = Joi.object({
 const connectingSchema = Joi.object({
   how_to_pray: Joi.string().trim().allow("").optional(),
   what_pleases: Joi.array().items(Joi.string().trim()).default([]),
-  ideal_time: Joi.string().trim().allow("").optional(),
+  displeases: Joi.array().items(Joi.string().trim()).default([]),
+  ideal_time: Joi.array().items(Joi.string().trim()).default([]),
 });
 
 const chantingSchema = Joi.object({
   mantra: Joi.string().trim().allow("").optional(),
   repetitions: Joi.string().trim().allow("").optional(),
   benefits: Joi.array().items(Joi.string().trim()).default([]),
+  preferred_days: Joi.array().items(Joi.string().trim()).default([]),
+  associated_colors: Joi.array().items(Joi.string().trim()).default([]),
 });
 
 const homePracticeSchema = Joi.object({
