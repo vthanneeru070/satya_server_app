@@ -4,7 +4,13 @@ const adminLogSchema = new mongoose.Schema(
   {
     action: {
       type: String,
-      enum: ["create_admin", "remove_admin", "delete_user"],
+      enum: [
+        "create_admin",
+        "create_dedicated_admin",
+        "remove_admin",
+        "delete_user",
+        "restore_user",
+      ],
       required: true,
     },
     performedBy: {

@@ -111,6 +111,15 @@ const login = async (req, res, next) => {
 
     let user = await User.findOne({ firebaseUid });
 
+    // SECURITY: end-user login MUST NOT be usable by admins/superadmins.
+    // Dedicated admin accounts can only authenticate via /auth/admin-login.
+    if (user && (user.role === "admin" || user.role === "superadmin")) {
+      throw new HttpError(
+        "This account is an admin. Use the admin panel login at /auth/admin-login.",
+        403
+      );
+    }
+
     if (!user) {
       user = await User.create({
         firebaseUid,
@@ -124,6 +133,8 @@ const login = async (req, res, next) => {
         emailVerified: profile.emailVerified,
         provider,
         linkedProviders,
+        role: "user",
+        canLoginAdminPanel: false,
       });
     } else {
       let hasUpdates = false;
@@ -181,6 +192,12 @@ const login = async (req, res, next) => {
         hasUpdates = true;
       }
 
+      // Auto-restore soft-deleted account on successful re-login.
+      if (user.isDeleted) {
+        user.isDeleted = false;
+        hasUpdates = true;
+      }
+
       if (hasUpdates) {
         await user.save();
       }
@@ -206,18 +223,47 @@ const login = async (req, res, next) => {
   }
 };
 
+/**
+ * Admin Panel login.
+ *
+ * Strictly enforces:
+ *   - role must be "admin" or "superadmin"
+ *   - canLoginAdminPanel must be true
+ *   - account must NOT be soft-deleted
+ *   - Firebase sign-in provider must be "password" (Google/Apple are user-only)
+ */
 const adminLogin = async (req, res, next) => {
   try {
     const firebaseIdToken = parseFirebaseTokenFromHeader(req);
     const decodedToken = await admin.auth().verifyIdToken(firebaseIdToken);
+    const provider = getProvider(decodedToken);
+
+    if (provider !== "password") {
+      throw new HttpError(
+        "Admin accounts must sign in with email/password only.",
+        403
+      );
+    }
+
     const user = await User.findOne({ firebaseUid: decodedToken.uid });
 
     if (!user) {
-      throw new HttpError("Admin user not found. Please login with /auth/login first.", 404);
+      throw new HttpError("Admin account not found.", 404);
     }
 
-    if (user.role !== "admin") {
+    if (user.isDeleted) {
+      throw new HttpError("Account has been deleted.", 403);
+    }
+
+    if (user.role !== "admin" && user.role !== "superadmin") {
       throw new HttpError("Admin access denied", 403);
+    }
+
+    if (!user.canLoginAdminPanel) {
+      throw new HttpError(
+        "This account is not permitted to access the admin panel.",
+        403
+      );
     }
 
     const { accessToken, refreshToken } = await issueTokens(user);

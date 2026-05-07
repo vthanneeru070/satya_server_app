@@ -7,42 +7,22 @@ const DailySloka = require("../models/DailySloka");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 
-const createAdmin = async (req, res, next) => {
-  try {
-    const normalizedEmail = req.body.email.toLowerCase().trim();
-    const user = await User.findOne({ email: normalizedEmail });
-
-    if (!user) {
-      throw new HttpError("User not found", 404);
-    }
-
-    if (user.role === "admin") {
-      return sendSuccess(res, { user }, "User is already an admin");
-    }
-
-    user.role = "admin";
-    user.createdBy = req.user.userId;
-    await user.save();
-
-    await AdminLog.create({
-      action: "create_admin",
-      performedBy: req.user.userId,
-      targetUser: user._id,
-    });
-
-    return sendSuccess(res, { user }, "User promoted to admin");
-  } catch (error) {
-    return next(error);
-  }
-};
-
+/**
+ * List admin users (paginated). Excludes soft-deleted unless `?includeDeleted=true`.
+ * NOTE: This now lists role: "admin" (regular admins) — superadmins are listed separately
+ * via the same query plus `?role=superadmin` if needed (see filter).
+ */
 const getAdminUsers = async (req, res, next) => {
   try {
     const page = Number(req.query.page || 1);
     const limit = Number(req.query.limit || 10);
     const skip = (page - 1) * limit;
     const search = (req.query.search || "").trim();
-    const filter = { role: "admin" };
+    const includeDeleted = req.query.includeDeleted === "true";
+    const roleFilter = req.query.role === "superadmin" ? "superadmin" : "admin";
+
+    const filter = { role: roleFilter };
+    if (!includeDeleted) filter.isDeleted = { $ne: true };
 
     if (search) {
       filter.email = { $regex: search, $options: "i" };
@@ -82,7 +62,9 @@ const getRegularUsers = async (req, res, next) => {
     const limit = Number(req.query.limit || 10);
     const skip = (page - 1) * limit;
     const search = (req.query.search || "").trim();
+    const includeDeleted = req.query.includeDeleted === "true";
     const filter = { role: "user" };
+    if (!includeDeleted) filter.isDeleted = { $ne: true };
 
     if (search) {
       filter.email = { $regex: search, $options: "i" };
@@ -111,6 +93,10 @@ const getRegularUsers = async (req, res, next) => {
   }
 };
 
+/**
+ * Remove admin role from a user (super-admin only).
+ * Cannot demote a superadmin. Cleans canLoginAdminPanel + createdBy on demote.
+ */
 const removeAdmin = async (req, res, next) => {
   try {
     const targetUser = await User.findById(req.params.id);
@@ -119,7 +105,7 @@ const removeAdmin = async (req, res, next) => {
       throw new HttpError("User not found", 404);
     }
 
-    if (targetUser.isSuperAdmin) {
+    if (targetUser.role === "superadmin") {
       throw new HttpError("Super admin role cannot be removed", 400);
     }
 
@@ -128,7 +114,7 @@ const removeAdmin = async (req, res, next) => {
     }
 
     targetUser.role = "user";
-    targetUser.isSuperAdmin = false;
+    targetUser.canLoginAdminPanel = false;
     targetUser.createdBy = null;
     await targetUser.save();
 
@@ -144,6 +130,10 @@ const removeAdmin = async (req, res, next) => {
   }
 };
 
+/**
+ * Soft-delete a user. Cannot delete admins or superadmins.
+ * Clears their FCM tokens and revokes admin-panel access (defensive).
+ */
 const deleteUser = async (req, res, next) => {
   try {
     const targetUser = await User.findById(req.params.id);
@@ -151,17 +141,51 @@ const deleteUser = async (req, res, next) => {
       throw new HttpError("User not found", 404);
     }
 
-    if (targetUser.role === "admin" || targetUser.isSuperAdmin) {
-      throw new HttpError("Admin users cannot be deleted", 400);
+    if (targetUser.role === "admin" || targetUser.role === "superadmin") {
+      throw new HttpError("Admin/super-admin accounts cannot be deleted from here", 400);
     }
 
-    await targetUser.deleteOne();
+    if (targetUser.isDeleted) {
+      return sendSuccess(res, { user: targetUser }, "User is already deleted");
+    }
+
+    targetUser.isDeleted = true;
+    targetUser.fcmTokens = [];
+    targetUser.canLoginAdminPanel = false;
+    await targetUser.save();
+
     await AdminLog.create({
       action: "delete_user",
       performedBy: req.user.userId,
       targetUser: targetUser._id,
     });
-    return sendSuccess(res, { user: targetUser }, "User deleted successfully");
+    return sendSuccess(res, { user: targetUser }, "User soft-deleted successfully");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const restoreUser = async (req, res, next) => {
+  try {
+    const targetUser = await User.findById(req.params.id);
+    if (!targetUser) {
+      throw new HttpError("User not found", 404);
+    }
+
+    if (!targetUser.isDeleted) {
+      return sendSuccess(res, { user: targetUser }, "User is not deleted");
+    }
+
+    targetUser.isDeleted = false;
+    await targetUser.save();
+
+    await AdminLog.create({
+      action: "restore_user",
+      performedBy: req.user.userId,
+      targetUser: targetUser._id,
+    });
+
+    return sendSuccess(res, { user: targetUser }, "User restored successfully");
   } catch (error) {
     return next(error);
   }
@@ -198,16 +222,19 @@ const getAdminDashboard = async (_req, res, next) => {
     const [
       usersCount,
       adminsCount,
+      superAdminsCount,
       todayActiveUsers,
       festivalCounts,
       poojaCounts,
       donationCounts,
       todaySloka,
     ] = await Promise.all([
-      User.countDocuments({ role: "user" }),
-      User.countDocuments({ role: "admin" }),
+      User.countDocuments({ role: "user", isDeleted: { $ne: true } }),
+      User.countDocuments({ role: "admin", isDeleted: { $ne: true } }),
+      User.countDocuments({ role: "superadmin", isDeleted: { $ne: true } }),
       User.countDocuments({
         role: "user",
+        isDeleted: { $ne: true },
         lastActiveAt: { $gte: todayStartUtc, $lt: tomorrowStartUtc },
       }),
       getStatusCounts(Festival, statusKeys),
@@ -221,6 +248,7 @@ const getAdminDashboard = async (_req, res, next) => {
       {
         usersCount,
         adminsCount,
+        superAdminsCount,
         todayActiveUsers,
         festivals: festivalCounts,
         poojas: poojaCounts,
@@ -235,10 +263,10 @@ const getAdminDashboard = async (_req, res, next) => {
 };
 
 module.exports = {
-  createAdmin,
   getAdminUsers,
   getRegularUsers,
   removeAdmin,
   deleteUser,
+  restoreUser,
   getAdminDashboard,
 };

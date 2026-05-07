@@ -1,6 +1,7 @@
 const express = require("express");
 const authRoutes = require("./authRoutes");
 const adminRoutes = require("./adminRoutes");
+const superAdminRoutes = require("./superAdminRoutes");
 const poojaRoutes = require("./poojaRoutes");
 const donationRoutes = require("./donationRoutes");
 const festivalRoutes = require("./festivalRoutes");
@@ -11,13 +12,14 @@ const deityRoutes = require("./deityRoutes");
 
 const router = express.Router();
 
-//routes
+// auth
 router.use("/auth", authRoutes);
 
-//admin routes
+// admin & superadmin
 router.use("/admin", adminRoutes);
+router.use("/superadmin", superAdminRoutes);
 
-//shared routes
+// shared / domain routes
 router.use("/poojas", poojaRoutes);
 router.use("/donations", donationRoutes);
 router.use("/festivals", festivalRoutes);
