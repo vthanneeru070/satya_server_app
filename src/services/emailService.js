@@ -76,6 +76,12 @@ const getTransporter = () => {
     secure: cfg.secure,
     requireTLS: !cfg.secure && cfg.port === 587,
     auth: { user: cfg.user, pass: cfg.pass },
+    // Hard timeouts so a hung SMTP server can never block the API response.
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 15_000,
+    pool: true,
+    maxConnections: 3,
     debug: cfg.debug,
     logger: cfg.debug,
   });

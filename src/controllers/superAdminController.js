@@ -44,12 +44,83 @@ const createDedicatedAdmin = async (req, res, next) => {
     const { fullName, email, phone } = req.body;
     const normalizedEmail = String(email).toLowerCase().trim();
 
-    // 1) Duplicate-email guard against any existing user (any role, any state).
+    // 1) Duplicate-email guard. If a previous request was canceled mid-way and
+    //    already created the user, allow this call to "resume" and re-send the
+    //    invite instead of failing with 409 — but only if the user matches what
+    //    the caller is creating (admin role, same email).
     const existing = await User.findOne({ email: normalizedEmail });
     if (existing) {
-      throw new HttpError(
-        `An account with email "${normalizedEmail}" already exists.`,
-        409
+      const isResumable =
+        existing.role === "admin" &&
+        existing.canLoginAdminPanel === true &&
+        !existing.isDeleted;
+
+      if (!isResumable) {
+        throw new HttpError(
+          `An account with email "${normalizedEmail}" already exists.`,
+          409
+        );
+      }
+
+      // RESUME PATH — admin already exists; just regenerate link and email.
+      let resumePasswordResetLink = null;
+      let resumeResetLinkError = null;
+      try {
+        resumePasswordResetLink = await generatePasswordResetLink(
+          normalizedEmail,
+          buildResetActionCodeSettings()
+        );
+      } catch (linkErr) {
+        const code = linkErr?.code || linkErr?.errorInfo?.code;
+        resumeResetLinkError = code
+          ? `${code}: ${linkErr.message}`
+          : linkErr.message;
+        console.error(
+          "[superAdminController] (resume) Failed to generate reset link:",
+          resumeResetLinkError
+        );
+      }
+
+      // Fire-and-forget email — do NOT block the response.
+      if (resumePasswordResetLink) {
+        sendAdminInviteEmail({
+          to: normalizedEmail,
+          fullName: existing.fullName || fullName,
+          resetLink: resumePasswordResetLink,
+        })
+          .then((result) => {
+            if (result?.dryRun) {
+              console.warn(
+                "[superAdminController] (resume) Email skipped — SMTP not configured."
+              );
+            } else {
+              console.log(
+                `[superAdminController] (resume) Invite email queued. messageId=${result?.messageId}`
+              );
+            }
+          })
+          .catch((mailErr) => {
+            console.error(
+              "[superAdminController] (resume) Failed to send invite email:",
+              mailErr.message
+            );
+          });
+      }
+
+      return sendSuccess(
+        res,
+        {
+          admin: existing,
+          passwordResetLink: resumePasswordResetLink,
+          resetLinkError: resumeResetLinkError,
+          resumed: true,
+        },
+        resumePasswordResetLink
+          ? `Admin already exists. New invitation email is being sent to ${normalizedEmail}.`
+          : `Admin already exists, but failed to generate a new password reset link${
+              resumeResetLinkError ? `: ${resumeResetLinkError}` : ""
+            }.`,
+        200
       );
     }
 
@@ -124,30 +195,33 @@ const createDedicatedAdmin = async (req, res, next) => {
       );
     }
 
-    // 5) Email the invite to the new admin (non-blocking — don't fail the request).
-    let emailDelivered = false;
-    let emailDryRun = false;
-    let emailMessageId = null;
-    let emailError = null;
+    // 5) Email the invite IN THE BACKGROUND — never block the API response on
+    //    SMTP. Even with hard timeouts, a 10–15s wait is too long for a UI.
+    //    The link is already in the response so the super-admin can copy/share
+    //    immediately if email delivery is slow or fails.
     if (passwordResetLink) {
-      try {
-        const mailResult = await sendAdminInviteEmail({
-          to: normalizedEmail,
-          fullName,
-          resetLink: passwordResetLink,
-        });
-        emailDryRun = !!mailResult?.dryRun;
-        emailDelivered = !!mailResult?.delivered && !mailResult?.dryRun;
-        emailMessageId = mailResult?.messageId || null;
-        if (emailDryRun) {
-          console.warn(
-            "[superAdminController] Invite email skipped (SMTP not configured). API still returned passwordResetLink."
+      sendAdminInviteEmail({
+        to: normalizedEmail,
+        fullName,
+        resetLink: passwordResetLink,
+      })
+        .then((result) => {
+          if (result?.dryRun) {
+            console.warn(
+              "[superAdminController] Email skipped — SMTP not configured."
+            );
+          } else {
+            console.log(
+              `[superAdminController] Invite email queued. messageId=${result?.messageId}`
+            );
+          }
+        })
+        .catch((mailErr) => {
+          console.error(
+            "[superAdminController] Failed to send invite email:",
+            mailErr.message
           );
-        }
-      } catch (mailErr) {
-        emailError = mailErr.message;
-        console.error("[superAdminController] Failed to send invite email:", mailErr.message);
-      }
+        });
     }
 
     // 6) Audit log.
@@ -163,20 +237,13 @@ const createDedicatedAdmin = async (req, res, next) => {
         admin: mongoUser,
         passwordResetLink,
         resetLinkError,
-        emailDelivered,
-        emailDryRun,
-        emailMessageId,
-        emailError,
+        emailQueued: !!passwordResetLink,
       },
-      emailDelivered
-        ? `Dedicated admin created. Invitation email sent to ${normalizedEmail}.`
-        : emailDryRun
-          ? "Dedicated admin created. SMTP is not configured on the server — no email was sent. Add SMTP_* env vars or share passwordResetLink manually."
-          : passwordResetLink
-            ? "Dedicated admin created. Email delivery failed — share passwordResetLink manually."
-            : `Dedicated admin created, but could not generate password reset link${
-                resetLinkError ? `: ${resetLinkError}` : ""
-              }.`,
+      passwordResetLink
+        ? `Dedicated admin created. Invitation email is being sent to ${normalizedEmail}. The reset link is also returned in the response.`
+        : `Dedicated admin created, but could not generate password reset link${
+            resetLinkError ? `: ${resetLinkError}` : ""
+          }.`,
       201
     );
   } catch (error) {
@@ -215,32 +282,34 @@ const resendPasswordResetLink = async (req, res, next) => {
       );
     }
 
-    let emailDelivered = false;
-    let emailDryRun = false;
-    let emailMessageId = null;
-    let emailError = null;
-    try {
-      const mailResult = await sendPasswordResetEmail({
-        to: target.email,
-        fullName: target.fullName,
-        resetLink: passwordResetLink,
+    // Fire-and-forget — never block the API on SMTP.
+    sendPasswordResetEmail({
+      to: target.email,
+      fullName: target.fullName,
+      resetLink: passwordResetLink,
+    })
+      .then((result) => {
+        if (result?.dryRun) {
+          console.warn(
+            "[superAdminController] (resend) Email skipped — SMTP not configured."
+          );
+        } else {
+          console.log(
+            `[superAdminController] (resend) Reset email queued. messageId=${result?.messageId}`
+          );
+        }
+      })
+      .catch((mailErr) => {
+        console.error(
+          "[superAdminController] (resend) Failed to send reset email:",
+          mailErr.message
+        );
       });
-      emailDryRun = !!mailResult?.dryRun;
-      emailDelivered = !!mailResult?.delivered && !mailResult?.dryRun;
-      emailMessageId = mailResult?.messageId || null;
-    } catch (mailErr) {
-      emailError = mailErr.message;
-      console.error("[superAdminController] Failed to send reset email:", mailErr.message);
-    }
 
     return sendSuccess(
       res,
-      { passwordResetLink, emailDelivered, emailDryRun, emailMessageId, emailError },
-      emailDelivered
-        ? `Password reset link emailed to ${target.email}.`
-        : emailDryRun
-          ? "Password reset link generated. SMTP not configured — no email sent."
-          : "Password reset link generated. Email delivery failed — share manually."
+      { passwordResetLink, emailQueued: true },
+      `Password reset link generated for ${target.email}. Invitation email is being sent.`
     );
   } catch (error) {
     return next(error);
