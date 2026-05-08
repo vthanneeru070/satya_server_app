@@ -1,8 +1,19 @@
 // Ensure dotenv is loaded before reading process.env. Safe to call multiple times.
 require("dotenv").config();
 
+const dns = require("dns");
 const nodemailer = require("nodemailer");
 const axios = require("axios");
+
+// Force the entire process to prefer IPv4 for DNS resolution. Many cloud hosts
+// (Render, some Heroku dynos) advertise IPv6 in their resolver but have no IPv6
+// outbound routing, which causes ENETUNREACH errors when nodemailer picks the
+// AAAA record for smtp.gmail.com first. This is a process-wide setting (Node 18+).
+try {
+  dns.setDefaultResultOrder("ipv4first");
+} catch (_) {
+  // older Node — ignore.
+}
 
 let cachedTransporter = null;
 let cachedSignature = null;
