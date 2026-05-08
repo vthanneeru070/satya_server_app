@@ -2,9 +2,67 @@
 require("dotenv").config();
 
 const nodemailer = require("nodemailer");
+const axios = require("axios");
 
 let cachedTransporter = null;
 let cachedSignature = null;
+
+/**
+ * Send an email via Resend's HTTPS API.
+ *
+ * Why Resend: cloud hosts like Render block outbound SMTP (ports 25 / 465 / 587),
+ * but they allow HTTPS to api.resend.com. Resend offers a free tier (3000/mo,
+ * 100/day) and only needs a single API key — no domain verification required
+ * if you send from the shared "onboarding@resend.dev" sender.
+ *
+ * Returns the same shape as sendMail() so callers don't care which transport
+ * was used.
+ */
+const sendViaResend = async ({ to, subject, html, text, from }) => {
+  const apiKey = process.env.RESEND_API_KEY;
+  const fromAddress =
+    from ||
+    process.env.RESEND_FROM ||
+    process.env.SMTP_FROM ||
+    "onboarding@resend.dev";
+
+  try {
+    const { data } = await axios.post(
+      "https://api.resend.com/emails",
+      { from: fromAddress, to: [to], subject, html, text },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        timeout: 15_000,
+      }
+    );
+    console.log(
+      `[emailService] (resend) Sent mail id=${data?.id} from=${fromAddress} to=${to}`
+    );
+    return {
+      dryRun: false,
+      delivered: true,
+      messageId: data?.id || null,
+      accepted: [to],
+      rejected: [],
+      response: "resend-api",
+      provider: "resend",
+    };
+  } catch (err) {
+    const status = err?.response?.status;
+    const body = err?.response?.data;
+    const reason =
+      body?.message || body?.error || err?.message || "Unknown Resend error";
+    const wrapped = new Error(
+      `Resend API failed${status ? ` (HTTP ${status})` : ""}: ${reason}`
+    );
+    wrapped.code = body?.name || err?.code || "RESEND_ERROR";
+    wrapped.response = JSON.stringify(body || {});
+    throw wrapped;
+  }
+};
 
 /**
  * Read SMTP config LAZILY from process.env every call. This is critical because
@@ -97,11 +155,22 @@ const getTransporter = () => {
 };
 
 /**
- * Send an email. Returns:
- *   { delivered: true,  dryRun: false, messageId, accepted, rejected, response }
- *   { delivered: false, dryRun: true }                                          ← SMTP not configured
+ * Send an email. Transport selection (in priority order):
+ *   1. Resend HTTPS API   ← if RESEND_API_KEY is set (works on Render / any cloud host)
+ *   2. SMTP (nodemailer)  ← if SMTP_HOST/USER/PASS are set
+ *   3. Dry-run            ← otherwise (local dev convenience; logs the email content)
+ *
+ * Returns:
+ *   { delivered: true,  dryRun: false, messageId, accepted, rejected, response, provider }
+ *   { delivered: false, dryRun: true }                                          ← no transport
  */
 const sendMail = async ({ to, subject, html, text }) => {
+  // 1) Prefer Resend on hosts that block SMTP.
+  if (process.env.RESEND_API_KEY) {
+    return sendViaResend({ to, subject, html, text });
+  }
+
+  // 2) SMTP fallback.
   const cfg = readSmtpConfig();
   const transporter = getTransporter();
   if (!transporter) {
@@ -116,7 +185,7 @@ const sendMail = async ({ to, subject, html, text }) => {
   const from = cfg.from || `"${cfg.appName}" <${cfg.user}>`;
   const info = await transporter.sendMail({ from, to, subject, html, text });
   console.log(
-    `[emailService] Sent mail messageId=${info.messageId} accepted=${JSON.stringify(info.accepted)} rejected=${JSON.stringify(info.rejected)}`
+    `[emailService] (smtp) Sent mail messageId=${info.messageId} accepted=${JSON.stringify(info.accepted)} rejected=${JSON.stringify(info.rejected)}`
   );
   return {
     dryRun: false,
@@ -125,6 +194,7 @@ const sendMail = async ({ to, subject, html, text }) => {
     accepted: info.accepted,
     rejected: info.rejected,
     response: info.response,
+    provider: "smtp",
   };
 };
 
