@@ -76,6 +76,10 @@ const getTransporter = () => {
     secure: cfg.secure,
     requireTLS: !cfg.secure && cfg.port === 587,
     auth: { user: cfg.user, pass: cfg.pass },
+    // Force IPv4. Many cloud hosts (Render, some Heroku dynos) have no IPv6
+    // outbound routing, and Gmail publishes both A and AAAA records — Node would
+    // otherwise pick IPv6 first and crash with ENETUNREACH.
+    family: 4,
     // Hard timeouts so a hung SMTP server can never block the API response.
     connectionTimeout: 10_000,
     greetingTimeout: 10_000,

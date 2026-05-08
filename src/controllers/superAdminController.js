@@ -83,6 +83,9 @@ const createDedicatedAdmin = async (req, res, next) => {
 
       // Fire-and-forget email — do NOT block the response.
       if (resumePasswordResetLink) {
+        console.log(
+          `[superAdminController] (resume) Dispatching invite email to ${normalizedEmail}`
+        );
         sendAdminInviteEmail({
           to: normalizedEmail,
           fullName: existing.fullName || fullName,
@@ -95,16 +98,22 @@ const createDedicatedAdmin = async (req, res, next) => {
               );
             } else {
               console.log(
-                `[superAdminController] (resume) Invite email queued. messageId=${result?.messageId}`
+                `[superAdminController] (resume) Invite email DELIVERED. messageId=${result?.messageId} accepted=${JSON.stringify(result?.accepted)}`
               );
             }
           })
           .catch((mailErr) => {
             console.error(
               "[superAdminController] (resume) Failed to send invite email:",
-              mailErr.message
+              mailErr?.code || "",
+              mailErr?.message,
+              mailErr?.response || ""
             );
           });
+      } else {
+        console.warn(
+          `[superAdminController] (resume) No reset link generated → email NOT sent. resetLinkError=${resumeResetLinkError}`
+        );
       }
 
       return sendSuccess(
@@ -200,6 +209,9 @@ const createDedicatedAdmin = async (req, res, next) => {
     //    The link is already in the response so the super-admin can copy/share
     //    immediately if email delivery is slow or fails.
     if (passwordResetLink) {
+      console.log(
+        `[superAdminController] Dispatching invite email to ${normalizedEmail}`
+      );
       sendAdminInviteEmail({
         to: normalizedEmail,
         fullName,
@@ -212,16 +224,22 @@ const createDedicatedAdmin = async (req, res, next) => {
             );
           } else {
             console.log(
-              `[superAdminController] Invite email queued. messageId=${result?.messageId}`
+              `[superAdminController] Invite email DELIVERED. messageId=${result?.messageId} accepted=${JSON.stringify(result?.accepted)}`
             );
           }
         })
         .catch((mailErr) => {
           console.error(
             "[superAdminController] Failed to send invite email:",
-            mailErr.message
+            mailErr?.code || "",
+            mailErr?.message,
+            mailErr?.response || ""
           );
         });
+    } else {
+      console.warn(
+        `[superAdminController] No reset link generated → email NOT sent. resetLinkError=${resetLinkError}`
+      );
     }
 
     // 6) Audit log.
