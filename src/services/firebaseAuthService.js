@@ -44,10 +44,36 @@ const deleteFirebaseUser = async (uid) => {
 
 /**
  * Generate a password reset link the admin will use to set their initial password.
+ *
  * Optional `actionCodeSettings` lets you control the redirect URL after reset.
+ * If Firebase rejects the URL (`auth/unauthorized-continue-uri` —
+ * meaning the domain isn't whitelisted in Firebase Console → Authentication →
+ * Settings → Authorized domains), we transparently retry **without**
+ * actionCodeSettings so the caller always gets a working link.
  */
 const generatePasswordResetLink = async (email, actionCodeSettings) => {
-  return admin.auth().generatePasswordResetLink(email, actionCodeSettings);
+  if (!email) throw new Error("email is required to generate a reset link");
+  try {
+    const link = await admin
+      .auth()
+      .generatePasswordResetLink(email, actionCodeSettings);
+    return link;
+  } catch (err) {
+    const code = err?.code || err?.errorInfo?.code;
+    const recoverableCodes = new Set([
+      "auth/unauthorized-continue-uri",
+      "auth/invalid-continue-uri",
+      "auth/missing-continue-uri",
+      "auth/invalid-dynamic-link-domain",
+    ]);
+    if (actionCodeSettings && recoverableCodes.has(code)) {
+      console.warn(
+        `[firebaseAuthService] generatePasswordResetLink failed with ${code}. Retrying without actionCodeSettings. Tip: add the domain to Firebase Authentication → Settings → Authorized domains to enable redirect.`
+      );
+      return admin.auth().generatePasswordResetLink(email);
+    }
+    throw err;
+  }
 };
 
 /**

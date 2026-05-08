@@ -1,58 +1,136 @@
+// Ensure dotenv is loaded before reading process.env. Safe to call multiple times.
+require("dotenv").config();
+
 const nodemailer = require("nodemailer");
 
-const {
-  SMTP_HOST,
-  SMTP_PORT,
-  SMTP_SECURE,
-  SMTP_USER,
-  SMTP_PASS,
-  SMTP_FROM,
-  APP_NAME = "Satya",
-  ADMIN_PANEL_URL,
-} = process.env;
-
 let cachedTransporter = null;
+let cachedSignature = null;
 
 /**
- * Lazily build the SMTP transporter. If SMTP env vars are missing we return
- * null so that calls fall back to a "dry-run" mode (log the email instead of
- * sending) — this keeps dev/local boots from crashing.
+ * Read SMTP config LAZILY from process.env every call. This is critical because
+ * if this module is `require()`-d before dotenv has populated process.env, a
+ * top-level destructure would freeze the values as `undefined` for the lifetime
+ * of the process — which is exactly the bug we hit.
+ */
+const readSmtpConfig = () => {
+  const cfg = {
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT) || 587,
+    secure: String(process.env.SMTP_SECURE).toLowerCase() === "true",
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+    from: process.env.SMTP_FROM,
+    appName: process.env.APP_NAME || "Satya",
+    panelUrl: process.env.ADMIN_PANEL_URL,
+    debug: String(process.env.SMTP_DEBUG).toLowerCase() === "true",
+  };
+  if (cfg.pass) cfg.pass = cfg.pass.replace(/^["']|["']$/g, "");
+  if (cfg.from) cfg.from = cfg.from.replace(/^["']|["']$/g, "");
+  return cfg;
+};
+
+const isPlaceholder = (value) => {
+  if (!value) return true;
+  const v = String(value).toLowerCase();
+  return (
+    v.startsWith("your-") ||
+    v.includes("placeholder") ||
+    v.includes("example.com") ||
+    v === "your-mailer@gmail.com" ||
+    v === "your-gmail-app-password-16-chars"
+  );
+};
+
+/**
+ * Build / reuse the SMTP transporter. Returns null when SMTP is not configured
+ * or still has the placeholder values from .env.example, in which case calls
+ * fall back to dry-run (logged) mode.
  */
 const getTransporter = () => {
-  if (cachedTransporter) return cachedTransporter;
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
+  const cfg = readSmtpConfig();
+  // If config changes (e.g. server reload picks new env vars), rebuild.
+  const signature = `${cfg.host}|${cfg.user}|${cfg.pass}|${cfg.port}|${cfg.secure}`;
+  if (cachedTransporter && cachedSignature === signature) return cachedTransporter;
+
+  const missing = [];
+  if (!cfg.host) missing.push("SMTP_HOST");
+  if (!cfg.user) missing.push("SMTP_USER");
+  if (!cfg.pass) missing.push("SMTP_PASS");
+  if (missing.length) {
     console.warn(
-      "[emailService] SMTP_HOST / SMTP_USER / SMTP_PASS are not all set. Emails will be logged in DRY-RUN mode only."
+      `[emailService] Missing SMTP env vars: ${missing.join(", ")}. Emails will run in DRY-RUN mode.`
+    );
+    return null;
+  }
+
+  if (isPlaceholder(cfg.user) || isPlaceholder(cfg.pass)) {
+    console.warn(
+      `[emailService] SMTP_USER / SMTP_PASS look like placeholder values (current SMTP_USER="${cfg.user}"). Replace them with real credentials. DRY-RUN mode active.`
     );
     return null;
   }
 
   cachedTransporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: Number(SMTP_PORT) || 587,
-    secure: String(SMTP_SECURE).toLowerCase() === "true",
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
+    host: cfg.host,
+    port: cfg.port,
+    secure: cfg.secure,
+    requireTLS: !cfg.secure && cfg.port === 587,
+    auth: { user: cfg.user, pass: cfg.pass },
+    debug: cfg.debug,
+    logger: cfg.debug,
   });
+  cachedSignature = signature;
+  console.log(
+    `[emailService] SMTP transporter ready: host=${cfg.host} port=${cfg.port} secure=${cfg.secure} user=${cfg.user}`
+  );
   return cachedTransporter;
 };
 
 /**
- * Low-level: send an email with optional HTML + text bodies.
- * Returns `{ dryRun: true }` when SMTP is not configured.
+ * Send an email. Returns:
+ *   { delivered: true,  dryRun: false, messageId, accepted, rejected, response }
+ *   { delivered: false, dryRun: true }                                          ← SMTP not configured
  */
 const sendMail = async ({ to, subject, html, text }) => {
+  const cfg = readSmtpConfig();
   const transporter = getTransporter();
   if (!transporter) {
     console.log("──────── [emailService DRY-RUN] ────────");
     console.log("To:", to);
     console.log("Subject:", subject);
-    console.log("Text:", text);
+    console.log("Text preview:", String(text).slice(0, 500));
     console.log("────────────────────────────────────────");
-    return { dryRun: true };
+    return { dryRun: true, delivered: false };
   }
 
-  const from = SMTP_FROM || `"${APP_NAME}" <${SMTP_USER}>`;
-  return transporter.sendMail({ from, to, subject, html, text });
+  const from = cfg.from || `"${cfg.appName}" <${cfg.user}>`;
+  const info = await transporter.sendMail({ from, to, subject, html, text });
+  console.log(
+    `[emailService] Sent mail messageId=${info.messageId} accepted=${JSON.stringify(info.accepted)} rejected=${JSON.stringify(info.rejected)}`
+  );
+  return {
+    dryRun: false,
+    delivered: true,
+    messageId: info.messageId,
+    accepted: info.accepted,
+    rejected: info.rejected,
+    response: info.response,
+  };
+};
+
+/**
+ * Test SMTP connectivity / credentials WITHOUT sending an actual email.
+ * Returns `{ ok: true }` on success, `{ ok: false, error }` otherwise.
+ */
+const verifyTransport = async () => {
+  const transporter = getTransporter();
+  if (!transporter) return { ok: false, error: "SMTP not configured" };
+  try {
+    await transporter.verify();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 };
 
 const buildAdminInviteHtml = ({ fullName, resetLink, panelUrl, appName }) => `
@@ -132,49 +210,43 @@ const buildAdminInviteText = ({ fullName, resetLink, panelUrl, appName }) =>
     .filter(Boolean)
     .join("\n");
 
-/**
- * High-level: send the admin invite email containing the password-reset link.
- */
 const sendAdminInviteEmail = async ({ to, fullName, resetLink, panelUrl }) => {
-  const subject = `You've been invited as an admin on ${APP_NAME}`;
-  const html = buildAdminInviteHtml({
+  const cfg = readSmtpConfig();
+  const subject = `You've been invited as an admin on ${cfg.appName}`;
+  const params = {
     fullName,
     resetLink,
-    panelUrl: panelUrl || ADMIN_PANEL_URL,
-    appName: APP_NAME,
+    panelUrl: panelUrl || cfg.panelUrl,
+    appName: cfg.appName,
+  };
+  return sendMail({
+    to,
+    subject,
+    html: buildAdminInviteHtml(params),
+    text: buildAdminInviteText(params),
   });
-  const text = buildAdminInviteText({
-    fullName,
-    resetLink,
-    panelUrl: panelUrl || ADMIN_PANEL_URL,
-    appName: APP_NAME,
-  });
-  return sendMail({ to, subject, html, text });
 };
 
-/**
- * High-level: re-send the password-reset email (used for "forgot password",
- * "resend invite", etc.).
- */
 const sendPasswordResetEmail = async ({ to, fullName, resetLink, panelUrl }) => {
-  const subject = `Reset your ${APP_NAME} admin password`;
-  const html = buildAdminInviteHtml({
+  const cfg = readSmtpConfig();
+  const subject = `Reset your ${cfg.appName} admin password`;
+  const params = {
     fullName,
     resetLink,
-    panelUrl: panelUrl || ADMIN_PANEL_URL,
-    appName: APP_NAME,
+    panelUrl: panelUrl || cfg.panelUrl,
+    appName: cfg.appName,
+  };
+  return sendMail({
+    to,
+    subject,
+    html: buildAdminInviteHtml(params),
+    text: buildAdminInviteText(params),
   });
-  const text = buildAdminInviteText({
-    fullName,
-    resetLink,
-    panelUrl: panelUrl || ADMIN_PANEL_URL,
-    appName: APP_NAME,
-  });
-  return sendMail({ to, subject, html, text });
 };
 
 module.exports = {
   sendMail,
   sendAdminInviteEmail,
   sendPasswordResetEmail,
+  verifyTransport,
 };
