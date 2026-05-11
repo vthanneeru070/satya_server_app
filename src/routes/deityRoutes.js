@@ -122,7 +122,7 @@ router.post(
 router.get(
   "/all",
   authenticate,
-  authorizeSuperAdmin,
+  authorizeRoles("admin"),
   validate(allDeitiesQuerySchema, "query"),
   getAllDeities
 );
