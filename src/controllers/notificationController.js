@@ -1,4 +1,5 @@
 const Notification = require("../models/Notification");
+const User = require("../models/User");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const notificationBroadcastService = require("../services/notificationBroadcastService");
@@ -132,9 +133,46 @@ const cancelNotification = async (req, res, next) => {
   }
 };
 
+/**
+ * Send a test push to the calling admin's own device(s). Useful for verifying
+ * end-to-end delivery without spamming all users.
+ */
+const sendTestNotification = async (req, res, next) => {
+  try {
+    const userId = req.user.userId;
+    const me = await User.findById(userId).select("fcmTokens").lean();
+    const tokens = (me?.fcmTokens || []).filter(Boolean);
+    if (!tokens.length) {
+      throw new HttpError(
+        "You have no FCM tokens registered. Open the app while logged in to register a token first.",
+        400
+      );
+    }
+
+    const doc = await notificationBroadcastService.createNotification({
+      title: req.body?.title || "Satya test notification",
+      body:
+        req.body?.body ||
+        "If you can read this, push notifications are working.",
+      audience: "USER_IDS",
+      userIds: [userId],
+      sentBy: userId,
+    });
+
+    return sendSuccess(
+      res,
+      { notification: doc },
+      `Test notification fired to ${doc.targetedTokenCount} of your devices: sent=${doc.successCount} failed=${doc.failureCount}.`
+    );
+  } catch (error) {
+    return next(error);
+  }
+};
+
 module.exports = {
   sendNotification,
   listNotifications,
   getNotificationById,
   cancelNotification,
+  sendTestNotification,
 };

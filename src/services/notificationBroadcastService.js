@@ -46,12 +46,35 @@ const chunk = (arr, size) => {
 const sendBatch = async ({ tokens, notification, data, imageUrl, logTag }) => {
   if (!tokens.length) return { sent: 0, failed: 0, deadTokens: [] };
 
+  // High-priority + explicit Android channel so notifications wake locked
+  // devices and bypass App Standby buckets. The Flutter app must create a
+  // matching channel id ("satya_default") with `flutter_local_notifications`.
   const messagePayload = {
     tokens,
     notification: imageUrl
       ? { ...notification, imageUrl }
       : notification,
     data,
+    android: {
+      priority: "high",
+      notification: {
+        channelId: "satya_default",
+        sound: "default",
+        defaultSound: true,
+        defaultVibrateTimings: true,
+        ...(imageUrl ? { imageUrl } : {}),
+      },
+    },
+    apns: {
+      headers: { "apns-priority": "10" },
+      payload: {
+        aps: {
+          sound: "default",
+          contentAvailable: true,
+          mutableContent: true,
+        },
+      },
+    },
   };
 
   let response;

@@ -1,0 +1,396 @@
+# Flutter user-side push notifications — Cursor prompt
+
+Goal: end users actually receive push notifications on their devices. The backend already sends pushes correctly (FCM accepts and queues them); this plan wires the Flutter app to display + route them.
+
+This plan is the receiver counterpart to:
+- [Flutter-fcm.plan](Flutter-fcm.plan) — registering / unregistering FCM tokens with the backend.
+- [Flutter-notifications.plan](Flutter-notifications.plan) — admin broadcast inbox + send screen.
+
+Copy everything below the rule into Cursor inside the Flutter repo. Adjust state-management + routing names to match the project before pasting.
+
+---
+
+## Backend contract (locked, do NOT change)
+
+The server already sends FCM messages with this shape:
+
+```
+notification.title    = "<title>"
+notification.body     = "<body>"
+notification.imageUrl = "<optional>"
+
+android.priority             = "high"
+android.notification.channelId = "satya_default"
+android.notification.sound   = "default"
+
+apns.headers["apns-priority"] = "10"
+apns.payload.aps.sound        = "default"
+apns.payload.aps.contentAvailable = true
+apns.payload.aps.mutableContent   = true
+
+data.type           = "ADMIN_BROADCAST" | "ORDER_PLACED" | "DONATION_RECEIVED"
+data.notificationId = "<id>"          // for broadcasts
+data.<custom keys>  = "<string>"      // all values are strings (FCM rule)
+```
+
+The Flutter app MUST:
+
+1. Create an Android notification channel with the **exact** id `satya_default`. Mismatched channel = silent drop on Android 8+.
+2. Request notification permission (iOS + Android 13+).
+3. Display a local notification when a push arrives in **foreground** (FCM does not auto-display in foreground).
+4. Route to the correct screen on **tap** based on `data.type` for both background and terminated states.
+5. Register the FCM token with the backend after login (`POST /api/v1/fcm/register`) and on `onTokenRefresh`.
+6. Unregister the token on logout (`DELETE /api/v1/fcm/unregister`) + call `deleteToken()`.
+
+A self-test endpoint exists for admin-side verification:
+
+```bash
+curl -X POST "$BASE_URL/notifications/test" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Self test","body":"Can you see me?"}'
+```
+
+It pushes to the calling admin's own devices only and returns `sent=N failed=M` so you can verify the device end without spamming all users.
+
+---
+
+## Cursor prompt (paste into Flutter repo)
+
+Implement **reliable push-notification delivery** on the user device in this Flutter app. The backend is already wired and proven to send correctly. The Flutter side currently does not (a) create the Android notification channel, (b) display foreground pushes, or (c) route taps consistently. Fix all three.
+
+### Stack to use (adapt to existing repo)
+
+- Existing **Dio** client + auth interceptor — do NOT duplicate.
+- Existing state library (Riverpod / Bloc / Provider) — do NOT introduce a new one.
+- Existing router (GoRouter / Navigator) — do NOT switch.
+- Add (if missing): `firebase_core`, `firebase_messaging`, `flutter_local_notifications`, `permission_handler`.
+- Add `intl` if not already present (only used for formatting timestamps in foreground banners).
+
+```yaml
+dependencies:
+  firebase_core: ^3.6.0
+  firebase_messaging: ^15.1.3
+  flutter_local_notifications: ^17.2.3
+  permission_handler: ^11.3.1
+```
+
+### Backend endpoints to call (locked)
+
+- `POST /api/v1/fcm/register` — body `{ token: string, platform?: "android"|"ios"|"web", deviceId?: string }`.
+- `DELETE /api/v1/fcm/unregister` — body `{ token: string }`.
+- `GET /api/v1/fcm/me` — returns `{ count: number }` (sanity check).
+- `POST /api/v1/notifications/test` — admin-only self-test push (useful during dev).
+
+### Android setup
+
+`android/app/src/main/AndroidManifest.xml` — inside `<application>`:
+
+```xml
+<!-- Default channel id matches the server payload ("satya_default") -->
+<meta-data
+    android:name="com.google.firebase.messaging.default_notification_channel_id"
+    android:value="satya_default" />
+
+<!-- Default notification icon (small icon, monochrome). Create
+     android/app/src/main/res/drawable/ic_notification.png if missing. -->
+<meta-data
+    android:name="com.google.firebase.messaging.default_notification_icon"
+    android:resource="@drawable/ic_notification" />
+```
+
+Inside `<manifest>` root (Android 13+ runtime permission):
+
+```xml
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+```
+
+Confirm `google-services.json` is in `android/app/` and `applicationId` matches the Firebase Android app.
+
+### iOS setup
+
+- Xcode → **Runner** target → **Signing & Capabilities**:
+  - Add **Push Notifications**.
+  - Add **Background Modes** and tick **Remote notifications**.
+- Firebase Console → **Project Settings → Cloud Messaging → Apple app config**:
+  - Upload an **APNs Auth Key** (`.p8`) with Key ID + Team ID.
+  - Without this, FCM accepts the message but iOS never receives it.
+- Ensure `GoogleService-Info.plist` is in `Runner/` and added to the target.
+
+### File layout
+
+```
+lib/core/notifications/
+  fcm_bootstrap.dart           // init, channel, permissions, foreground display, routing
+  fcm_message_router.dart      // (optional) maps RemoteMessage -> route
+  fcm_token_sync.dart          // register/unregister with backend
+```
+
+### Drop-in `fcm_bootstrap.dart`
+
+```dart
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
+const String kFcmChannelId = 'satya_default';        // MUST match backend
+const String kFcmChannelName = 'Satya notifications';
+const String kFcmChannelDescription = 'General app notifications';
+
+final FlutterLocalNotificationsPlugin _localNotifications =
+    FlutterLocalNotificationsPlugin();
+
+/// Global navigator key so background/terminated taps can navigate
+/// without needing a BuildContext.
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // Keep this minimal — the isolate may not have full app state.
+  if (kDebugMode) print('[fcm bg] ${message.messageId} data=${message.data}');
+}
+
+class FcmBootstrap {
+  static Future<void> init() async {
+    await Firebase.initializeApp();
+
+    // 1. Register the background isolate handler BEFORE everything else.
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+
+    // 2. Ask permission (iOS + Android 13+).
+    await FirebaseMessaging.instance.requestPermission(
+      alert: true, badge: true, sound: true,
+    );
+
+    // 3. Create the Android channel matching the server payload.
+    const channel = AndroidNotificationChannel(
+      kFcmChannelId,
+      kFcmChannelName,
+      description: kFcmChannelDescription,
+      importance: Importance.high,
+    );
+    await _localNotifications
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
+
+    // 4. Init local notifications (used for foreground display + tap payloads).
+    await _localNotifications.initialize(
+      const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        iOS: DarwinInitializationSettings(),
+      ),
+      onDidReceiveNotificationResponse: (resp) {
+        if (resp.payload != null) _routeFromPayload(resp.payload!);
+      },
+    );
+
+    // 5. Foreground messages — we have to render them ourselves.
+    FirebaseMessaging.onMessage.listen((message) {
+      final n = message.notification;
+      if (n == null) return;
+      _localNotifications.show(
+        message.hashCode,
+        n.title,
+        n.body,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            kFcmChannelId, kFcmChannelName,
+            channelDescription: kFcmChannelDescription,
+            importance: Importance.high,
+            priority: Priority.high,
+            icon: '@mipmap/ic_launcher',
+          ),
+          iOS: const DarwinNotificationDetails(),
+        ),
+        payload: message.data.entries
+            .map((e) => '${e.key}=${e.value}')
+            .join('|'),
+      );
+    });
+
+    // 6. App opened from tray (background, not terminated).
+    FirebaseMessaging.onMessageOpenedApp.listen(_routeFromMessage);
+
+    // 7. App launched from terminated state by tapping a notification.
+    final initial = await FirebaseMessaging.instance.getInitialMessage();
+    if (initial != null) _routeFromMessage(initial);
+  }
+
+  /// Returns the current FCM device token, or null on failure.
+  static Future<String?> currentToken() =>
+      FirebaseMessaging.instance.getToken();
+
+  /// Subscribe to token rotation events.
+  static Stream<String> onTokenRefresh() =>
+      FirebaseMessaging.instance.onTokenRefresh;
+
+  static void _routeFromMessage(RemoteMessage message) {
+    final type = message.data['type'];
+    switch (type) {
+      case 'ADMIN_BROADCAST':
+        navigatorKey.currentState?.pushNamed('/notifications');
+        break;
+      case 'ORDER_PLACED':
+        navigatorKey.currentState?.pushNamed('/orders');
+        break;
+      case 'DONATION_RECEIVED':
+        navigatorKey.currentState?.pushNamed('/donations/contributions');
+        break;
+      default:
+        navigatorKey.currentState?.pushNamed('/notifications');
+    }
+  }
+
+  static void _routeFromPayload(String payload) {
+    final map = <String, String>{};
+    for (final p in payload.split('|')) {
+      final i = p.indexOf('=');
+      if (i > 0) map[p.substring(0, i)] = p.substring(i + 1);
+    }
+    _routeFromMessage(RemoteMessage(data: map));
+  }
+}
+```
+
+### Drop-in `fcm_token_sync.dart`
+
+```dart
+import 'dart:io' show Platform;
+import 'package:dio/dio.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+
+class FcmTokenSync {
+  FcmTokenSync(this._dio);
+  final Dio _dio;
+
+  /// Call AFTER successful login.
+  Future<void> registerCurrentToken() async {
+    final token = await FirebaseMessaging.instance.getToken();
+    if (token == null) return;
+    await _post(token);
+    FirebaseMessaging.instance.onTokenRefresh.listen(_post);
+  }
+
+  /// Call on logout (or before deleting Firebase user).
+  Future<void> unregisterCurrentToken() async {
+    final token = await FirebaseMessaging.instance.getToken();
+    if (token != null) {
+      try {
+        await _dio.delete('/fcm/unregister', data: {'token': token});
+      } catch (_) {}
+    }
+    try {
+      await FirebaseMessaging.instance.deleteToken();
+    } catch (_) {}
+  }
+
+  Future<void> _post(String token) async {
+    try {
+      await _dio.post('/fcm/register', data: {
+        'token': token,
+        'platform': Platform.isIOS ? 'ios' : 'android',
+      });
+    } catch (e) {
+      // Best-effort; do not block UX. Optionally log to crash reporter.
+    }
+  }
+}
+```
+
+### Wire it into `main.dart`
+
+```dart
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await FcmBootstrap.init();        // permission, channel, listeners
+  runApp(MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      navigatorKey: navigatorKey,    // tap handlers navigate via this key
+      // Keep your existing routing; ensure these routes exist:
+      routes: {
+        '/notifications': (_) => NotificationsInboxScreen(),
+        '/orders':        (_) => OrdersScreen(),
+        '/donations/contributions': (_) => MyContributionsScreen(),
+      },
+      home: AuthGate(),
+    );
+  }
+}
+```
+
+### Auth integration
+
+After successful login:
+
+```dart
+await FcmTokenSync(dio).registerCurrentToken();
+```
+
+On logout (or `signOut()`):
+
+```dart
+await FcmTokenSync(dio).unregisterCurrentToken();
+```
+
+### Acceptance criteria
+
+1. Run on a **physical device** (FCM does not deliver reliably to most emulators).
+2. After login, `GET /api/v1/fcm/me` returns `count >= 1`.
+3. Background the app. Hit `POST /api/v1/notifications/test` with the admin token. Within ~3 seconds the device shows a heads-up notification.
+4. Tap the notification → app opens to `/notifications` (or the correct route based on `data.type`).
+5. Bring the app to foreground and run the test again → an in-app banner is shown via `flutter_local_notifications` (still routed correctly when tapped).
+6. Force-quit the app, then send a test → notification still appears; tapping launches the app and routes to the right screen via `getInitialMessage()`.
+7. After logout, `GET /fcm/me` returns `count: 0`.
+8. `flutter analyze` clean; light + dark theme both render the in-app banner correctly.
+
+### Do NOT
+
+- Do NOT change `kFcmChannelId` — it must remain `satya_default` to match the server payload.
+- Do NOT show notifications from the background isolate handler (lifecycle issues). Foreground display is enough; tray notifications in the background are rendered by the OS from the `notification` payload.
+- Do NOT navigate from `FirebaseMessaging.onMessage` (foreground) — only render the banner there.
+- Do NOT register tokens before the user is authenticated; the backend requires a valid Bearer token.
+- Do NOT call FCM Admin SDK from Flutter.
+- Do NOT edit backend files.
+
+### Common gotchas (debug fast)
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `GET /fcm/me` returns `count: 0` | Token registration not wired after login | Call `registerCurrentToken()` after auth |
+| Push only arrives when app is open | Android channel mismatch | Verify `kFcmChannelId == 'satya_default'` and the manifest meta-data |
+| Push silently dropped on Android 13+ | `POST_NOTIFICATIONS` not granted | `requestPermission()` + check device Settings |
+| Nothing on iOS device | APNs key missing in Firebase | Upload `.p8` in Firebase Console → Cloud Messaging |
+| `successCount` on server is 1 but device shows nothing | Stale token in DB | `onTokenRefresh` re-registers; server prunes dead tokens automatically |
+| Notification has no icon on Android | Missing `ic_notification` drawable | Add a white-on-transparent PNG and reference it in manifest |
+
+### Final step
+
+Run `flutter analyze` and `dart format .`. Provide a short "How to test" checklist mirroring the acceptance criteria above.
+
+---
+
+End of Cursor prompt.
+
+## Quick manual QA checklist (after deploy)
+
+1. Physical device + fresh install.
+2. Log in → toast/log shows `POST /fcm/register` returned 200; `GET /fcm/me` → `count: 1`.
+3. Press Home (app in background).
+4. Trigger admin self-test:
+   ```bash
+   curl -X POST "https://satya-server-app-2.onrender.com/api/v1/notifications/test" \
+     -H "Authorization: Bearer $ADMIN_TOKEN"
+   ```
+5. Device tray notification appears within seconds.
+6. Tap notification → app opens to inbox screen.
+7. Open app in foreground → repeat test → in-app banner appears.
+8. Force-quit app → repeat test → tray notification still appears; tap routes correctly.
+9. Logout → `GET /fcm/me` → `count: 0`.

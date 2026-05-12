@@ -32,6 +32,25 @@ const dispatchPush = async (
       tokens,
       notification,
       data,
+      android: {
+        priority: "high",
+        notification: {
+          channelId: "satya_default",
+          sound: "default",
+          defaultSound: true,
+          defaultVibrateTimings: true,
+        },
+      },
+      apns: {
+        headers: { "apns-priority": "10" },
+        payload: {
+          aps: {
+            sound: "default",
+            contentAvailable: true,
+            mutableContent: true,
+          },
+        },
+      },
     });
   } catch (err) {
     console.error(

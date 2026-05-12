@@ -7,6 +7,7 @@ const {
   listNotifications,
   getNotificationById,
   cancelNotification,
+  sendTestNotification,
 } = require("../controllers/notificationController");
 const {
   sendNotificationSchema,
@@ -86,6 +87,40 @@ router.post(
   authorizeRoles("admin"),
   validate(sendNotificationSchema),
   sendNotification
+);
+
+/**
+ * @swagger
+ * /notifications/test:
+ *   post:
+ *     summary: Send a test push to the calling admin's own device(s)
+ *     description: |
+ *       Quick end-to-end self-test. Picks up the admin's own FCM tokens and
+ *       sends a single push to them. Use this to verify the device + channel
+ *       setup without pushing to all users.
+ *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title: { type: string }
+ *               body:  { type: string }
+ *     responses:
+ *       200:
+ *         description: Test notification fired
+ *       400:
+ *         description: No FCM tokens registered for the calling user
+ */
+router.post(
+  "/test",
+  authenticate,
+  authorizeRoles("admin"),
+  sendTestNotification
 );
 
 /**
