@@ -1,0 +1,326 @@
+# Flutter Notifications integration — Cursor prompt
+
+Builds on top of the FCM token registration in [Flutter-fcm.plan](Flutter-fcm.plan). Adds:
+
+1. Receiving admin **broadcast push notifications** (`type: "ADMIN_BROADCAST"`).
+2. In-app **Notifications Inbox** screen (history of broadcasts the user can re-read).
+3. Optional **Admin "Send Push Notification" screen** inside the Flutter app for users with `role: admin | superadmin`.
+
+Copy everything below the rule into Cursor inside the Flutter repo. Adjust state-management + routing names to match the project before pasting.
+
+---
+
+## Backend contract (locked)
+
+Base: `${API_BASE_URL}/api/v1`. All endpoints require `Authorization: Bearer <Firebase ID token>`.
+
+### Admin endpoints (role: admin / superadmin)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/notifications/send` | Send immediately OR schedule with `scheduledAt` |
+| `GET` | `/notifications?page&limit&status&audience` | Paginated history |
+| `GET` | `/notifications/:id` | Single record |
+| `POST` | `/notifications/:id/cancel` | Cancel a `SCHEDULED` row before send |
+
+### Send body
+
+```json
+{
+  "title": "Festival reminder",
+  "body": "Ganesh Chaturthi pooja begins at 6 AM tomorrow.",
+  "audience": "ALL",
+  "userIds": [],
+  "data": { "deepLink": "/festivals/ganesh-chaturthi" },
+  "imageUrl": "https://...",
+  "scheduledAt": "2026-05-15T06:00:00.000Z"
+}
+```
+
+- `title` required (max 120). `body` required (max 1000).
+- `audience` ∈ `ALL | USERS | ADMINS | SUPERADMIN | USER_IDS` (default `ALL`). `userIds` required when `USER_IDS`.
+- `data` values are coerced to strings (FCM data-payload rule).
+- `scheduledAt` optional ISO future timestamp. Omit to send now.
+
+### Send response
+
+```json
+{
+  "success": true,
+  "message": "Notification queued for delivery",
+  "data": {
+    "notification": {
+      "_id": "...",
+      "title": "...",
+      "body": "...",
+      "audience": "ALL",
+      "status": "PENDING" /* or SCHEDULED */,
+      "scheduledAt": null,
+      "sentAt": null,
+      "successCount": 0,
+      "failureCount": 0,
+      "createdAt": "..."
+    }
+  }
+}
+```
+
+### Notification payload the device receives
+
+```
+notification.title    = <title>
+notification.body     = <body>
+notification.imageUrl = <optional>
+data.type             = "ADMIN_BROADCAST"
+data.notificationId   = <mongo id>
+data.<custom>         = <string>   // any keys passed in `data` from admin
+```
+
+Other backend pushes use the same envelope with different `type` values:
+
+| `type` | Source | Suggested tap behavior |
+|--------|--------|------------------------|
+| `ADMIN_BROADCAST` | Admin broadcast | Open notifications inbox; optionally a detail screen |
+| `ORDER_PLACED` | Order paid | Open Orders / order detail |
+| `DONATION_RECEIVED` | Donation paid | Open `/donations/contributions` |
+
+### Curl examples (for admin testing)
+
+```bash
+BASE_URL="https://satya-server-app-2.onrender.com/api/v1"
+TOKEN="<ADMIN_FIREBASE_ID_TOKEN>"
+
+# Send to all users immediately
+curl -X POST "$BASE_URL/notifications/send" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Welcome","body":"Hello everyone"}'
+
+# Send to regular users only
+curl -X POST "$BASE_URL/notifications/send" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Daily wisdom","body":"A new sloka awaits.","audience":"USERS"}'
+
+# Schedule for later
+curl -X POST "$BASE_URL/notifications/send" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Tomorrow","body":"Pooja at 6 AM","scheduledAt":"2026-05-15T00:30:00.000Z"}'
+
+# List history
+curl "$BASE_URL/notifications?page=1&limit=20&status=SENT" -H "Authorization: Bearer $TOKEN"
+
+# Cancel a scheduled one
+curl -X POST "$BASE_URL/notifications/<id>/cancel" -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+## Cursor prompt (paste into the Flutter repo)
+
+Implement **Notifications support** in this Flutter app, on top of the existing FCM bootstrap (token registration is already wired via `POST /api/v1/fcm/register` — see `Flutter-fcm.plan`).
+
+This adds three things:
+
+1. **Receive + route** admin broadcast pushes (`data.type === "ADMIN_BROADCAST"`).
+2. **Notifications Inbox** screen that mirrors the broadcast history a user has received.
+3. **Admin "Send Push Notification" screen** for users with `role: admin | superadmin`, replicating the layout in the admin panel (Title, Message, Target Audience, Schedule).
+
+### Stack (adapt to existing repo)
+
+- Existing **Dio** client + auth interceptor — do not duplicate.
+- Existing state library (Riverpod / Bloc / Provider) — do not introduce a second one.
+- Existing router (GoRouter / Navigator) — do not switch.
+- `firebase_messaging`, `flutter_local_notifications` (already present from FCM step).
+- `intl` for formatting dates and counts.
+
+### Backend endpoints to call (locked, do NOT change server)
+
+User side:
+- *(none new)* — pushes arrive via FCM; token registration already exists.
+
+Admin side:
+- `POST /api/v1/notifications/send` — body matches the table above.
+- `GET /api/v1/notifications?page&limit&status&audience` — paginated history.
+- `GET /api/v1/notifications/:id` — single record.
+- `POST /api/v1/notifications/:id/cancel` — cancel scheduled.
+
+### Models (`lib/features/notifications/data/models/`)
+
+- `AppNotification`
+  ```dart
+  final String id;
+  final String title;
+  final String body;
+  final String audience;       // ALL | USERS | ADMINS | SUPERADMIN | USER_IDS
+  final String status;         // PENDING | SCHEDULED | SENDING | SENT | FAILED | CANCELLED
+  final DateTime? scheduledAt;
+  final DateTime? sentAt;
+  final int successCount;
+  final int failureCount;
+  final DateTime createdAt;
+  final String? imageUrl;
+  final Map<String, dynamic>? data;
+  ```
+- `SendNotificationRequest` — exactly the body shape above; serializer must:
+  - drop `userIds` if empty,
+  - drop `scheduledAt` if null,
+  - coerce all `data` values to `String` (FCM requirement).
+
+### Repository (`lib/features/notifications/data/notifications_repository.dart`)
+
+```dart
+Future<({List<AppNotification> items, int total, int totalPages})> listNotifications({
+  int page = 1, int limit = 10, String? status, String? audience,
+});
+
+Future<AppNotification> sendNotification(SendNotificationRequest req);
+
+Future<AppNotification> getNotification(String id);
+
+Future<AppNotification> cancelNotification(String id);
+```
+
+Map Dio errors to a typed `NotificationsException` exposing `status` + `message` from `response.data['message']`.
+
+### Local inbox cache
+
+The backend does NOT store per-user delivery rows, so the **inbox** is built from RemoteMessages cached locally:
+
+- Add a tiny `notifications_inbox.dart` using `hive` (or `shared_preferences` with a JSON array) — only the last ~100 entries.
+- Each entry: `{ id, title, body, data, receivedAt, read }`.
+- Populated from every `onMessage` / background handler / `onMessageOpenedApp` / `getInitialMessage()`. Dedupe by `data.notificationId` when present.
+
+This is the source of truth for the in-app **Notifications Inbox** screen.
+
+### FCM routing
+
+Extend the existing FCM message router to handle `data.type`:
+
+```dart
+switch (data['type']) {
+  case 'ADMIN_BROADCAST':
+    NotificationsInboxCache.add(message);
+    router.go('/notifications');             // when tapped
+    break;
+  case 'ORDER_PLACED':
+    router.go('/orders');
+    break;
+  case 'DONATION_RECEIVED':
+    router.go('/donations/contributions');
+    break;
+  default:
+    router.go('/notifications');
+}
+```
+
+- `onMessage` (foreground): cache + show local notification banner; do NOT navigate.
+- `onMessageOpenedApp` and `getInitialMessage()`: cache + navigate per `type`.
+- Background isolate handler: cache + return; navigation happens later when the app opens.
+
+### Screens (user side)
+
+`lib/features/notifications/presentation/`
+
+1. **NotificationsInboxScreen** (`/notifications`)
+   - Lists cached pushes received on this device (newest first).
+   - Each tile: title, body (truncated), relative time (`intl`), unread dot.
+   - Tap a tile → mark read + show `NotificationDetailSheet` (full body + image if any).
+   - Empty state: "No notifications yet."
+   - Long-press → delete from local cache (does not affect the server).
+   - Top app-bar action: **Mark all read**.
+
+2. **NotificationDetailSheet** (modal bottom sheet)
+   - Title, full body, image (if `imageUrl`), received time.
+   - If `data.deepLink` present, render a primary CTA button that navigates to that route.
+
+3. Bottom-nav / drawer entry: **Notifications** with an unread badge from cached state.
+
+### Screens (admin side)
+
+Render the next screen ONLY when `currentUser.role` is `admin` or `superadmin`.
+
+4. **AdminSendNotificationScreen** (`/admin/notifications/send`)
+   - Form matching the admin panel layout (see the reference image):
+     - `Title` (required, max 120 chars, counter).
+     - `Message` (required, max 1000 chars, multiline, counter).
+     - `Target Audience` — dropdown: All Users (`ALL`), Users (`USERS`), Admins (`ADMINS`), Super Admin (`SUPERADMIN`). Skip `USER_IDS` from the UI for v1.
+     - `Schedule (optional)` — date+time picker. Empty → send now. Validate future-only.
+   - Submit button **Send Notification** with progress.
+   - On success → snackbar "Notification queued" (or "Scheduled for <localized time>") and reset form.
+   - On error → inline message from `NotificationsException`.
+
+5. **AdminNotificationsHistoryScreen** (`/admin/notifications`)
+   - Paginated list using `GET /notifications`.
+   - Filter chips: ALL / SENT / SCHEDULED / FAILED / CANCELLED.
+   - Per row: title, audience badge, status badge, success/total token counts, timestamp.
+   - Tap → `AdminNotificationDetailScreen` showing full record.
+   - If row is `SCHEDULED`: provide a **Cancel** action that calls `POST /notifications/:id/cancel`.
+
+### Providers (Riverpod-style; adapt as needed)
+
+- `notificationsRepositoryProvider`
+- `inboxCacheProvider` — `StateNotifier` wrapping the local cache + unread count.
+- `adminNotificationsListProvider` — `FutureProvider.family<…, NotificationsQuery>` paginated.
+- `sendNotificationControllerProvider` — `AsyncNotifier` exposing `send(SendNotificationRequest req)`.
+- `cancelNotificationControllerProvider` — `AsyncNotifier` exposing `cancel(String id)`.
+
+### Routing
+
+- `/notifications` → `NotificationsInboxScreen`
+- `/admin/notifications` → `AdminNotificationsHistoryScreen`  (guard by role)
+- `/admin/notifications/send` → `AdminSendNotificationScreen` (guard by role)
+
+Add a top-level **Notifications** entry to the user drawer / bottom nav with the unread badge from `inboxCacheProvider`.
+
+Add an **Admin → Send Push Notification** entry to the admin drawer (visible only for admins).
+
+### Permissions and visibility
+
+- Re-use the same iOS / Android 13+ permission prompts from the FCM step.
+- For foreground notifications, render via `flutter_local_notifications`. Use a single channel `satya_default` already used by the rest of the app (do not create a new one per type).
+- If the user has notifications disabled, the inbox still works (pushes received while online are still cached when the app handles `RemoteMessage`, but most apps won't see them in the tray).
+
+### Validation rules to mirror the server
+
+- `title`: required, 1–120 characters.
+- `body`: required, 1–1000 characters.
+- `audience`: one of `ALL | USERS | ADMINS | SUPERADMIN | USER_IDS`.
+- `scheduledAt` if provided: must be strictly in the future.
+- All `data` map values are converted to `String` before send.
+
+### Do NOT
+
+- Do not duplicate base URL or auth interceptor.
+- Do not navigate from `onMessage` (foreground) — only from tap handlers.
+- Do not call Firebase Admin SDK from Flutter.
+- Do not store the entire history server-side per user — the inbox is a **device-local cache**.
+- Do not edit any backend files.
+
+### Acceptance criteria
+
+1. User receives a push from `POST /notifications/send` while app is **background** → tray notification visible.
+2. Tap → app opens to **Notifications Inbox** (default) or the deep link if `data.deepLink` is present.
+3. Inbox shows the new notification at the top, unread badge updates, mark-all-read clears the badge.
+4. Foreground push → cache updates + local in-app heads-up notification appears.
+5. Admin logs in, opens **Send Push Notification**, fills Title + Message, picks `All Users`, hits Send → success snackbar; another logged-in test device receives the push.
+6. Admin schedules for ~2 minutes in future → row appears in `AdminNotificationsHistoryScreen` as `SCHEDULED`. After the scheduled time the row flips to `SENT` and the user device gets the push.
+7. Admin opens a `SCHEDULED` row and taps **Cancel** → row becomes `CANCELLED` and is NOT delivered.
+8. `flutter analyze` clean; light + dark theme both render correctly.
+
+### Final step
+
+Run `flutter analyze` and `dart format .`. Provide a short "How to test" checklist mirroring the acceptance criteria above.
+
+---
+
+End of Cursor prompt.
+
+## Quick manual QA checklist (after deploy)
+
+1. Open admin panel form (Title / Message / Target Audience / Schedule).
+2. Send to `All Users` → confirm at least one test device receives the push.
+3. Open the Flutter app → tap the notification → inbox screen shows it at the top.
+4. Schedule a notification 2 minutes in the future → device receives it on time.
+5. Schedule another, then `Cancel` before its time → device does NOT receive it.
