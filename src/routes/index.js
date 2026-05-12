@@ -9,6 +9,10 @@ const dailySlokaRoutes = require("./dailySlokaRoutes");
 const userHomeRoutes = require("./userHomeRoutes");
 const calendarRoutes = require("./calendarRoutes");
 const deityRoutes = require("./deityRoutes");
+const productRoutes = require("./productRoutes");
+const cartRoutes = require("./cartRoutes");
+const orderRoutes = require("./orderRoutes");
+const paymentRoutes = require("./paymentRoutes");
 
 const router = express.Router();
 
@@ -27,5 +31,9 @@ router.use("/daily-slokas", dailySlokaRoutes);
 router.use("/user-home", userHomeRoutes);
 router.use("/calendar", calendarRoutes);
 router.use("/deities", deityRoutes);
+router.use("/products", productRoutes);
+router.use("/cart", cartRoutes);
+router.use("/orders", orderRoutes);
+router.use("/payments", paymentRoutes);
 
 module.exports = router;

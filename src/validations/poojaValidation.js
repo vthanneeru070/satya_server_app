@@ -73,6 +73,15 @@ const mediaSchema = Joi.object({
   videos: Joi.array().items(Joi.string().trim()).default([]),
 });
 
+// Pricing fields with cross-field validation:
+//   • When accessType === "PAID"  → price must be > 0 AND currency must be non-empty.
+//   • When accessType === "FREE"  → price/currency optional (default 0 / "ZAR").
+// For multipart/form-data, numeric strings like "499" come in as strings, so we
+// coerce via Joi's default number-string handling.
+const accessTypeField = Joi.string().trim().valid("FREE", "PAID");
+const priceField = Joi.number().min(0);
+const currencyField = Joi.string().trim().min(1).max(10);
+
 const createPoojaSchema = Joi.object({
   title: Joi.string().trim().min(2).max(150).required(),
   date: Joi.string().trim().pattern(ddmmyyyyPattern).required(),
@@ -81,6 +90,24 @@ const createPoojaSchema = Joi.object({
   difficulty: Joi.string().trim().min(2).max(100).optional(),
   duration: Joi.string().trim().min(1).max(100).optional(),
   description: Joi.string().trim().min(2).max(3000).optional(),
+  accessType: accessTypeField.default("FREE"),
+  price: priceField.when("accessType", {
+    is: "PAID",
+    then: Joi.number().greater(0).required().messages({
+      "number.base": "price must be a number when accessType is PAID",
+      "number.greater": "price must be greater than 0 when accessType is PAID",
+      "any.required": "price is required when accessType is PAID",
+    }),
+    otherwise: Joi.number().min(0).default(0),
+  }),
+  currency: currencyField.when("accessType", {
+    is: "PAID",
+    then: Joi.string().trim().min(1).required().messages({
+      "string.empty": "currency is required when accessType is PAID",
+      "any.required": "currency is required when accessType is PAID",
+    }),
+    otherwise: Joi.string().trim().default("ZAR"),
+  }),
   purpose: jsonObjectOrStringField(purposeSchema).optional(),
   deitySummary: jsonObjectOrStringField(deitySummarySchema).optional(),
   preparation: jsonObjectOrStringField(preparationSchema).optional(),
@@ -96,6 +123,10 @@ const createPoojaSchema = Joi.object({
   rating: Joi.number().min(0).max(5),
 });
 
+// On update, the payload may omit accessType (e.g. only changing price), so the
+// `when` clause can only validate the rows present in this request. The
+// controller performs the final cross-check against the existing pooja record
+// to catch cases like "flip to PAID without sending a price".
 const updatePoojaSchema = Joi.object({
   title: Joi.string().trim().min(2).max(150),
   date: Joi.string().trim().pattern(ddmmyyyyPattern),
@@ -104,6 +135,23 @@ const updatePoojaSchema = Joi.object({
   difficulty: Joi.string().trim().min(2).max(100),
   duration: Joi.string().trim().min(1).max(100),
   description: Joi.string().trim().min(2).max(3000),
+  accessType: accessTypeField,
+  price: priceField.when("accessType", {
+    is: "PAID",
+    then: Joi.number().greater(0).required().messages({
+      "number.greater": "price must be greater than 0 when accessType is PAID",
+      "any.required": "price is required when accessType is PAID",
+    }),
+    otherwise: Joi.number().min(0),
+  }),
+  currency: currencyField.when("accessType", {
+    is: "PAID",
+    then: Joi.string().trim().min(1).required().messages({
+      "string.empty": "currency is required when accessType is PAID",
+      "any.required": "currency is required when accessType is PAID",
+    }),
+    otherwise: Joi.string().trim(),
+  }),
   purpose: jsonObjectOrStringField(purposeSchema),
   deitySummary: jsonObjectOrStringField(deitySummarySchema),
   preparation: jsonObjectOrStringField(preparationSchema),

@@ -85,6 +85,21 @@ const poojaSchema = new mongoose.Schema(
       ref: "Deity", // 🔥 changed to reference
       required: true,
     },
+    accessType: {
+      type: String,
+      enum: ["FREE", "PAID"],
+      default: "FREE",
+    },
+    
+    price: {
+      type: Number,
+      default: 0,
+    },
+    
+    currency: {
+      type: String,
+      default: "ZAR",
+    },
 
     category: String,
     difficulty: String,

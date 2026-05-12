@@ -107,6 +107,35 @@ const parseDdMmYyyyDate = (value, fieldName) => {
   return parsedDate;
 };
 
+// Normalize the trio (accessType, price, currency) into final, persistable values
+// and enforce the cross-field rule: PAID poojas must have a positive price and a
+// non-empty currency. Used by both create and update.
+const resolvePricing = ({ accessType, price, currency }) => {
+  const finalAccessType =
+    accessType === "PAID" || accessType === "FREE" ? accessType : "FREE";
+  const finalPrice =
+    finalAccessType === "PAID"
+      ? Number(price)
+      : price === undefined
+        ? 0
+        : Number(price);
+  const finalCurrency =
+    finalAccessType === "PAID"
+      ? String(currency || "").trim()
+      : (currency && String(currency).trim()) || "ZAR";
+
+  if (finalAccessType === "PAID") {
+    if (!Number.isFinite(finalPrice) || finalPrice <= 0) {
+      throw new HttpError("price must be greater than 0 when accessType is PAID", 400);
+    }
+    if (!finalCurrency) {
+      throw new HttpError("currency is required when accessType is PAID", 400);
+    }
+  }
+
+  return { accessType: finalAccessType, price: finalPrice, currency: finalCurrency };
+};
+
 const createPooja = async (req, res, next) => {
   try {
     const {
@@ -118,6 +147,9 @@ const createPooja = async (req, res, next) => {
       duration,
       description,
       blessings,
+      accessType,
+      price,
+      currency,
       status: requestedStatus,
       festivalIds: festivalIdsRaw,
       rating,
@@ -140,6 +172,7 @@ const createPooja = async (req, res, next) => {
       audio: [...(mediaFromBody.audio || []), ...uploadedMedia.audio],
       videos: [...(mediaFromBody.videos || []), ...uploadedMedia.videos],
     };
+    const pricing = resolvePricing({ accessType, price, currency });
     const status = req.user.isSuperAdmin === true ? requestedStatus || "APPROVED" : "PENDING";
 
     const pooja = await Pooja.create({
@@ -150,6 +183,9 @@ const createPooja = async (req, res, next) => {
       difficulty,
       duration,
       description,
+      accessType: pricing.accessType,
+      price: pricing.price,
+      currency: pricing.currency,
       purpose,
       deitySummary,
       preparation,
@@ -328,6 +364,9 @@ const updatePooja = async (req, res, next) => {
       duration,
       description,
       blessings,
+      accessType,
+      price,
+      currency,
       status,
       festivalIds: festivalIdsRaw,
       rating,
@@ -366,9 +405,12 @@ const updatePooja = async (req, res, next) => {
       completion !== undefined ||
       mediaFromBody !== undefined ||
       blessings !== undefined ||
-    rating !== undefined ||
+      rating !== undefined ||
       steps !== undefined ||
-      festivalIds !== undefined;
+      festivalIds !== undefined ||
+      accessType !== undefined ||
+      price !== undefined ||
+      currency !== undefined;
     const hasMediaUpdate = hasUploadedMedia;
 
     if (!hasBodyUpdates && !hasMediaUpdate) {
@@ -451,6 +493,20 @@ const updatePooja = async (req, res, next) => {
 
     if (rating !== undefined) {
       pooja.rating = rating;
+    }
+
+    // Pricing — merge incoming partial update with the existing pooja's values,
+    // then run the cross-field PAID rule against the merged result. This blocks
+    // partial updates like flipping accessType→PAID without a price.
+    if (accessType !== undefined || price !== undefined || currency !== undefined) {
+      const pricing = resolvePricing({
+        accessType: accessType !== undefined ? accessType : pooja.accessType,
+        price: price !== undefined ? price : pooja.price,
+        currency: currency !== undefined ? currency : pooja.currency,
+      });
+      pooja.accessType = pricing.accessType;
+      pooja.price = pricing.price;
+      pooja.currency = pricing.currency;
     }
 
     if (mediaFromBody !== undefined || hasUploadedMedia) {
