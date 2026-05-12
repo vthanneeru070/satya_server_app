@@ -152,7 +152,9 @@ productSchema.index({ status: 1, isDeleted: 1 });
 productSchema.index({ deity: 1, category: 1, status: 1 });
 
 // ── Pre-save guards (defense in depth — validation also catches these) ───────
-productSchema.pre("validate", function ensurePriceConsistency(next) {
+// Mongoose 9+ no longer passes a `next` callback to pre hooks. The hook must
+// either return a Promise (async) or throw synchronously.
+productSchema.pre("validate", function ensurePriceConsistency() {
   if (
     this.salePrice !== null &&
     this.salePrice !== undefined &&
@@ -160,12 +162,11 @@ productSchema.pre("validate", function ensurePriceConsistency(next) {
     this.price !== undefined &&
     this.salePrice > this.price
   ) {
-    return next(new Error("salePrice cannot be greater than price"));
+    throw new Error("salePrice cannot be greater than price");
   }
   if (this.stockQuantity !== undefined && this.stockQuantity < 0) {
-    return next(new Error("stockQuantity cannot be negative"));
+    throw new Error("stockQuantity cannot be negative");
   }
-  return next();
 });
 
 // ── Virtuals ─────────────────────────────────────────────────────────────────
