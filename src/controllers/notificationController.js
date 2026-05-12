@@ -29,16 +29,19 @@ const sendNotification = async (req, res, next) => {
       sentBy: req.user.userId,
     });
 
-    const wasScheduled = doc.status === "SCHEDULED";
+    let message;
+    if (doc.status === "SCHEDULED") {
+      message = "Notification scheduled successfully";
+    } else if (doc.status === "FAILED") {
+      message = `Notification dispatch failed: ${doc.errorMessage || "unknown error"}`;
+    } else if (doc.targetedTokenCount === 0) {
+      message =
+        "Notification saved, but no recipients had registered FCM tokens — nothing was delivered. Ask users to open the app at least once after login so the device can register its FCM token.";
+    } else {
+      message = `Notification delivered. sent=${doc.successCount} failed=${doc.failureCount} (of ${doc.targetedTokenCount} tokens across ${doc.targetedUserCount} users).`;
+    }
 
-    return sendSuccess(
-      res,
-      { notification: doc },
-      wasScheduled
-        ? "Notification scheduled successfully"
-        : "Notification queued for delivery",
-      201
-    );
+    return sendSuccess(res, { notification: doc }, message, 201);
   } catch (error) {
     return next(error);
   }

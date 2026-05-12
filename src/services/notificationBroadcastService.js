@@ -223,7 +223,14 @@ const dispatchNotification = async (notificationId) => {
 };
 
 /**
- * Create + send (or schedule) a notification. Returns the notification doc.
+ * Create + send (or schedule) a notification. Returns the final notification doc.
+ *
+ * For immediate sends, the dispatch is awaited so the admin gets accurate
+ * `status`, `targetedTokenCount`, `successCount`, and `failureCount` back in
+ * the response — no polling required.
+ *
+ * For scheduled sends, returns immediately in `SCHEDULED` state; the in-process
+ * scheduler picks it up at `scheduledAt`.
  */
 const createNotification = async ({
   title,
@@ -248,17 +255,18 @@ const createNotification = async ({
     sentBy,
   });
 
-  if (!isScheduled) {
-    // Fire and forget — admin doesn't wait for FCM round trips.
-    dispatchNotification(doc._id).catch((err) =>
-      console.error(
-        `[fcm] notification ${doc._id} async dispatch error:`,
-        err?.message || err
-      )
+  if (isScheduled) return doc;
+
+  try {
+    await dispatchNotification(doc._id);
+  } catch (err) {
+    console.error(
+      `[fcm] notification ${doc._id} dispatch error:`,
+      err?.message || err
     );
   }
-
-  return doc;
+  // Return the up-to-date document (dispatch wrote status/counts).
+  return Notification.findById(doc._id);
 };
 
 /**
