@@ -1,6 +1,7 @@
 const express = require("express");
 const authenticate = require("../middleware/authenticate");
 const authorizeRoles = require("../middleware/authorizeRoles");
+const authorizeSuperAdmin = require("../middleware/authorizeSuperAdmin");
 const validate = require("../middleware/validate");
 const upload = require("../middleware/upload");
 const {
@@ -10,8 +11,11 @@ const {
   restoreProduct,
   getProductById,
   listProducts,
-  setStatus,
+  listAllProducts,
+  listMyProducts,
+  setProductStatus,
   setFeatured,
+  reviewProduct,
   getFeaturedProducts,
   getPopularProducts,
 } = require("../controllers/productController");
@@ -20,7 +24,9 @@ const {
   updateProductSchema,
   productIdParamsSchema,
   listProductsQuerySchema,
-  toggleStatusSchema,
+  listAllProductsQuerySchema,
+  reviewProductSchema,
+  toggleProductStatusSchema,
   toggleFeaturedSchema,
 } = require("../validations/productValidation");
 
@@ -29,8 +35,8 @@ const router = express.Router();
 /**
  * Optional authenticate — attaches req.user when a valid token is supplied,
  * but does NOT reject anonymous requests. Used on public read routes so the
- * controller can show ACTIVE-only items to guests and admins can use the same
- * URL to see INACTIVE/deleted items via query flags.
+ * controller can show APPROVED+ACTIVE-only items to guests and admins can use
+ * the same URL to see other statuses via query flags.
  */
 const optionalAuthenticate = (req, res, next) => {
   if (!req.headers.authorization) return next();
@@ -51,7 +57,7 @@ const optionalAuthenticate = (req, res, next) => {
  * @swagger
  * /products/featured:
  *   get:
- *     summary: List featured pooja kits (public)
+ *     summary: List featured pooja kits (public, APPROVED + ACTIVE only)
  *     tags: [Products]
  *     parameters:
  *       - in: query
@@ -66,7 +72,7 @@ router.get("/featured", getFeaturedProducts);
  * @swagger
  * /products/popular:
  *   get:
- *     summary: List popular pooja kits (public)
+ *     summary: List popular pooja kits (public, APPROVED + ACTIVE only)
  *     tags: [Products]
  *     parameters:
  *       - in: query
@@ -81,10 +87,12 @@ router.get("/popular", getPopularProducts);
  * @swagger
  * /products:
  *   get:
- *     summary: List / search / filter pooja kits (public)
+ *     summary: List / search / filter pooja kits
  *     description: |
- *       Returns paginated ACTIVE products by default. Admins/Super-admins can
- *       also pass `status` and `includeDeleted=true` to see the full catalog.
+ *       Public callers see only `status: APPROVED` AND `productStatus: ACTIVE`
+ *       products that are not soft-deleted. Authenticated admins/superadmins
+ *       can pass `status`, `productStatus`, and `includeDeleted=true` to see
+ *       additional rows.
  *     tags: [Products]
  *     parameters:
  *       - in: query
@@ -106,7 +114,16 @@ router.get("/popular", getPopularProducts);
  *         schema: { type: string }
  *       - in: query
  *         name: status
- *         schema: { type: string, enum: [ACTIVE, INACTIVE] }
+ *         schema:
+ *           type: string
+ *           enum: [DRAFT, PENDING, APPROVED, REJECTED, QUEUED]
+ *         description: Admin-only review status filter
+ *       - in: query
+ *         name: productStatus
+ *         schema:
+ *           type: string
+ *           enum: [ACTIVE, INACTIVE]
+ *         description: Admin-only publish toggle filter
  *       - in: query
  *         name: isFeatured
  *         schema: { type: boolean }
@@ -141,9 +158,97 @@ router.get(
 
 /**
  * @swagger
+ * /products/all:
+ *   get:
+ *     summary: Get all products (any review status)
+ *     description: Requires super admin role. Returns the full catalog regardless of review status; soft-deleted items hidden unless `includeDeleted=true`.
+ *     tags: [Products]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10, maximum: 100 }
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [DRAFT, PENDING, APPROVED, REJECTED, QUEUED]
+ *       - in: query
+ *         name: productStatus
+ *         schema:
+ *           type: string
+ *           enum: [ACTIVE, INACTIVE]
+ *       - in: query
+ *         name: includeDeleted
+ *         schema: { type: boolean, default: false }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: All products fetched successfully }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden (super admin required) }
+ */
+router.get(
+  "/all",
+  authenticate,
+  authorizeSuperAdmin,
+  validate(listAllProductsQuerySchema, "query"),
+  listAllProducts
+);
+
+/**
+ * @swagger
+ * /products/my:
+ *   get:
+ *     summary: Get my products (admin-owned, any review status)
+ *     description: Requires admin role. Returns products created by the logged-in admin/superadmin.
+ *     tags: [Products]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10, maximum: 100 }
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [DRAFT, PENDING, APPROVED, REJECTED, QUEUED]
+ *       - in: query
+ *         name: productStatus
+ *         schema:
+ *           type: string
+ *           enum: [ACTIVE, INACTIVE]
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: My products fetched successfully }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden (admin role required) }
+ */
+router.get(
+  "/my",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(listAllProductsQuerySchema, "query"),
+  listMyProducts
+);
+
+/**
+ * @swagger
  * /products/{id}:
  *   get:
- *     summary: Get product details (public)
+ *     summary: Get product details
+ *     description: Public callers can only fetch APPROVED + ACTIVE products. Admins/superadmins can fetch any non-deleted product.
  *     tags: [Products]
  *     parameters:
  *       - in: path
@@ -166,6 +271,9 @@ router.get(
  * /products/create-product:
  *   post:
  *     summary: Create a new pooja kit product (admin)
+ *     description: |
+ *       Admins can save a `DRAFT` or submit for review (`PENDING`, default).
+ *       Approval is owned by superadmin via the review endpoint.
  *     tags: [Products]
  *     security:
  *       - bearerAuth: []
@@ -196,6 +304,10 @@ router.post(
  * /products/{id}:
  *   patch:
  *     summary: Update a pooja kit product (admin)
+ *     description: |
+ *       Admins can update content and toggle `productStatus` (ACTIVE/INACTIVE),
+ *       but `status` can only be set to `DRAFT` or `PENDING` here — promoting
+ *       past PENDING is reserved for superadmin review.
  *     tags: [Products]
  *     security:
  *       - bearerAuth: []
@@ -230,7 +342,7 @@ router.patch(
  * /products/{id}:
  *   delete:
  *     summary: Soft-delete a pooja kit product (admin)
- *     description: Pass `?hard=true` to permanently delete and remove the image from S3.
+ *     description: Pass `?hard=true` to permanently delete and remove the image from S3. Soft delete sets `productStatus=INACTIVE` and keeps review `status` intact.
  *     tags: [Products]
  *     security:
  *       - bearerAuth: []
@@ -259,6 +371,7 @@ router.delete(
  * /products/{id}/restore:
  *   patch:
  *     summary: Restore a soft-deleted product (admin)
+ *     description: Clears `isDeleted` and sets `productStatus=ACTIVE`. Review status is left untouched.
  *     tags: [Products]
  *     security:
  *       - bearerAuth: []
@@ -283,7 +396,8 @@ router.patch(
  * @swagger
  * /products/{id}/status:
  *   patch:
- *     summary: Toggle product status ACTIVE/INACTIVE (admin)
+ *     summary: Toggle product publish status ACTIVE/INACTIVE (admin)
+ *     description: Flips `productStatus` only. Does not affect the review workflow (`status`).
  *     tags: [Products]
  *     security:
  *       - bearerAuth: []
@@ -298,21 +412,21 @@ router.patch(
  *         application/json:
  *           schema:
  *             type: object
- *             required: [status]
+ *             required: [productStatus]
  *             properties:
- *               status:
+ *               productStatus:
  *                 type: string
  *                 enum: [ACTIVE, INACTIVE]
  *     responses:
- *       200: { description: Product status updated }
+ *       200: { description: Product publish status updated }
  */
 router.patch(
   "/:id/status",
   authenticate,
   authorizeRoles("admin"),
   validate(productIdParamsSchema, "params"),
-  validate(toggleStatusSchema),
-  setStatus
+  validate(toggleProductStatusSchema),
+  setProductStatus
 );
 
 /**
@@ -348,6 +462,46 @@ router.patch(
   validate(productIdParamsSchema, "params"),
   validate(toggleFeaturedSchema),
   setFeatured
+);
+
+/**
+ * @swagger
+ * /products/review/{id}:
+ *   put:
+ *     summary: Review product
+ *     description: Requires super admin role. Move the product through the review workflow (APPROVED / REJECTED / QUEUED / DRAFT).
+ *     tags: [Products]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [status]
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [APPROVED, REJECTED, QUEUED, DRAFT]
+ *     responses:
+ *       200: { description: Product reviewed successfully }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden (super admin required) }
+ *       404: { description: Product not found }
+ */
+router.put(
+  "/review/:id",
+  authenticate,
+  authorizeSuperAdmin,
+  validate(productIdParamsSchema, "params"),
+  validate(reviewProductSchema),
+  reviewProduct
 );
 
 module.exports = router;

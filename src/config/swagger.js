@@ -149,7 +149,17 @@ const options = {
             currency: { type: "string", example: "ZAR" },
             deity: { type: "string", description: "Deity ObjectId" },
             category: { type: "string", example: "Ganesh" },
-            status: { type: "string", enum: ["ACTIVE", "INACTIVE"] },
+            status: {
+              type: "string",
+              enum: ["DRAFT", "PENDING"],
+              description:
+                "Review workflow status. Admins can set DRAFT or submit for review (PENDING, default). APPROVED / REJECTED / QUEUED are set only by superadmin via PUT /products/review/:id.",
+            },
+            productStatus: {
+              type: "string",
+              enum: ["ACTIVE", "INACTIVE"],
+              description: "Publish toggle. Public list/get only return ACTIVE products.",
+            },
             isFeatured: { type: "boolean", example: false },
             image: { type: "string", format: "binary" },
           },

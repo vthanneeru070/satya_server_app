@@ -82,7 +82,11 @@ const buildProductPayload = (body = {}) => {
     payload.category = c || null;
   }
 
+  // Review workflow status (DRAFT/PENDING/...). Validation restricts admin
+  // inputs to DRAFT|PENDING on create/update.
   if (body.status !== undefined) payload.status = body.status;
+  // Publish toggle (ACTIVE/INACTIVE) — independent of review status.
+  if (body.productStatus !== undefined) payload.productStatus = body.productStatus;
 
   const isFeatured = normalizeBoolean(body.isFeatured);
   if (isFeatured !== undefined) payload.isFeatured = isFeatured;
@@ -217,6 +221,9 @@ const updateProduct = async ({ id, body, imageUrl }) => {
 /**
  * Soft-delete by default. Use { hard: true } to permanently remove (also
  * tries to remove the S3 image).
+ *
+ * Soft-delete only touches the publish toggle (productStatus). Review status
+ * (status) is left alone so admins can restore without re-running review.
  */
 const deleteProduct = async (id, { hard = false } = {}) => {
   const product = await Product.findById(id);
@@ -231,7 +238,7 @@ const deleteProduct = async (id, { hard = false } = {}) => {
   }
 
   product.isDeleted = true;
-  product.status = "INACTIVE";
+  product.productStatus = "INACTIVE";
   await product.save();
   return { id, hardDeleted: false };
 };
@@ -241,40 +248,33 @@ const restoreProduct = async (id) => {
   if (!product) throw new HttpError("Product not found", 404);
   if (!product.isDeleted) return product;
   product.isDeleted = false;
-  product.status = "ACTIVE";
+  product.productStatus = "ACTIVE";
   await product.save();
   return product;
 };
 
-const getProductById = async (id, { viewer = "public" } = {}) => {
-  const filter = { _id: id };
-  if (viewer === "public") {
-    filter.isDeleted = { $ne: true };
-    filter.status = "ACTIVE";
-  } else {
-    filter.isDeleted = { $ne: true };
-  }
-  const product = await Product.findOne(filter)
-    .populate("deity", "name")
-    .populate("createdBy", "fullName email role");
-  if (!product) throw new HttpError("Product not found", 404);
+// ── Filters ─────────────────────────────────────────────────────────────────
 
-  // Fire-and-forget view counter for analytics; never block the request.
-  Product.updateOne({ _id: product._id }, { $inc: { viewCount: 1 } }).catch(() => {});
-
-  return product;
-};
+/**
+ * A product is publicly buyable only when it has been approved AND is currently
+ * published AND has not been soft-deleted.
+ */
+const publicBuyableFilter = () => ({
+  isDeleted: { $ne: true },
+  status: "APPROVED",
+  productStatus: "ACTIVE",
+});
 
 const buildListFilter = (query, viewer) => {
   const filter = {};
 
   if (viewer === "public") {
-    filter.isDeleted = { $ne: true };
-    filter.status = "ACTIVE";
+    Object.assign(filter, publicBuyableFilter());
   } else {
     const includeDeleted = normalizeBoolean(query.includeDeleted) === true;
     if (!includeDeleted) filter.isDeleted = { $ne: true };
     if (query.status) filter.status = query.status;
+    if (query.productStatus) filter.productStatus = query.productStatus;
   }
 
   if (query.deity) filter.deity = query.deity;
@@ -301,7 +301,27 @@ const buildListFilter = (query, viewer) => {
   return filter;
 };
 
-const listProducts = async (query = {}, { viewer = "public" } = {}) => {
+// ── Reads ───────────────────────────────────────────────────────────────────
+
+const getProductById = async (id, { viewer = "public" } = {}) => {
+  const filter = { _id: id };
+  if (viewer === "public") {
+    Object.assign(filter, publicBuyableFilter());
+  } else {
+    filter.isDeleted = { $ne: true };
+  }
+  const product = await Product.findOne(filter)
+    .populate("deity", "name")
+    .populate("createdBy", "fullName email role");
+  if (!product) throw new HttpError("Product not found", 404);
+
+  // Fire-and-forget view counter for analytics; never block the request.
+  Product.updateOne({ _id: product._id }, { $inc: { viewCount: 1 } }).catch(() => {});
+
+  return product;
+};
+
+const paginatedFind = async (filter, query) => {
   const page = Number(query.page) || 1;
   const limit = Number(query.limit) || 10;
   const skip = (page - 1) * limit;
@@ -309,8 +329,6 @@ const listProducts = async (query = {}, { viewer = "public" } = {}) => {
   const sortBy = query.sortBy || "createdAt";
   const sortOrder = query.sortOrder === "asc" ? 1 : -1;
   const sort = { [sortBy]: sortOrder };
-
-  const filter = buildListFilter(query, viewer);
 
   const [items, total] = await Promise.all([
     Product.find(filter)
@@ -333,10 +351,53 @@ const listProducts = async (query = {}, { viewer = "public" } = {}) => {
   };
 };
 
-const setStatus = async (id, status) => {
+const listProducts = async (query = {}, { viewer = "public" } = {}) => {
+  const filter = buildListFilter(query, viewer);
+  return paginatedFind(filter, query);
+};
+
+/**
+ * Superadmin "see everything" listing — no review/publish filter unless one
+ * is explicitly requested. Soft-deleted are excluded by default.
+ */
+const listAllProducts = async (query = {}) => {
+  const filter = {};
+  const includeDeleted = normalizeBoolean(query.includeDeleted) === true;
+  if (!includeDeleted) filter.isDeleted = { $ne: true };
+  if (query.status) filter.status = query.status;
+  if (query.productStatus) filter.productStatus = query.productStatus;
+  if (query.search) {
+    const safe = String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    filter.title = { $regex: safe, $options: "i" };
+  }
+  return paginatedFind(filter, query);
+};
+
+/**
+ * Admin-scoped listing — products created by the calling admin, any review status.
+ */
+const listMyProducts = async (userId, query = {}) => {
+  const filter = { createdBy: userId };
+  const includeDeleted = normalizeBoolean(query.includeDeleted) === true;
+  if (!includeDeleted) filter.isDeleted = { $ne: true };
+  if (query.status) filter.status = query.status;
+  if (query.productStatus) filter.productStatus = query.productStatus;
+  if (query.search) {
+    const safe = String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    filter.title = { $regex: safe, $options: "i" };
+  }
+  return paginatedFind(filter, query);
+};
+
+// ── Writes (admin / superadmin) ─────────────────────────────────────────────
+
+/**
+ * Admin toggle for the publish flag (productStatus). Does NOT affect review status.
+ */
+const setProductStatus = async (id, productStatus) => {
   const product = await Product.findOne({ _id: id, isDeleted: { $ne: true } });
   if (!product) throw new HttpError("Product not found", 404);
-  product.status = status;
+  product.productStatus = productStatus;
   await product.save();
   return product;
 };
@@ -349,10 +410,22 @@ const setFeatured = async (id, isFeatured) => {
   return product;
 };
 
+/**
+ * Superadmin-only: move a product through the review workflow. Mirrors
+ * `reviewPooja` — flips `status` and saves; does not touch publish toggle.
+ */
+const reviewProduct = async (id, status) => {
+  const product = await Product.findOne({ _id: id, isDeleted: { $ne: true } });
+  if (!product) throw new HttpError("Product not found", 404);
+  product.status = status;
+  await product.save();
+  await product.populate("createdBy", "email role fullName");
+  return product;
+};
+
 const getFeaturedProducts = async ({ limit = 10 } = {}) => {
   return Product.find({
-    isDeleted: { $ne: true },
-    status: "ACTIVE",
+    ...publicBuyableFilter(),
     isFeatured: true,
   })
     .sort({ updatedAt: -1 })
@@ -361,10 +434,7 @@ const getFeaturedProducts = async ({ limit = 10 } = {}) => {
 };
 
 const getPopularProducts = async ({ limit = 10 } = {}) => {
-  return Product.find({
-    isDeleted: { $ne: true },
-    status: "ACTIVE",
-  })
+  return Product.find(publicBuyableFilter())
     .sort({ purchaseCount: -1, viewCount: -1 })
     .limit(Math.min(Number(limit) || 10, 100))
     .populate("deity", "name");
@@ -377,10 +447,13 @@ module.exports = {
   restoreProduct,
   getProductById,
   listProducts,
-  setStatus,
+  listAllProducts,
+  listMyProducts,
+  setProductStatus,
   setFeatured,
+  reviewProduct,
   getFeaturedProducts,
   getPopularProducts,
   // exported for unit tests
-  _internal: { slugify, buildProductPayload, generateUniqueSlug },
+  _internal: { slugify, buildProductPayload, generateUniqueSlug, publicBuyableFilter },
 };

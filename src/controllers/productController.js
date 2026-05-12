@@ -18,6 +18,9 @@ const uploadProductImage = async (req) => {
   return uploadFile(file, "products");
 };
 
+const isAdminRole = (req) =>
+  req.user?.role === "admin" || req.user?.role === "superadmin";
+
 const createProduct = async (req, res, next) => {
   try {
     const imageUrl = await uploadProductImage(req);
@@ -71,7 +74,7 @@ const restoreProduct = async (req, res, next) => {
 
 const getProductById = async (req, res, next) => {
   try {
-    const viewer = req.user?.role === "admin" || req.user?.role === "superadmin" ? "admin" : "public";
+    const viewer = isAdminRole(req) ? "admin" : "public";
     const product = await productService.getProductById(req.params.id, { viewer });
     return sendSuccess(res, { product }, "Product fetched successfully");
   } catch (error) {
@@ -81,8 +84,7 @@ const getProductById = async (req, res, next) => {
 
 const listProducts = async (req, res, next) => {
   try {
-    const viewer =
-      req.user?.role === "admin" || req.user?.role === "superadmin" ? "admin" : "public";
+    const viewer = isAdminRole(req) ? "admin" : "public";
     const result = await productService.listProducts(req.query, { viewer });
     return sendSuccess(res, result, "Products fetched successfully");
   } catch (error) {
@@ -90,9 +92,30 @@ const listProducts = async (req, res, next) => {
   }
 };
 
-const setStatus = async (req, res, next) => {
+const listAllProducts = async (req, res, next) => {
   try {
-    const product = await productService.setStatus(req.params.id, req.body.status);
+    const result = await productService.listAllProducts(req.query);
+    return sendSuccess(res, result, "All products fetched successfully");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const listMyProducts = async (req, res, next) => {
+  try {
+    const result = await productService.listMyProducts(req.user.userId, req.query);
+    return sendSuccess(res, result, "My products fetched successfully");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const setProductStatus = async (req, res, next) => {
+  try {
+    const product = await productService.setProductStatus(
+      req.params.id,
+      req.body.productStatus
+    );
     return sendSuccess(res, { product }, "Product status updated");
   } catch (error) {
     return next(error);
@@ -103,6 +126,15 @@ const setFeatured = async (req, res, next) => {
   try {
     const product = await productService.setFeatured(req.params.id, req.body.isFeatured);
     return sendSuccess(res, { product }, "Product featured flag updated");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const reviewProduct = async (req, res, next) => {
+  try {
+    const product = await productService.reviewProduct(req.params.id, req.body.status);
+    return sendSuccess(res, { product }, "Product reviewed successfully");
   } catch (error) {
     return next(error);
   }
@@ -133,8 +165,11 @@ module.exports = {
   restoreProduct,
   getProductById,
   listProducts,
-  setStatus,
+  listAllProducts,
+  listMyProducts,
+  setProductStatus,
   setFeatured,
+  reviewProduct,
   getFeaturedProducts,
   getPopularProducts,
 };

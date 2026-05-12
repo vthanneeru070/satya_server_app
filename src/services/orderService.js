@@ -52,7 +52,7 @@ const assertProductBuyable = (product, requestedQty) => {
   if (!product || product.isDeleted) {
     throw new HttpError("Product not found", 404);
   }
-  if (product.status !== "ACTIVE") {
+  if (product.status !== "APPROVED" || product.productStatus !== "ACTIVE") {
     throw new HttpError("This product is not available right now", 400);
   }
   if (product.stockQuantity <= 0) {

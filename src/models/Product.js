@@ -106,9 +106,14 @@ const productSchema = new mongoose.Schema(
 
     status: {
       type: String,
+      enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"],
+      default: "PENDING",
+    },
+
+    productStatus: {
+      type: String,
       enum: ["ACTIVE", "INACTIVE"],
       default: "ACTIVE",
-      index: true,
     },
 
     // Analytics / merchandising flags

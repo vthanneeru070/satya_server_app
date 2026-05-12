@@ -18,6 +18,10 @@ const itemsField = Joi.alternatives().try(
 const numericFromForm = (joiNum) =>
   Joi.alternatives().try(joiNum, Joi.string().trim().pattern(/^-?\d+(\.\d+)?$/));
 
+const REVIEW_STATUSES = ["DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"];
+const CREATE_STATUSES = ["DRAFT", "PENDING"];
+const PUBLISH_STATUSES = ["ACTIVE", "INACTIVE"];
+
 const createProductSchema = Joi.object({
   title: Joi.string().trim().min(2).max(200).required(),
   slug: Joi.string().trim().lowercase().pattern(/^[a-z0-9-]+$/).max(220).optional(),
@@ -33,7 +37,10 @@ const createProductSchema = Joi.object({
   deity: objectIdHex.optional().allow("", null),
   category: Joi.string().trim().max(100).optional().allow("", null),
 
-  status: Joi.string().valid("ACTIVE", "INACTIVE").optional(),
+  // Admins can only save as DRAFT or submit for review (PENDING). Approval
+  // is owned by superadmin via the review endpoint.
+  status: Joi.string().valid(...CREATE_STATUSES).optional(),
+  productStatus: Joi.string().valid(...PUBLISH_STATUSES).optional(),
   isFeatured: Joi.alternatives().try(Joi.boolean(), Joi.string().valid("true", "false")).optional(),
 }).custom((value, helpers) => {
   if (
@@ -63,7 +70,9 @@ const updateProductSchema = Joi.object({
   deity: objectIdHex.allow("", null),
   category: Joi.string().trim().max(100).allow("", null),
 
-  status: Joi.string().valid("ACTIVE", "INACTIVE"),
+  // Admins editing their own product cannot self-promote past PENDING.
+  status: Joi.string().valid(...CREATE_STATUSES),
+  productStatus: Joi.string().valid(...PUBLISH_STATUSES),
   isFeatured: Joi.alternatives().try(Joi.boolean(), Joi.string().valid("true", "false")),
 }).min(1);
 
@@ -77,7 +86,9 @@ const listProductsQuerySchema = Joi.object({
   search: Joi.string().trim().max(120).optional(),
   deity: objectIdHex.optional(),
   category: Joi.string().trim().max(100).optional(),
-  status: Joi.string().valid("ACTIVE", "INACTIVE").optional(),
+  // Admin-only filters; ignored for public viewers in the service layer.
+  status: Joi.string().valid(...REVIEW_STATUSES).optional(),
+  productStatus: Joi.string().valid(...PUBLISH_STATUSES).optional(),
   isFeatured: Joi.alternatives().try(Joi.boolean(), Joi.string().valid("true", "false")).optional(),
   minPrice: Joi.number().min(0).optional(),
   maxPrice: Joi.number().min(0).optional(),
@@ -87,8 +98,21 @@ const listProductsQuerySchema = Joi.object({
   includeDeleted: Joi.alternatives().try(Joi.boolean(), Joi.string().valid("true", "false")).optional(),
 });
 
-const toggleStatusSchema = Joi.object({
-  status: Joi.string().valid("ACTIVE", "INACTIVE").required(),
+const listAllProductsQuerySchema = Joi.object({
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(100).default(10),
+  search: Joi.string().trim().max(120).optional(),
+  status: Joi.string().valid(...REVIEW_STATUSES).optional(),
+  productStatus: Joi.string().valid(...PUBLISH_STATUSES).optional(),
+  includeDeleted: Joi.alternatives().try(Joi.boolean(), Joi.string().valid("true", "false")).optional(),
+});
+
+const reviewProductSchema = Joi.object({
+  status: Joi.string().valid("APPROVED", "REJECTED", "QUEUED", "DRAFT").required(),
+});
+
+const toggleProductStatusSchema = Joi.object({
+  productStatus: Joi.string().valid(...PUBLISH_STATUSES).required(),
 });
 
 const toggleFeaturedSchema = Joi.object({
@@ -100,6 +124,8 @@ module.exports = {
   updateProductSchema,
   productIdParamsSchema,
   listProductsQuerySchema,
-  toggleStatusSchema,
+  listAllProductsQuerySchema,
+  reviewProductSchema,
+  toggleProductStatusSchema,
   toggleFeaturedSchema,
 };

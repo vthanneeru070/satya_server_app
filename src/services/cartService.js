@@ -18,11 +18,17 @@ const recalcTotal = (cart) => {
   cart.totalAmount = Math.round(total * 100) / 100;
 };
 
+const isProductPubliclyAvailable = (product) =>
+  product &&
+  !product.isDeleted &&
+  product.status === "APPROVED" &&
+  product.productStatus === "ACTIVE";
+
 const assertProductBuyable = (product, requestedQty) => {
   if (!product || product.isDeleted) {
     throw new HttpError("Product not found", 404);
   }
-  if (product.status !== "ACTIVE") {
+  if (product.status !== "APPROVED" || product.productStatus !== "ACTIVE") {
     throw new HttpError("This product is not available right now", 400);
   }
   if (product.stockQuantity <= 0) {
@@ -66,7 +72,7 @@ const serializeCart = async (cart) => {
 
   cart.items.forEach((ci, index) => {
     const product = productMap.get(String(ci.product));
-    if (!product || product.isDeleted || product.status !== "ACTIVE") {
+    if (!isProductPubliclyAvailable(product)) {
       removedIdx.push(index);
       return;
     }
@@ -192,5 +198,11 @@ module.exports = {
   updateQuantity,
   removeItem,
   clearCart,
-  _internal: { getOrCreateCart, serializeCart, assertProductBuyable, recalcTotal },
+  _internal: {
+    getOrCreateCart,
+    serializeCart,
+    assertProductBuyable,
+    isProductPubliclyAvailable,
+    recalcTotal,
+  },
 };
