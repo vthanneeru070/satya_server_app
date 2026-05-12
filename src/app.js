@@ -5,6 +5,7 @@ const swaggerUi = require("swagger-ui-express");
 const routes = require("./routes");
 const uploadRoutes = require("./routes/uploadRoutes");
 const paymentWebhookRoutes = require("./routes/paymentWebhookRoutes");
+const paymentLandingRoutes = require("./routes/paymentLandingRoutes");
 const swaggerSpec = require("./config/swagger");
 const requestLogger = require("./middleware/requestLogger");
 const rateLimiter = require("./middleware/rateLimiter");
@@ -33,6 +34,12 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use("/api/v1", routes);
 app.use("/api", uploadRoutes);
+
+// Public Paystack redirect landing pages (PAYSTACK_CALLBACK_URL lands here).
+// Mounted at the root — outside /api/v1 — so the browser/WebView sees a page
+// instead of the JSON 404. Settlement is handled separately via the webhook
+// and the authenticated GET /api/v1/payments/verify/:reference call.
+app.use("/", paymentLandingRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
