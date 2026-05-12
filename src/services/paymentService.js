@@ -21,10 +21,12 @@ const appendOrderHistory = (order, status, note = "") => {
 };
 
 const nextDonationContributionNumber = async (session) => {
+  // Pipeline update + upsert: starts at 10001 on first call, increments thereafter.
+  // Mongoose 9+ requires `updatePipeline: true` to accept an aggregation pipeline.
   const doc = await Counter.findOneAndUpdate(
     { _id: "donationSequence" },
     [{ $set: { seq: { $add: [{ $ifNull: ["$seq", 10000] }, 1] } } }],
-    { new: true, upsert: true, session }
+    { new: true, upsert: true, session, updatePipeline: true }
   );
   return `SATYA-DON-${doc.seq}`;
 };
