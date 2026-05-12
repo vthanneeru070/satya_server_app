@@ -16,38 +16,60 @@ const { paystackWebhook } = require("../controllers/paymentController");
 
 const router = express.Router();
 
+const rawBodyParser = express.raw({ type: "*/*", limit: "1mb" });
+
+const promoteRawBody = (req, _res, next) => {
+  // Preserve the raw bytes for HMAC, then promote the parsed JSON onto req.body
+  // so downstream code (and Swagger) can treat it like any other endpoint.
+  req.rawBody = req.body;
+  try {
+    req.body = req.rawBody && req.rawBody.length
+      ? JSON.parse(req.rawBody.toString("utf8"))
+      : {};
+  } catch (_) {
+    req.body = {};
+  }
+  next();
+};
+
+/**
+ * @swagger
+ * /payments/webhook:
+ *   post:
+ *     summary: Paystack webhook receiver (server-to-server)
+ *     description: |
+ *       Canonical webhook URL (matches `PAYSTACK_WEBHOOK_URL`). Paystack's
+ *       servers POST here when a transaction event occurs (`charge.success`,
+ *       `charge.failed`, etc). Validates the `x-paystack-signature` HMAC-SHA512
+ *       header against the raw body using `PAYSTACK_SECRET_KEY`. Always responds
+ *       200 OK after acknowledgement so Paystack stops retrying — see server
+ *       logs for processing results. Settlement for both ORDER and DONATION
+ *       payments flows through the same idempotent verify path.
+ *     tags: [Payments]
+ *     responses:
+ *       200: { description: Event acknowledged }
+ *       401: { description: Invalid signature }
+ */
+router.post("/webhook", rawBodyParser, promoteRawBody, paystackWebhook);
+
 /**
  * @swagger
  * /payments/paystack/webhook:
  *   post:
- *     summary: Paystack webhook receiver (server-to-server)
+ *     summary: Paystack webhook receiver (legacy alias)
  *     description: |
- *       This endpoint is called by Paystack's servers when a transaction event
- *       occurs (`charge.success`, `charge.failed`, etc). Validates the
- *       `x-paystack-signature` HMAC-SHA512 header against the raw body using
- *       PAYSTACK_SECRET_KEY. Always responds 200 OK after acknowledgement so
- *       Paystack stops retrying — see server logs for processing results.
- *     tags: [Orders]
+ *       Legacy alias for `POST /payments/webhook`. Kept for any Paystack
+ *       configuration that still points here. New deployments should use the
+ *       canonical path that matches `PAYSTACK_WEBHOOK_URL`.
+ *     tags: [Payments]
  *     responses:
  *       200: { description: Event acknowledged }
  *       401: { description: Invalid signature }
  */
 router.post(
   "/paystack/webhook",
-  express.raw({ type: "*/*", limit: "1mb" }),
-  (req, _res, next) => {
-    // Preserve the raw bytes for HMAC, then promote the parsed JSON onto req.body
-    // so downstream code (and Swagger) can treat it like any other endpoint.
-    req.rawBody = req.body;
-    try {
-      req.body = req.rawBody && req.rawBody.length
-        ? JSON.parse(req.rawBody.toString("utf8"))
-        : {};
-    } catch (_) {
-      req.body = {};
-    }
-    next();
-  },
+  rawBodyParser,
+  promoteRawBody,
   paystackWebhook
 );
 

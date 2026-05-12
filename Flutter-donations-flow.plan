@@ -1,0 +1,366 @@
+# Flutter Donations + Paystack Flow — Cursor Prompt
+
+Copy everything below the line into Cursor inside the Flutter project. The backend API is already live and locked.
+
+> Replace **Riverpod**, **GoRouter**, and **webview_flutter** with whatever the project already uses before pasting.
+
+---
+
+Implement a complete **Donations + Paystack flow** in this Flutter app, integrated with the existing Node.js backend.
+
+## Stack to use
+
+- Flutter (latest stable, null-safe Dart)
+- State management: **Riverpod** (match what the project already uses; do not introduce a new state lib)
+- HTTP: existing **Dio** client with the auth interceptor (do not create a new one)
+- WebView: **webview_flutter** ^4.x
+- Routing: existing router (GoRouter or Navigator) — do not switch
+- Date / currency: `intl`
+
+## Backend contract (locked, do not change)
+
+Base URL: `https://satya-server-app-2.onrender.com/api/v1`
+All endpoints require `Authorization: Bearer <Firebase ID token>`.
+
+Set this once for the curls below:
+
+```bash
+BASE_URL="https://satya-server-app-2.onrender.com/api/v1"
+TOKEN="YOUR_FIREBASE_ID_TOKEN"
+```
+
+### 1) List approved + visible donations
+
+```
+GET /donations
+```
+
+```bash
+curl -X GET "$BASE_URL/donations?page=1&limit=10" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Response item shape: `{ _id, title, description, image, status, isVisible }`.
+
+### 2) Start a Paystack donation
+
+```
+POST /donations/:id/donate
+```
+
+Body:
+```json
+{
+  "amount": 100,
+  "currency": "ZAR",
+  "note": "Om Namah",
+  "callbackUrl": "https://app.satya.example/donation/return"
+}
+```
+- `amount` required, number, min 10.
+- `currency` optional, defaults to `ZAR`.
+- `note` optional, max 280 chars.
+- `callbackUrl` optional — server falls back to `PAYSTACK_CALLBACK_URL`.
+
+```bash
+# Minimal
+curl -X POST "$BASE_URL/donations/68a1b2c3d4e5f60011223344/donate" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 100}'
+
+# Full body
+curl -X POST "$BASE_URL/donations/68a1b2c3d4e5f60011223344/donate" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "amount": 250,
+    "currency": "ZAR",
+    "note": "Om Namah Shivaya",
+    "callbackUrl": "https://app.satya.example/donation/return"
+  }'
+```
+
+Response 201 `data`:
+```json
+{
+  "paymentId": "...",
+  "contributionId": "...",
+  "contributionNumber": "SATYA-DON-10001",
+  "reference": "PSK-DON-10001-A1B2C3",
+  "authorization_url": "https://checkout.paystack.com/abcd1234",
+  "authorizationUrl":   "https://checkout.paystack.com/abcd1234",
+  "callbackUrl": "https://satya-server-app-2.onrender.com/payment-success",
+  "accessCode": "abcd1234efgh5678",
+  "publicKey": "pk_test_...",
+  "amount": 250,
+  "currency": "ZAR",
+  "email": "user@example.com",
+  "donation": { "_id": "...", "title": "Temple Renovation" }
+}
+```
+
+The Flutter app should open `authorization_url` in a WebView and intercept navigation to the host of `callbackUrl`.
+
+### 3) Server-side verify (the only source of truth)
+
+```
+GET /payments/verify/:reference
+```
+
+Idempotent — safe to retry.
+
+```bash
+curl -X GET "$BASE_URL/payments/verify/PSK-DON-10001-A1B2C3" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Response `data`:
+```json
+{
+  "status": "success",
+  "alreadyPaid": false,
+  "payment": { "_id": "...", "status": "SUCCESS", "paymentFor": "DONATION" },
+  "contribution": {
+    "_id": "...",
+    "contributionNumber": "SATYA-DON-10001",
+    "amount": 250,
+    "currency": "ZAR",
+    "paymentStatus": "PAID"
+  }
+}
+```
+
+`status` ∈ `"success" | "failed" | "abandoned" | "unknown"`. Only `"success"` counts as paid.
+
+### 4) My donation history
+
+```
+GET /donations/contributions/my
+```
+
+```bash
+# Default
+curl -X GET "$BASE_URL/donations/contributions/my?page=1&limit=10" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Filter to PAID
+curl -X GET "$BASE_URL/donations/contributions/my?paymentStatus=PAID&limit=20" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Filter by a specific donation
+curl -X GET "$BASE_URL/donations/contributions/my?donation=68a1b2c3d4e5f60011223344" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Response `data`:
+```json
+{
+  "items": [
+    {
+      "_id": "...",
+      "contributionNumber": "SATYA-DON-10001",
+      "amount": 250,
+      "currency": "ZAR",
+      "paymentStatus": "PAID",
+      "paymentMethod": "PAYSTACK",
+      "paystackReference": "PSK-DON-10001-A1B2C3",
+      "transactionId": "1234567890",
+      "note": "Om Namah Shivaya",
+      "donation": { "_id": "...", "title": "Temple Renovation", "image": "...", "status": "APPROVED", "isVisible": true },
+      "user":     { "_id": "...", "fullName": "Venkat T", "email": "user@example.com" },
+      "createdAt": "2026-05-12T13:55:23.014Z"
+    }
+  ],
+  "pagination": { "page": 1, "limit": 10, "total": 1, "totalPages": 1 }
+}
+```
+
+## End-to-end test sequence
+
+```bash
+# 1. Pick a donation
+curl -s "$BASE_URL/donations?limit=1" -H "Authorization: Bearer $TOKEN"
+DONATION_ID="<paste _id from above>"
+
+# 2. Start a donation
+INIT=$(curl -s -X POST "$BASE_URL/donations/$DONATION_ID/donate" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 50, "note": "Test"}')
+echo "$INIT"
+
+REFERENCE=$(echo "$INIT" | jq -r '.data.reference')
+AUTH_URL=$(echo "$INIT"  | jq -r '.data.authorization_url')
+echo "Open in browser: $AUTH_URL"
+
+# 3. Pay with Paystack test card:
+#    4084 0840 8408 4081  |  any future expiry  |  any CVV  |  PIN 0000  |  OTP 123456
+
+# 4. Verify (only source of truth)
+curl -s "$BASE_URL/payments/verify/$REFERENCE" -H "Authorization: Bearer $TOKEN"
+
+# 5. Confirm it shows up in history
+curl -s "$BASE_URL/donations/contributions/my?paymentStatus=PAID&limit=5" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+## High-level flow
+
+```
+list -> pick donation -> bottom sheet (amount + note)
+     -> POST /donations/:id/donate
+     -> open authorization_url in WebView
+     -> WebView navigates to callbackUrl host
+     -> GET /payments/verify/:reference  <- SERVER decides
+     -> success screen or failed screen
+```
+
+## Files to create
+
+```
+lib/features/donations/
+  data/
+    models/donation.dart
+    models/donation_init_data.dart
+    models/donation_contribution.dart
+    models/verify_result.dart
+    donations_repository.dart
+    donation_exception.dart
+  state/
+    donations_providers.dart
+    donate_controller.dart
+  presentation/
+    donations_list_screen.dart
+    donation_details_screen.dart
+    donate_amount_sheet.dart
+    donation_paystack_webview_screen.dart
+    donation_success_screen.dart
+    donation_failed_screen.dart
+    my_contributions_screen.dart
+    widgets/donation_card.dart
+    widgets/contribution_tile.dart
+    widgets/status_badge.dart
+```
+
+## Repository API
+
+```dart
+Future<List<Donation>> listDonations({int page = 1, int limit = 20});
+
+Future<DonationInitData> initiateDonation({
+  required String donationId,
+  required num amount,
+  String currency = 'ZAR',
+  String? note,
+  String? callbackUrl,
+});
+
+Future<VerifyResult> verifyPayment(String reference);
+
+Future<({List<DonationContribution> items, int total, int totalPages})> listMyContributions({
+  int page = 1,
+  int limit = 10,
+  String? paymentStatus,
+});
+```
+
+Map Dio errors to a typed `DonationException` exposing `status` + a friendly `message` (read `response.data['message']` when present). Accept both `authorization_url` and `authorizationUrl` keys when parsing.
+
+## Providers (Riverpod)
+
+- `donationsRepositoryProvider` — wraps the existing Dio.
+- `donationsListProvider` — `FutureProvider` for approved donations.
+- `myContributionsProvider` — `FutureProvider.family<…, ContributionsQuery>` paginated.
+- `donateControllerProvider` — `AsyncNotifier` exposing `initiate(...)` and `verify(reference)`. Holds the current `DonationInitData` and `VerifyResult`.
+
+## Screens
+
+1. **DonationsListScreen** — `donationsListProvider`; card per donation (image, title, short description, Donate button). Pull-to-refresh, shimmer loading, empty state.
+
+2. **DonationDetailsScreen** *(optional)* — full image, full description, primary Donate button at the bottom.
+
+3. **DonateAmountSheet** (bottom sheet)
+   - Inputs: amount (decimal, min 10), optional 280-char note.
+   - Quick chips: 50, 100, 250, 500, 1000.
+   - Mirror server validation (amount >= 10, note <= 280).
+   - On submit → `donateController.initiate(...)` → push `DonationPaystackWebViewScreen` with `authorizationUrl`, `reference`, `callbackUrl`.
+   - Inline error from `DonationException.message`.
+   - Disable submit while in flight; button-level spinner.
+
+4. **DonationPaystackWebViewScreen**
+   - Loads `authorization_url` in `webview_flutter`.
+   - Read host from the `callbackUrl` returned by the API — do not hard-code.
+   - Intercept navigation via `NavigationDelegate.onNavigationRequest`:
+     - Match the `callbackUrl` host.
+     - Also treat Paystack URLs containing `standard/close` or `standard/success` as terminal.
+   - When terminal, `NavigationDecision.prevent` and call `donateController.verify(reference)`.
+   - Full-screen "Confirming your donation…" overlay while verifying.
+   - On `isPaid === true` → `pushReplacement` to `DonationSuccessScreen`.
+   - Otherwise → `pushReplacement` to `DonationFailedScreen`.
+   - Android back button: if not yet completed, kick off verify before popping (the user may have paid).
+   - Retry verify with exponential backoff (1s, 2s, 4s, max 3 attempts) on transient network errors. Backend is idempotent — safe to retry.
+
+5. **DonationSuccessScreen** — big check, donation title, formatted `currency amount`, `contributionNumber`. **Done** → pop to donations list. Optional **View receipt** → My Contributions.
+
+6. **DonationFailedScreen** — failure icon, `status` text, `reference`, **Try again** → reopens amount sheet for same donation, **Back to donations** → root.
+
+7. **MyContributionsScreen** — paginated from `myContributionsProvider`. Per item: donation title, formatted amount, status badge (PAID / PENDING / FAILED), `contributionNumber`, formatted date. Filter chips: ALL / PAID / PENDING / FAILED.
+
+## Routing
+
+- `/donations` → `DonationsListScreen`
+- `/donations/:id` → `DonationDetailsScreen`
+- `/donations/contributions` → `MyContributionsScreen`
+- Transient pushes: `DonationPaystackWebViewScreen`, `DonationSuccessScreen`, `DonationFailedScreen`.
+
+Add a **Donations** entry to the main drawer / bottom nav (wherever top-level destinations live).
+
+## FCM
+
+Backend already pushes `data.type === "DONATION_RECEIVED"`. In the existing FCM message handler, add a branch: when tapped, navigate to `/donations/contributions`. Do not use the FCM payload to mark a donation as paid in-app — always rely on the verify call.
+
+## State machine
+
+| Trigger | Verify result | UI |
+|---|---|---|
+| WebView returns to callback host | not called yet | "Confirming…" overlay |
+| Verify resolves `status: "success"` | any `alreadyPaid` | Success screen |
+| Verify resolves `status: "failed" \| "abandoned"` | — | Failed screen with Retry |
+| Verify resolves `status: "unknown"` | — | Failed screen; Retry re-verifies |
+| Verify network error after 3 retries | — | Failed screen; Retry still safe (idempotent) |
+| User taps back during WebView | — | Call verify once before popping |
+
+## UX / quality
+
+- Loading, empty, and error states for every screen.
+- All async work through Riverpod — no `setState` for API state.
+- Disable buttons while requests are in flight; button-level spinners.
+- Currency via `intl.NumberFormat.currency(name: 'ZAR', symbol: 'R ')`.
+- Dates via `intl` (`d MMM yyyy, h:mm a`).
+- Theming via `Theme.of(context)` — no hard-coded colors except status badge accents.
+- Accessibility: semantic labels on icons + CTAs.
+- Architecture: data → repository → providers → presentation. No HTTP from widgets.
+
+## Do NOT
+
+- Call Paystack REST directly from Flutter — only the backend does.
+- Store the Paystack secret or compute subunit amounts client-side.
+- Trust the WebView "success" URL alone — verify is mandatory.
+- Add new dependencies beyond `webview_flutter` if not already present.
+- Modify the existing API base URL / auth interceptor.
+- Edit any backend files.
+
+## Acceptance criteria
+
+1. From `DonationsListScreen`, donate `R 50` to any approved donation using Paystack test card `4084 0840 8408 4081` and reach `DonationSuccessScreen` with `contributionNumber` shown.
+2. If the user closes the WebView mid-payment, verify is still called and the right screen (Success or Failed) is shown.
+3. Calling verify twice for the same reference returns `alreadyPaid: true` on the second call; UI still shows Success without errors.
+4. `MyContributionsScreen` shows the new PAID contribution at the top after a successful payment.
+5. Filter chips on `MyContributionsScreen` work and pagination loads the next page.
+6. All screens render correctly in light + dark themes.
+7. `flutter analyze` is clean; `dart format .` applied.
+
+## Final step
+
+After implementation, run `flutter analyze` and `dart format .`, report any remaining issues, and produce a short "How to test" checklist mirroring the acceptance criteria above.

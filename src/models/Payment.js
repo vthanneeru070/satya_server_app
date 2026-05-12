@@ -8,15 +8,25 @@ const paymentSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    /**
+     * Optional after the polymorphic split — set only when paymentFor === "ORDER".
+     * Donation payments leave this null and use `donationContribution` instead.
+     */
     order: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Order",
-      required: true,
+      default: null,
+      index: true,
+    },
+    donationContribution: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "DonationContribution",
+      default: null,
       index: true,
     },
     paymentFor: {
       type: String,
-      enum: ["ORDER"],
+      enum: ["ORDER", "DONATION"],
       default: "ORDER",
       required: true,
     },
@@ -56,5 +66,6 @@ const paymentSchema = new mongoose.Schema(
 );
 
 paymentSchema.index({ order: 1, status: 1 });
+paymentSchema.index({ donationContribution: 1, status: 1 });
 
 module.exports = mongoose.model("Payment", paymentSchema);

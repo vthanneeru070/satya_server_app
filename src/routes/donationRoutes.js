@@ -14,12 +14,21 @@ const {
   getVisibleDonations,
 } = require("../controllers/donationController");
 const {
+  initiateDonation,
+  listMyDonationContributions,
+  adminListDonationContributions,
+} = require("../controllers/donationPaymentController");
+const {
   createDonationSchema,
   updateDonationSchema,
   reviewDonationSchema,
   donationIdParamsSchema,
   allDonationsQuerySchema,
 } = require("../validations/donationValidation");
+const {
+  initiateDonationSchema,
+  listContributionsQuerySchema,
+} = require("../validations/donationPaymentValidation");
 
 const router = express.Router();
 
@@ -173,6 +182,147 @@ router.get(
   authorizeSuperAdmin,
   validate(allDonationsQuerySchema, "query"),
   getAllDonations
+);
+
+/**
+ * @swagger
+ * /donations/contributions/my:
+ *   get:
+ *     summary: List my donation contributions
+ *     description: Authenticated user. Returns Paystack-tracked donations made by the current user.
+ *     tags: [Donations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: paymentStatus
+ *         schema:
+ *           type: string
+ *           enum: [PENDING, PAID, FAILED, REFUNDED]
+ *       - in: query
+ *         name: donation
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: My donation contributions fetched
+ */
+router.get(
+  "/contributions/my",
+  authenticate,
+  validate(listContributionsQuerySchema, "query"),
+  listMyDonationContributions
+);
+
+/**
+ * @swagger
+ * /donations/contributions/all:
+ *   get:
+ *     summary: List all donation contributions
+ *     description: Requires super admin. Returns Paystack-tracked donations across all users.
+ *     tags: [Donations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *       - in: query
+ *         name: paymentStatus
+ *         schema:
+ *           type: string
+ *           enum: [PENDING, PAID, FAILED, REFUNDED]
+ *       - in: query
+ *         name: donation
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: user
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Donation contributions fetched
+ */
+router.get(
+  "/contributions/all",
+  authenticate,
+  authorizeSuperAdmin,
+  validate(listContributionsQuerySchema, "query"),
+  adminListDonationContributions
+);
+
+/**
+ * @swagger
+ * /donations/{id}/donate:
+ *   post:
+ *     summary: Start a Paystack donation
+ *     description: |
+ *       Initializes a Paystack transaction for a donation and returns an
+ *       authorization_url for the client to open. If `callbackUrl` is omitted,
+ *       the server falls back to `PAYSTACK_CALLBACK_URL`. The resolved
+ *       `callbackUrl` is echoed in the response so the WebView knows which
+ *       redirect host to intercept. Settlement only happens after server-side
+ *       verify.
+ *     tags: [Donations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [amount]
+ *             properties:
+ *               amount:
+ *                 type: number
+ *                 minimum: 10
+ *                 example: 100
+ *               currency:
+ *                 type: string
+ *                 default: ZAR
+ *               note:
+ *                 type: string
+ *                 maxLength: 280
+ *               callbackUrl:
+ *                 type: string
+ *                 format: uri
+ *     responses:
+ *       201:
+ *         description: Donation initialized; client should open authorization_url
+ *       404:
+ *         description: Donation not found
+ */
+router.post(
+  "/:id/donate",
+  authenticate,
+  validate(donationIdParamsSchema, "params"),
+  validate(initiateDonationSchema),
+  initiateDonation
 );
 
 /**
