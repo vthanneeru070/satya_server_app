@@ -1,0 +1,168 @@
+# Flutter FCM integration — Cursor prompt
+
+Copy everything below the horizontal rule into Cursor in your Flutter project. Adjust stack names (Riverpod vs Bloc, GoRouter vs Navigator) to match the repo before pasting.
+
+---
+
+## Goal
+
+Integrate **Firebase Cloud Messaging (FCM)** so the app receives push notifications after successful **order payments** and **donation payments**. Register the device token with the backend so the server can send pushes. Handle foreground, background, and tap-to-navigate flows.
+
+## Backend API (locked)
+
+Base: `${API_BASE_URL}/api/v1` (e.g. `https://satya-server-app-2.onrender.com/api/v1`). All FCM routes require `Authorization: Bearer <Firebase ID token>` (same as the rest of the app).
+
+| Method | Path | Body | Purpose |
+|--------|------|------|---------|
+| POST | `/fcm/register` | `{ "token": "<fcm token>", "platform": "android" \| "ios" \| "web", "deviceId": "optional" }` | Idempotent: adds token to user `fcmTokens` (`$addToSet`) |
+| DELETE | `/fcm/unregister` | `{ "token": "<fcm token>" }` | Removes token (logout, token rotation) |
+| GET | `/fcm/me` | — | Returns `{ count: N }` registered tokens for sanity checks |
+
+### Curl examples
+
+```bash
+BASE_URL="https://satya-server-app-2.onrender.com/api/v1"
+TOKEN="<Firebase ID token>"
+
+curl -s -X POST "$BASE_URL/fcm/register" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"token":"<paste FCM token>","platform":"android"}'
+
+curl -s "$BASE_URL/fcm/me" -H "Authorization: Bearer $TOKEN"
+
+curl -s -X DELETE "$BASE_URL/fcm/unregister" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"token":"<same token>"}'
+```
+
+**Critical:** If the app never calls `POST /fcm/register`, the user has **zero** tokens server-side and **no push will ever be sent** (backend skips silently).
+
+## Push payloads the server sends today
+
+All messages include both **notification** (system tray) and **data** (for routing when the app opens from a tap).
+
+### Order paid
+
+- **Notification:** title `Order confirmed`, body `Your order has been placed successfully` (defaults; may vary later).
+- **Data:** `type: "ORDER_PLACED"`, `userId: "<mongo user id>"`.
+
+### Donation paid
+
+- **Notification:** title `Thank you for your donation`, body includes amount (e.g. `Your ZAR 100.00 donation was received successfully.`).
+- **Data:** `type: "DONATION_RECEIVED"`, `userId: "<mongo user id>"`, `contributionId: "<id or empty string>"`.
+
+Handle `type` in a single switch; do not assume extra keys exist.
+
+---
+
+## Cursor prompt (paste into Flutter repo)
+
+Implement **Firebase Cloud Messaging** in this Flutter app and wire it to the existing Satya backend FCM endpoints.
+
+### Stack (adapt to this repo)
+
+- `firebase_core`, `firebase_messaging` (latest stable, null-safe).
+- Optional but recommended: `flutter_local_notifications` for **foreground** heads-up on Android/iOS.
+- State: match existing (Riverpod / Bloc / Provider). Do not add a second global state library.
+- HTTP: use the existing **Dio** client that already sends `Authorization: Bearer <Firebase ID token>`. Add thin methods only; do not duplicate base URL or interceptors.
+
+### Backend endpoints (do not change server)
+
+- `POST /api/v1/fcm/register` — body `{ token: string (required, min 20 chars), platform?: "android"|"ios"|"web", deviceId?: string }`.
+- `DELETE /api/v1/fcm/unregister` — body `{ token: string }`.
+- `GET /api/v1/fcm/me` — returns `{ count: number }` in `data`.
+
+### Repository layer
+
+Create `lib/core/notifications/fcm_api.dart` (or under `features/notifications/data/`) with:
+
+```dart
+Future<void> registerFcmToken(String token, {String? platform, String? deviceId});
+Future<void> unregisterFcmToken(String token);
+Future<int> fetchRegisteredTokenCount(); // GET /fcm/me -> data.count
+```
+
+Map 4xx/5xx to typed errors; surface `response.data['message']` when present.
+
+### When to register the token
+
+1. After **Firebase.initializeApp()** and after the user is **authenticated** (same moment you attach the auth token to Dio), call `FirebaseMessaging.instance.getToken()` and `POST /fcm/register`.
+2. Subscribe to `FirebaseMessaging.instance.onTokenRefresh` and call `POST /fcm/register` with the new token (idempotent on server).
+3. On **logout**, call `DELETE /fcm/unregister` with the last known token, then clear local cache of that token.
+
+### Permissions
+
+- **iOS:** request notification permission before `getToken()`; handle `AuthorizationStatus.denied` with in-app messaging (Settings deep link).
+- **Android 13+:** request `POST_NOTIFICATIONS` runtime permission before expecting heads-up notifications.
+
+### Foreground handler
+
+`FirebaseMessaging.onMessage.listen((RemoteMessage msg) { ... })`:
+
+- If `flutter_local_notifications` is used, show a local notification mirroring `msg.notification` so users see something when the app is open.
+- Otherwise document that only data/background behavior is guaranteed on some OEMs.
+
+### Background / terminated
+
+- Top-level `@pragma('vm:entry-point')` `firebaseMessagingBackgroundHandler` registered in `main()` **before** `runApp`.
+- In the handler, keep work minimal (no Navigator). Optional: log analytics only.
+
+### Tap / open from notification
+
+Use `FirebaseMessaging.onMessageOpenedApp` and `getInitialMessage()`:
+
+- Parse `message.data['type']`:
+  - `ORDER_PLACED` — navigate to orders tab or order detail if you have an order id in data later; for now route to **Orders / order history** screen.
+  - `DONATION_RECEIVED` — navigate to **donation contributions** screen (`/donations/contributions` or equivalent). Pass `contributionId` from `data['contributionId']` when non-empty for a detail sheet if that route exists.
+
+Use the existing router (GoRouter / Navigator). Do not navigate from `onMessage` (foreground) unless product explicitly wants in-app banners instead.
+
+### iOS and Android project setup (document in README snippet in PR)
+
+- **Android:** `google-services.json` in `android/app/`; applicationId matches Firebase Android app; default notification channel for local notifications if used.
+- **iOS:** `GoogleService-Info.plist` in Runner; Push Notifications + Background Modes (Remote notifications) in Xcode; APNs key or cert configured in Firebase Console.
+
+### Acceptance criteria
+
+1. After login, `GET /fcm/me` returns `count >= 1` on a physical device or emulator with Google Play (Android).
+2. After logout, `count` returns to `0` (or decrements if multiple devices) after unregister.
+3. Simulating a server push (complete a test donation or order payment on staging) shows a notification when app is in **background**; tapping opens the correct screen per `type`.
+4. Foreground: user sees at least a snackbar or local notification when a push arrives.
+5. Token refresh: rotate token in Firebase debug tools or reinstall app; new token is registered without duplicate errors.
+6. `flutter analyze` clean; no secrets committed.
+
+### Do not
+
+- Do not call Firebase Admin SDK from Flutter (server only).
+- Do not hard-code API keys beyond what `google-services.json` / plist already contain.
+- Do not block app startup forever on `getToken()` — timeout and retry with backoff.
+
+### Files to add or touch (suggested layout)
+
+```
+lib/core/notifications/
+  fcm_api.dart
+  fcm_bootstrap.dart          // init + permission + register after auth
+  fcm_message_router.dart     // maps RemoteMessage -> GoRouter / Navigator
+  fcm_background.dart         // background handler only
+```
+
+Wire `FcmBootstrap.init()` from `main()` after `Firebase.initializeApp`, and call `registerWithBackend()` from your auth session listener when `user != null`, `unregister` when `user == null`.
+
+### Final step
+
+Run `flutter analyze` and `dart format .`. Add a short "How to test" section: login, confirm `/fcm/me`, trigger staging donation/order payment, observe notification and tap navigation.
+
+---
+
+End of Cursor prompt.
+
+## Quick verification checklist (manual)
+
+1. Login in app; confirm network tab or log shows `POST .../fcm/register` 200.
+2. `curl GET .../fcm/me` with same user token shows `count: 1`.
+3. Complete payment on staging; device receives push (background).
+4. Tap notification; app opens to orders or contributions per `type`.
+5. Logout; `DELETE .../fcm/unregister` fires; `GET .../fcm/me` shows `count: 0`.
