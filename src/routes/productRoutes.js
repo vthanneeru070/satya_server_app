@@ -196,7 +196,7 @@ router.get(
 router.get(
   "/all",
   authenticate,
-  authorizeSuperAdmin,
+  authorizeRoles("admin"),
   validate(listAllProductsQuerySchema, "query"),
   listAllProducts
 );

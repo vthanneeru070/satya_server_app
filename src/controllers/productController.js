@@ -84,8 +84,11 @@ const getProductById = async (req, res, next) => {
 
 const listProducts = async (req, res, next) => {
   try {
-    const viewer = isAdminRole(req) ? "admin" : "public";
-    const result = await productService.listProducts(req.query, { viewer });
+    // Catalogue listing is always public-facing: only `APPROVED` review status
+    // and `ACTIVE` publish flag (see productService public filter), regardless of
+    // whether the caller is admin/superadmin. Full catalog: GET /products/all
+    // or GET /products/my.
+    const result = await productService.listProducts(req.query, { viewer: "public" });
     return sendSuccess(res, result, "Products fetched successfully");
   } catch (error) {
     return next(error);
