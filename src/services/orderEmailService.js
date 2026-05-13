@@ -5,8 +5,7 @@ const appName = () => process.env.APP_NAME || "Satya";
 
 const adminInbox = () =>
   process.env.ORDER_ADMIN_INBOX ||
-  process.env.SMTP_FROM ||
-  process.env.RESEND_FROM ||
+  process.env.BREVO_SENDER_EMAIL ||
   null;
 
 const escapeHtml = (value) => {

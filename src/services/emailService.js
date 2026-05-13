@@ -1,101 +1,43 @@
 // Ensure dotenv is loaded before reading process.env. Safe to call multiple times.
 require("dotenv").config();
 
-const dns = require("dns");
-const nodemailer = require("nodemailer");
 const axios = require("axios");
 
-// Force the entire process to prefer IPv4 for DNS resolution. Many cloud hosts
-// (Render, some Heroku dynos) advertise IPv6 in their resolver but have no IPv6
-// outbound routing, which causes ENETUNREACH errors when nodemailer picks the
-// AAAA record for smtp.gmail.com first. This is a process-wide setting (Node 18+).
-try {
-  dns.setDefaultResultOrder("ipv4first");
-} catch (_) {
-  // older Node — ignore.
-}
-
-let cachedTransporter = null;
-let cachedSignature = null;
-
 /**
- * Send an email via Resend's HTTPS API.
+ * Email transport — Brevo (formerly Sendinblue) Transactional Email HTTPS API.
  *
- * Why Resend: cloud hosts like Render block outbound SMTP (ports 25 / 465 / 587),
- * but they allow HTTPS to api.resend.com. Resend offers a free tier (3000/mo,
- * 100/day) and only needs a single API key — no domain verification required
- * if you send from the shared "onboarding@resend.dev" sender.
+ * Why Brevo (and why HTTPS, not SMTP):
+ *   - Cloud hosts like Render block outbound SMTP (ports 25 / 465 / 587).
+ *   - Brevo exposes a simple HTTPS API at https://api.brevo.com/v3/smtp/email.
+ *   - Free tier: 300 emails/day. Single API key, no extra setup beyond a
+ *     verified sender email / domain.
  *
- * Returns the same shape as sendMail() so callers don't care which transport
- * was used.
+ * Env vars (read lazily so dotenv ordering doesn't bite us):
+ *   BREVO_API_KEY        ← required (xkeysib-…)
+ *   BREVO_SENDER_EMAIL   ← required sender address (must be verified in Brevo)
+ *   BREVO_SENDER_NAME    ← optional, defaults to APP_NAME or "Satya"
+ *
+ *   APP_NAME             ← brand name used in email templates
+ *   ADMIN_PANEL_URL      ← link shown in admin invite / password reset
+ *
+ * If BREVO_API_KEY or BREVO_SENDER_EMAIL is missing/placeholder, sendMail()
+ * falls back to DRY-RUN (logs the email content) so local development never
+ * blocks on missing credentials.
  */
-const sendViaResend = async ({ to, subject, html, text, from }) => {
-  const apiKey = process.env.RESEND_API_KEY;
-  const fromAddress =
-    from ||
-    process.env.RESEND_FROM ||
-    process.env.SMTP_FROM ||
-    "onboarding@resend.dev";
 
-  try {
-    const { data } = await axios.post(
-      "https://api.resend.com/emails",
-      { from: fromAddress, to: [to], subject, html, text },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        timeout: 15_000,
-      }
-    );
-    console.log(
-      `[emailService] (resend) Sent mail id=${data?.id} from=${fromAddress} to=${to}`
-    );
-    return {
-      dryRun: false,
-      delivered: true,
-      messageId: data?.id || null,
-      accepted: [to],
-      rejected: [],
-      response: "resend-api",
-      provider: "resend",
-    };
-  } catch (err) {
-    const status = err?.response?.status;
-    const body = err?.response?.data;
-    const reason =
-      body?.message || body?.error || err?.message || "Unknown Resend error";
-    const wrapped = new Error(
-      `Resend API failed${status ? ` (HTTP ${status})` : ""}: ${reason}`
-    );
-    wrapped.code = body?.name || err?.code || "RESEND_ERROR";
-    wrapped.response = JSON.stringify(body || {});
-    throw wrapped;
-  }
-};
+const BREVO_ENDPOINT = "https://api.brevo.com/v3/smtp/email";
 
-/**
- * Read SMTP config LAZILY from process.env every call. This is critical because
- * if this module is `require()`-d before dotenv has populated process.env, a
- * top-level destructure would freeze the values as `undefined` for the lifetime
- * of the process — which is exactly the bug we hit.
- */
-const readSmtpConfig = () => {
-  const cfg = {
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT) || 587,
-    secure: String(process.env.SMTP_SECURE).toLowerCase() === "true",
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-    from: process.env.SMTP_FROM,
-    appName: process.env.APP_NAME || "Satya",
-    panelUrl: process.env.ADMIN_PANEL_URL,
-    debug: String(process.env.SMTP_DEBUG).toLowerCase() === "true",
-  };
-  if (cfg.pass) cfg.pass = cfg.pass.replace(/^["']|["']$/g, "");
-  if (cfg.from) cfg.from = cfg.from.replace(/^["']|["']$/g, "");
-  return cfg;
+const readBrevoConfig = () => {
+  const apiKey = (process.env.BREVO_API_KEY || "").trim();
+  const senderEmail = (process.env.BREVO_SENDER_EMAIL || "").trim();
+  const senderName = (
+    process.env.BREVO_SENDER_NAME ||
+    process.env.APP_NAME ||
+    "Satya"
+  ).trim();
+  const appName = (process.env.APP_NAME || "Satya").trim();
+  const panelUrl = process.env.ADMIN_PANEL_URL || "";
+  return { apiKey, senderEmail, senderName, appName, panelUrl };
 };
 
 const isPlaceholder = (value) => {
@@ -105,124 +47,160 @@ const isPlaceholder = (value) => {
     v.startsWith("your-") ||
     v.includes("placeholder") ||
     v.includes("example.com") ||
-    v === "your-mailer@gmail.com" ||
-    v === "your-gmail-app-password-16-chars"
+    v === "xkeysib-your-brevo-api-key"
   );
 };
 
+const isBrevoConfigured = () => {
+  const cfg = readBrevoConfig();
+  if (!cfg.apiKey || isPlaceholder(cfg.apiKey)) return false;
+  if (!cfg.senderEmail || isPlaceholder(cfg.senderEmail)) return false;
+  return true;
+};
+
 /**
- * Build / reuse the SMTP transporter. Returns null when SMTP is not configured
- * or still has the placeholder values from .env.example, in which case calls
- * fall back to dry-run (logged) mode.
+ * Accepts either a plain "addr@example.com" string or a display-name form
+ * `"Some Name <addr@example.com>"` and returns Brevo's `{ email, name? }`
+ * recipient object. Returns null when the input has no usable email.
  */
-const getTransporter = () => {
-  const cfg = readSmtpConfig();
-  // If config changes (e.g. server reload picks new env vars), rebuild.
-  const signature = `${cfg.host}|${cfg.user}|${cfg.pass}|${cfg.port}|${cfg.secure}`;
-  if (cachedTransporter && cachedSignature === signature) return cachedTransporter;
+const parseRecipient = (raw) => {
+  if (!raw) return null;
+  const trimmed = String(raw).trim();
+  if (!trimmed) return null;
 
-  const missing = [];
-  if (!cfg.host) missing.push("SMTP_HOST");
-  if (!cfg.user) missing.push("SMTP_USER");
-  if (!cfg.pass) missing.push("SMTP_PASS");
-  if (missing.length) {
-    console.warn(
-      `[emailService] Missing SMTP env vars: ${missing.join(", ")}. Emails will run in DRY-RUN mode.`
-    );
-    return null;
+  const match = trimmed.match(/^(.*)<([^>]+)>\s*$/);
+  if (match) {
+    const name = match[1].trim().replace(/^["']|["']$/g, "");
+    const email = match[2].trim();
+    if (!email.includes("@")) return null;
+    return name ? { email, name } : { email };
   }
 
-  if (isPlaceholder(cfg.user) || isPlaceholder(cfg.pass)) {
-    console.warn(
-      `[emailService] SMTP_USER / SMTP_PASS look like placeholder values (current SMTP_USER="${cfg.user}"). Replace them with real credentials. DRY-RUN mode active.`
-    );
-    return null;
-  }
-
-  cachedTransporter = nodemailer.createTransport({
-    host: cfg.host,
-    port: cfg.port,
-    secure: cfg.secure,
-    requireTLS: !cfg.secure && cfg.port === 587,
-    auth: { user: cfg.user, pass: cfg.pass },
-    // Force IPv4. Many cloud hosts (Render, some Heroku dynos) have no IPv6
-    // outbound routing, and Gmail publishes both A and AAAA records — Node would
-    // otherwise pick IPv6 first and crash with ENETUNREACH.
-    family: 4,
-    // Hard timeouts so a hung SMTP server can never block the API response.
-    connectionTimeout: 10_000,
-    greetingTimeout: 10_000,
-    socketTimeout: 15_000,
-    pool: true,
-    maxConnections: 3,
-    debug: cfg.debug,
-    logger: cfg.debug,
-  });
-  cachedSignature = signature;
-  console.log(
-    `[emailService] SMTP transporter ready: host=${cfg.host} port=${cfg.port} secure=${cfg.secure} user=${cfg.user}`
-  );
-  return cachedTransporter;
+  if (!trimmed.includes("@")) return null;
+  return { email: trimmed };
 };
 
 /**
- * Send an email. Transport selection (in priority order):
- *   1. Resend HTTPS API   ← if RESEND_API_KEY is set (works on Render / any cloud host)
- *   2. SMTP (nodemailer)  ← if SMTP_HOST/USER/PASS are set
- *   3. Dry-run            ← otherwise (local dev convenience; logs the email content)
+ * Send an email through Brevo's HTTPS API.
+ * Returns the same shape sendMail() promises so callers don't care about
+ * the underlying transport.
+ */
+const sendViaBrevo = async ({ to, subject, html, text }) => {
+  const cfg = readBrevoConfig();
+
+  const recipient = parseRecipient(to);
+  if (!recipient) {
+    throw new Error(`Invalid recipient email: "${to}"`);
+  }
+
+  const payload = {
+    sender: { email: cfg.senderEmail, name: cfg.senderName },
+    to: [recipient],
+    subject,
+    htmlContent: html,
+    textContent: text,
+  };
+
+  try {
+    const { data } = await axios.post(BREVO_ENDPOINT, payload, {
+      headers: {
+        "api-key": cfg.apiKey,
+        "Content-Type": "application/json",
+        accept: "application/json",
+      },
+      timeout: 15_000,
+    });
+
+    const messageId = data?.messageId || null;
+    console.log(
+      `[emailService] (brevo) Sent mail id=${messageId} from=${cfg.senderEmail} to=${recipient.email}`
+    );
+    return {
+      dryRun: false,
+      delivered: true,
+      messageId,
+      accepted: [recipient.email],
+      rejected: [],
+      response: "brevo-api",
+      provider: "brevo",
+    };
+  } catch (err) {
+    const status = err?.response?.status;
+    const body = err?.response?.data;
+    const reason =
+      body?.message || body?.code || err?.message || "Unknown Brevo error";
+    const wrapped = new Error(
+      `Brevo API failed${status ? ` (HTTP ${status})` : ""}: ${reason}`
+    );
+    wrapped.code = body?.code || err?.code || "BREVO_ERROR";
+    wrapped.response = JSON.stringify(body || {});
+    throw wrapped;
+  }
+};
+
+/**
+ * Public send function. Either calls Brevo or falls back to DRY-RUN logging
+ * when the service isn't configured (so local dev keeps working).
  *
  * Returns:
  *   { delivered: true,  dryRun: false, messageId, accepted, rejected, response, provider }
- *   { delivered: false, dryRun: true }                                          ← no transport
+ *   { delivered: false, dryRun: true }     ← when not configured
  */
 const sendMail = async ({ to, subject, html, text }) => {
-  // 1) Prefer Resend on hosts that block SMTP.
-  if (process.env.RESEND_API_KEY) {
-    return sendViaResend({ to, subject, html, text });
-  }
-
-  // 2) SMTP fallback.
-  const cfg = readSmtpConfig();
-  const transporter = getTransporter();
-  if (!transporter) {
+  if (!isBrevoConfigured()) {
     console.log("──────── [emailService DRY-RUN] ────────");
     console.log("To:", to);
     console.log("Subject:", subject);
-    console.log("Text preview:", String(text).slice(0, 500));
+    console.log("Text preview:", String(text || "").slice(0, 500));
+    console.log(
+      "Reason: BREVO_API_KEY and/or BREVO_SENDER_EMAIL are missing — configure them in .env to actually send."
+    );
     console.log("────────────────────────────────────────");
     return { dryRun: true, delivered: false };
   }
-
-  const from = cfg.from || `"${cfg.appName}" <${cfg.user}>`;
-  const info = await transporter.sendMail({ from, to, subject, html, text });
-  console.log(
-    `[emailService] (smtp) Sent mail messageId=${info.messageId} accepted=${JSON.stringify(info.accepted)} rejected=${JSON.stringify(info.rejected)}`
-  );
-  return {
-    dryRun: false,
-    delivered: true,
-    messageId: info.messageId,
-    accepted: info.accepted,
-    rejected: info.rejected,
-    response: info.response,
-    provider: "smtp",
-  };
+  return sendViaBrevo({ to, subject, html, text });
 };
 
 /**
- * Test SMTP connectivity / credentials WITHOUT sending an actual email.
- * Returns `{ ok: true }` on success, `{ ok: false, error }` otherwise.
+ * Lightweight transport health check — pings Brevo `GET /v3/account` with the
+ * configured API key. Returns `{ ok: true, account }` on success.
+ *
+ * Useful for an admin "test email" endpoint or boot-time sanity check.
  */
 const verifyTransport = async () => {
-  const transporter = getTransporter();
-  if (!transporter) return { ok: false, error: "SMTP not configured" };
+  const cfg = readBrevoConfig();
+  if (!cfg.apiKey || isPlaceholder(cfg.apiKey)) {
+    return { ok: false, error: "BREVO_API_KEY is missing or placeholder" };
+  }
+  if (!cfg.senderEmail || isPlaceholder(cfg.senderEmail)) {
+    return { ok: false, error: "BREVO_SENDER_EMAIL is missing or placeholder" };
+  }
   try {
-    await transporter.verify();
-    return { ok: true };
+    const { data } = await axios.get("https://api.brevo.com/v3/account", {
+      headers: { "api-key": cfg.apiKey, accept: "application/json" },
+      timeout: 10_000,
+    });
+    return {
+      ok: true,
+      account: {
+        email: data?.email,
+        companyName: data?.companyName,
+        plan: data?.plan,
+      },
+    };
   } catch (err) {
-    return { ok: false, error: err.message };
+    const status = err?.response?.status;
+    const body = err?.response?.data;
+    return {
+      ok: false,
+      error: `Brevo verify failed${status ? ` (HTTP ${status})` : ""}: ${
+        body?.message || err?.message
+      }`,
+    };
   }
 };
+
+// ── HTML templates (admin invites & password resets) ──────────────────────
 
 const buildAdminInviteHtml = ({ fullName, resetLink, panelUrl, appName }) => `
 <!doctype html>
@@ -302,7 +280,7 @@ const buildAdminInviteText = ({ fullName, resetLink, panelUrl, appName }) =>
     .join("\n");
 
 const sendAdminInviteEmail = async ({ to, fullName, resetLink, panelUrl }) => {
-  const cfg = readSmtpConfig();
+  const cfg = readBrevoConfig();
   const subject = `You've been invited as an admin on ${cfg.appName}`;
   const params = {
     fullName,
@@ -319,7 +297,7 @@ const sendAdminInviteEmail = async ({ to, fullName, resetLink, panelUrl }) => {
 };
 
 const sendPasswordResetEmail = async ({ to, fullName, resetLink, panelUrl }) => {
-  const cfg = readSmtpConfig();
+  const cfg = readBrevoConfig();
   const subject = `Reset your ${cfg.appName} admin password`;
   const params = {
     fullName,
@@ -340,4 +318,5 @@ module.exports = {
   sendAdminInviteEmail,
   sendPasswordResetEmail,
   verifyTransport,
+  _internal: { readBrevoConfig, parseRecipient, isBrevoConfigured },
 };
