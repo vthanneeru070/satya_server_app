@@ -247,8 +247,49 @@ const notifyOrderStatusChanged = async (
   }
 };
 
+/**
+ * Best-effort FCM push when Paystack has confirmed a refund settlement.
+ * Fired from `paymentService.handleRefundWebhook` on `refund.processed`.
+ * Never throws — failures are logged.
+ */
+const notifyRefundProcessed = async (userId, { order } = {}) => {
+  try {
+    if (!order || !userId) return { sent: 0, failed: 0, pruned: 0 };
+
+    const amount =
+      order?.refund?.amount && Number(order.refund.amount) > 0
+        ? Number(order.refund.amount)
+        : Number(order.totalAmount || 0);
+    const currency = order?.refund?.currency || order.currency || "ZAR";
+    const formatted = `${currency} ${amount.toFixed(2)}`;
+
+    const user = await User.findById(userId).select("fcmTokens").lean();
+    const tokens = [...new Set((user?.fcmTokens || []).filter(Boolean))];
+    return dispatchPush(userId, {
+      tokens,
+      notification: {
+        title: "Refund processed",
+        body: `Your ${formatted} refund for order ${order.orderNumber} is on its way back to you.`,
+      },
+      data: {
+        type: "ORDER_REFUND_PROCESSED",
+        userId: String(userId),
+        orderId: String(order._id),
+        orderNumber: String(order.orderNumber || ""),
+        refundId: String(order?.refund?.paystackRefundId || ""),
+        amount: String(amount),
+        currency,
+      },
+      logTag: "notifyRefundProcessed",
+    });
+  } catch (err) {
+    console.warn("[fcm] notifyRefundProcessed failed:", err?.message || err);
+  }
+};
+
 module.exports = {
   notifyOrderPlaced,
   notifyDonationReceived,
   notifyOrderStatusChanged,
+  notifyRefundProcessed,
 };

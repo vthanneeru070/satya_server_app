@@ -13,6 +13,7 @@ const paystackService = require("./paystackService");
 const {
   notifyOrderPlaced,
   notifyDonationReceived,
+  notifyRefundProcessed,
 } = require("./fcmOrderNotifyService");
 const invoiceService = require("./invoiceService");
 const orderEmailService = require("./orderEmailService");
@@ -642,9 +643,13 @@ const handleRefundWebhook = async (event) => {
   const refundId = data.id != null ? String(data.id) : order.refund.paystackRefundId || "";
 
   if (event.event === "refund.processed") {
+    // Capture prior state so we can suppress duplicate notifications when
+    // the synchronous admin-cancel path already marked PROCESSED + emailed.
+    const wasAlreadyProcessed = order.refund.status === "PROCESSED";
+
     order.refund.status = "PROCESSED";
     order.refund.paystackRefundId = refundId;
-    order.refund.processedAt = new Date();
+    if (!order.refund.processedAt) order.refund.processedAt = new Date();
     order.refund.lastError = "";
     if (order.paymentStatus === "PAID") {
       order.paymentStatus = "REFUNDED";
@@ -655,6 +660,32 @@ const handleRefundWebhook = async (event) => {
       `Paystack refund processed (${refundId})`
     );
     await order.save();
+
+    // Best-effort customer notifications, but only if we didn't already tell
+    // them in the synchronous admin-cancel path. We never fail the webhook on these.
+    if (!wasAlreadyProcessed) {
+      try {
+        await orderEmailService.sendRefundProcessed(order);
+      } catch (err) {
+        console.warn(
+          "[paystack] refund.processed email failed:",
+          err?.message || err
+        );
+      }
+      try {
+        await notifyRefundProcessed(order.user, { order });
+      } catch (err) {
+        console.warn(
+          "[paystack] refund.processed push failed:",
+          err?.message || err
+        );
+      }
+    } else {
+      console.log(
+        `[paystack] refund.processed for order ${order.orderNumber}: customer already notified via sync admin-cancel; skipping duplicate email/push.`
+      );
+    }
+
     return { processed: true, status: "refund-processed", orderId: order._id };
   }
 

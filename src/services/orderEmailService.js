@@ -396,6 +396,66 @@ const sendOrderCancelledByAdmin = async (
   });
 };
 
+/**
+ * Email to the buyer once Paystack confirms a refund has settled
+ * (`refund.processed` webhook → `order.refund.status === "PROCESSED"`).
+ * Best-effort — never throws.
+ */
+const sendRefundProcessed = async (order) => {
+  if (!order) return { delivered: false, reason: "no-order" };
+  const user = await loadRecipientEmail(order.user);
+  const to = user?.email;
+  if (!to) return { delivered: false, reason: "no-recipient-email" };
+
+  const refundAmount =
+    order?.refund?.amount && Number(order.refund.amount) > 0
+      ? Number(order.refund.amount)
+      : order.totalAmount;
+  const refundCurrency = order?.refund?.currency || order.currency;
+  const refundRef = order?.refund?.paystackRefundId || "";
+
+  const subject = `Refund processed for order ${order.orderNumber}`;
+  const body = `
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">Hi <strong>${escapeHtml(user.fullName || "there")}</strong>,</p>
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">
+      Good news — your refund of
+      <strong>${formatMoney(refundAmount, refundCurrency)}</strong>
+      for order <strong>${escapeHtml(order.orderNumber)}</strong>
+      has been <strong>processed by Paystack</strong>.
+    </p>
+    <p style="margin:0 0 14px;font-size:14px;line-height:1.6;">
+      It should reflect on your original payment method within a few business
+      days, depending on your bank.
+    </p>
+    ${
+      refundRef
+        ? `<table width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;font-size:13px;margin-top:6px;">
+             <tr><td style="padding:4px 0;color:#6b7280;width:140px;">Paystack refund id</td><td><strong>${escapeHtml(refundRef)}</strong></td></tr>
+             <tr><td style="padding:4px 0;color:#6b7280;">Order reference</td><td>${escapeHtml(order.paystackReference || "—")}</td></tr>
+           </table>`
+        : ""
+    }
+    <p style="margin:24px 0 0;font-size:13px;color:#6b7280;line-height:1.6;">
+      If the refund hasn't appeared after 5–7 business days, reply to this
+      email with your order number and we'll chase it up with the bank.
+    </p>`;
+
+  return safeSend({
+    to,
+    subject,
+    html: cardShell({
+      accent: "#059669",
+      banner: "Your refund has been processed",
+      title: subject,
+      body,
+    }),
+    text:
+      `Your refund of ${refundAmount} ${refundCurrency} for order ${order.orderNumber} has been processed by Paystack. ` +
+      `It should appear on your original payment method within a few business days.` +
+      (refundRef ? ` Paystack refund id: ${refundRef}.` : ""),
+  });
+};
+
 module.exports = {
   sendOrderConfirmation,
   sendOrderAdminNotification,
@@ -403,4 +463,5 @@ module.exports = {
   sendDeliveryConfirmationPrompt,
   sendRequestStatusUpdate,
   sendOrderCancelledByAdmin,
+  sendRefundProcessed,
 };
