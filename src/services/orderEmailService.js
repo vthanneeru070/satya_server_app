@@ -306,10 +306,72 @@ const sendRequestStatusUpdate = async (orderRequest, { order, replacementOrder }
   });
 };
 
+/**
+ * Email to the buyer when an admin cancels the order (BRS: "Cancellation
+ * Process" — admin-mediated). `refunded` is true when the cancellation
+ * automatically flipped a PAID order to REFUNDED.
+ */
+const sendOrderCancelledByAdmin = async (order, { reason = "", refunded = false } = {}) => {
+  if (!order) return { delivered: false, reason: "no-order" };
+  const user = await loadRecipientEmail(order.user);
+  const to = user?.email;
+  if (!to) return { delivered: false, reason: "no-recipient-email" };
+
+  const subject = `Your ${appName()} order ${order.orderNumber} has been cancelled`;
+  const reasonBlock = reason
+    ? `<p style="margin:0 0 14px;font-size:14px;line-height:1.6;color:#374151;background:#f3f4f6;padding:12px 14px;border-radius:8px;">
+         <strong>Reason from admin:</strong> ${escapeHtml(reason)}
+       </p>`
+    : "";
+
+  const refundBlock = refunded
+    ? `<p style="margin:18px 0 0;font-size:14px;line-height:1.6;">
+         Since your order was already paid, the payment has been marked as
+         <strong>REFUNDED</strong>. The actual refund settles back to your
+         original payment method within a few business days.
+       </p>`
+    : `<p style="margin:18px 0 0;font-size:14px;line-height:1.6;">
+         No payment was captured for this order, so no refund is needed.
+       </p>`;
+
+  const body = `
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">Hi <strong>${escapeHtml(user.fullName || "there")}</strong>,</p>
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">
+      We're writing to let you know that your order
+      <strong>${escapeHtml(order.orderNumber)}</strong>
+      has been <strong>cancelled</strong> by our team.
+    </p>
+    ${reasonBlock}
+    ${renderItemsTable(order.items, order.currency)}
+    ${refundBlock}
+    <p style="margin:24px 0 0;font-size:13px;color:#6b7280;line-height:1.6;">
+      If this wasn't expected, please reply to this email or contact our
+      support team with your order number.
+    </p>`;
+
+  return safeSend({
+    to,
+    subject,
+    html: cardShell({
+      accent: "#dc2626",
+      banner: "Your order has been cancelled",
+      title: subject,
+      body,
+    }),
+    text:
+      `Your ${appName()} order ${order.orderNumber} has been cancelled by admin.` +
+      (reason ? ` Reason: ${reason}.` : "") +
+      (refunded
+        ? " Your payment has been marked as REFUNDED."
+        : " No payment was captured, so no refund is needed."),
+  });
+};
+
 module.exports = {
   sendOrderConfirmation,
   sendOrderAdminNotification,
   sendTrackingShared,
   sendDeliveryConfirmationPrompt,
   sendRequestStatusUpdate,
+  sendOrderCancelledByAdmin,
 };

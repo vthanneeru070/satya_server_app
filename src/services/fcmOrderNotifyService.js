@@ -167,4 +167,88 @@ const notifyDonationReceived = async (
   }
 };
 
-module.exports = { notifyOrderPlaced, notifyDonationReceived };
+/**
+ * Default copy per orderStatus transition. Admins can override by passing
+ * { title, body } when calling `notifyOrderStatusChanged`.
+ */
+const STATUS_COPY = {
+  PROCESSING: {
+    title: "Your order is being prepared",
+    body: (n) => `Order ${n} is now being processed.`,
+  },
+  SHIPPED: {
+    title: "Your order is on its way",
+    body: (n) => `Order ${n} has been dispatched. Track it from the app.`,
+  },
+  DELIVERED: {
+    title: "Your order has been delivered",
+    body: (n) =>
+      `Order ${n} has been marked as delivered. Tap to confirm receipt.`,
+  },
+  FULFILLED: {
+    title: "Thanks for confirming!",
+    body: (n) => `Order ${n} is now complete. Enjoy your purchase.`,
+  },
+  CANCELLED: {
+    title: "Your order has been cancelled",
+    body: (n) => `Order ${n} has been cancelled by our team.`,
+  },
+};
+
+/**
+ * Best-effort FCM push when an order's status changes (admin or system).
+ * Never throws — failures are logged.
+ *
+ * @param {string} userId
+ * @param {object} opts
+ * @param {object} opts.order        — required, must expose `_id`, `orderNumber`, `orderStatus`
+ * @param {string} [opts.newStatus]  — defaults to `opts.order.orderStatus`
+ * @param {string} [opts.title]      — override title
+ * @param {string} [opts.body]       — override body
+ * @param {string} [opts.note]       — short admin note appended to data payload
+ */
+const notifyOrderStatusChanged = async (
+  userId,
+  { order, newStatus, title, body, note = "" } = {}
+) => {
+  try {
+    if (!order || !userId) return { sent: 0, failed: 0, pruned: 0 };
+    const status = newStatus || order.orderStatus;
+    const copy = STATUS_COPY[status] || {
+      title: `Order ${order.orderNumber} update`,
+      body: (n) => `Order ${n} status is now ${status}.`,
+    };
+
+    const finalTitle = title || copy.title;
+    const finalBody =
+      body ||
+      (typeof copy.body === "function" ? copy.body(order.orderNumber) : copy.body);
+
+    const user = await User.findById(userId).select("fcmTokens").lean();
+    const tokens = [...new Set((user?.fcmTokens || []).filter(Boolean))];
+    return dispatchPush(userId, {
+      tokens,
+      notification: { title: finalTitle, body: finalBody },
+      data: {
+        type: "ORDER_STATUS_CHANGED",
+        userId: String(userId),
+        orderId: String(order._id),
+        orderNumber: String(order.orderNumber || ""),
+        orderStatus: String(status),
+        note: note || "",
+      },
+      logTag: `notifyOrderStatusChanged(${status})`,
+    });
+  } catch (err) {
+    console.warn(
+      "[fcm] notifyOrderStatusChanged failed:",
+      err?.message || err
+    );
+  }
+};
+
+module.exports = {
+  notifyOrderPlaced,
+  notifyDonationReceived,
+  notifyOrderStatusChanged,
+};

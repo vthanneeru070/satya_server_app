@@ -5,6 +5,7 @@ const Product = require("../models/Product");
 const Counter = require("../models/Counter");
 const HttpError = require("../utils/httpError");
 const orderEmailService = require("./orderEmailService");
+const { notifyOrderStatusChanged } = require("./fcmOrderNotifyService");
 
 const ORDER_STATUS_TRANSITIONS = {
   PLACED: new Set(["PROCESSING", "CANCELLED"]),
@@ -424,6 +425,21 @@ const updateStatus = async (id, { status, note = "" }, { actorUserId }) => {
       );
   }
 
+  // Always push the customer on a successful status transition. Best-effort,
+  // never bubbled.
+  if (updated) {
+    notifyOrderStatusChanged(updated.user, {
+      order: updated,
+      newStatus: status,
+      note,
+    }).catch((err) =>
+      console.error(
+        "[orderService] notifyOrderStatusChanged failed:",
+        err?.message || err
+      )
+    );
+  }
+
   return updated;
 };
 
@@ -537,6 +553,7 @@ const confirmDelivery = async (id, userId, { satisfied, feedback = "" } = {}) =>
 const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
   const session = await mongoose.startSession();
   let order;
+  let didRefund = false;
   try {
     await session.withTransaction(async () => {
       order = await Order.findOne({ _id: id, isDeleted: { $ne: true } }).session(session);
@@ -554,6 +571,7 @@ const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
 
       if (order.paymentStatus === "PAID") {
         order.paymentStatus = "REFUNDED";
+        didRefund = true;
       }
       order.orderStatus = "CANCELLED";
       appendHistory(
@@ -567,6 +585,33 @@ const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
   } finally {
     await session.endSession();
   }
+
+  // Post-commit best-effort fan-out: cancellation email + FCM push.
+  if (order) {
+    orderEmailService
+      .sendOrderCancelledByAdmin(order, { reason, refunded: didRefund })
+      .catch((err) =>
+        console.error(
+          "[orderService] sendOrderCancelledByAdmin failed:",
+          err?.message || err
+        )
+      );
+
+    notifyOrderStatusChanged(order.user, {
+      order,
+      newStatus: "CANCELLED",
+      note: reason || "Cancelled by admin",
+      body: reason
+        ? `Order ${order.orderNumber} was cancelled: ${reason}`
+        : undefined,
+    }).catch((err) =>
+      console.error(
+        "[orderService] notifyOrderStatusChanged (admin cancel) failed:",
+        err?.message || err
+      )
+    );
+  }
+
   return order;
 };
 
