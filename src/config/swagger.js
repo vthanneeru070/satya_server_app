@@ -119,6 +119,47 @@ const options = {
         PoojaUpdateMultipart: {
           allOf: [{ $ref: "#/components/schemas/PoojaCreateMultipart" }],
         },
+        RitualCreateMultipart: {
+          type: "object",
+          required: ["title", "deity"],
+          properties: {
+            title: { type: "string" },
+            slug: { type: "string", description: "Optional; generated from title if omitted" },
+            description: { type: "string" },
+            deity: { type: "string", description: "Deity ObjectId" },
+            category: { type: "string" },
+            purpose: { type: "string" },
+            recommendedDuration: { type: "string" },
+            bestDayTime: { type: "string" },
+            startingDay: { type: "string" },
+            difficulty: {
+              type: "string",
+              enum: ["BEGINNER", "INTERMEDIATE", "ADVANCED"],
+              default: "BEGINNER",
+            },
+            sections: { type: "string", description: "JSON array of section objects" },
+            days: { type: "string", description: "JSON array of day objects" },
+            media: { type: "string", description: "JSON string { images, audio, videos } URL arrays" },
+            accessType: {
+              type: "string",
+              enum: ["FREE", "PAID"],
+              default: "FREE",
+            },
+            price: { type: "number" },
+            currency: { type: "string", example: "ZAR" },
+            isFeatured: { type: "boolean" },
+            status: {
+              type: "string",
+              enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED"],
+            },
+            image: { type: "string", format: "binary" },
+            audio: { type: "string", format: "binary" },
+            video: { type: "string", format: "binary" },
+          },
+        },
+        RitualUpdateMultipart: {
+          allOf: [{ $ref: "#/components/schemas/RitualCreateMultipart" }],
+        },
         PoojaKitItem: {
           type: "object",
           required: ["itemName", "quantity", "unit"],
@@ -298,6 +339,210 @@ const options = {
             isDeleted: { type: "boolean" },
             createdAt: { type: "string", format: "date-time" },
             updatedAt: { type: "string", format: "date-time" },
+          },
+        },
+        OrderTracking: {
+          type: "object",
+          description: "Courier / dispatch details on an Order.",
+          properties: {
+            courier: { type: "string", example: "The Courier Guy" },
+            trackingNumber: { type: "string", example: "CG123456789" },
+            trackingUrl: { type: "string", format: "uri", nullable: true },
+            dispatchedAt: { type: "string", format: "date-time", nullable: true },
+            sharedWithUserAt: {
+              type: "string",
+              format: "date-time",
+              nullable: true,
+              description: "Timestamp of the most recent tracking email sent to the buyer.",
+            },
+          },
+        },
+        OrderInvoice: {
+          type: "object",
+          description: "Generated invoice metadata for a paid Order.",
+          properties: {
+            number: { type: "string", example: "INV-10001" },
+            url: { type: "string", format: "uri", nullable: true },
+            generatedAt: { type: "string", format: "date-time", nullable: true },
+          },
+        },
+        OrderFulfillment: {
+          type: "object",
+          description:
+            "Post-delivery customer satisfaction. `satisfied` is null until the user confirms via POST /orders/:id/confirm-delivery.",
+          properties: {
+            satisfied: { type: "boolean", nullable: true },
+            ratedAt: { type: "string", format: "date-time", nullable: true },
+            feedback: { type: "string" },
+          },
+        },
+        Order: {
+          type: "object",
+          properties: {
+            _id: { type: "string" },
+            orderNumber: { type: "string", example: "SATYA-10001" },
+            user: { type: "string" },
+            items: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  product: { type: "string" },
+                  title: { type: "string" },
+                  imageUrl: { type: "string" },
+                  quantity: { type: "integer" },
+                  price: { type: "number" },
+                  lineTotal: { type: "number" },
+                },
+              },
+            },
+            totalAmount: { type: "number", example: 999 },
+            currency: { type: "string", example: "ZAR" },
+            paymentStatus: {
+              type: "string",
+              enum: ["PENDING", "PAID", "FAILED", "REFUNDED"],
+            },
+            paymentMethod: {
+              type: "string",
+              enum: ["COD", "EFT", "PAYSTACK"],
+            },
+            orderStatus: {
+              type: "string",
+              enum: [
+                "PLACED",
+                "PROCESSING",
+                "SHIPPED",
+                "DELIVERED",
+                "FULFILLED",
+                "CANCELLED",
+              ],
+              description:
+                "FULFILLED is set only after the customer confirms receipt via POST /orders/:id/confirm-delivery.",
+            },
+            paystackReference: { type: "string", nullable: true },
+            transactionId: { type: "string", nullable: true },
+            inventoryReserved: { type: "boolean" },
+            tracking: { $ref: "#/components/schemas/OrderTracking" },
+            invoice: { $ref: "#/components/schemas/OrderInvoice" },
+            fulfillment: { $ref: "#/components/schemas/OrderFulfillment" },
+            shippingAddress: { $ref: "#/components/schemas/ShippingAddress" },
+            orderStatusHistory: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  status: { type: "string" },
+                  at: { type: "string", format: "date-time" },
+                  note: { type: "string" },
+                },
+              },
+            },
+            isDeleted: { type: "boolean" },
+            createdAt: { type: "string", format: "date-time" },
+            updatedAt: { type: "string", format: "date-time" },
+          },
+        },
+        SetTrackingRequest: {
+          type: "object",
+          required: ["courier", "trackingNumber"],
+          properties: {
+            courier: { type: "string", example: "The Courier Guy" },
+            trackingNumber: { type: "string", example: "CG123456789" },
+            trackingUrl: {
+              type: "string",
+              format: "uri",
+              example: "https://www.thecourierguy.co.za/track?n=CG123456789",
+            },
+          },
+        },
+        DispatchOrderRequest: {
+          allOf: [
+            { $ref: "#/components/schemas/SetTrackingRequest" },
+            {
+              type: "object",
+              properties: {
+                note: { type: "string", maxLength: 300 },
+              },
+            },
+          ],
+        },
+        ConfirmDeliveryRequest: {
+          type: "object",
+          required: ["satisfied"],
+          properties: {
+            satisfied: { type: "boolean" },
+            feedback: { type: "string", maxLength: 2000 },
+          },
+        },
+        OrderRequestHistoryEntry: {
+          type: "object",
+          properties: {
+            status: { type: "string" },
+            at: { type: "string", format: "date-time" },
+            note: { type: "string" },
+            by: { type: "string", nullable: true },
+          },
+        },
+        OrderRequest: {
+          type: "object",
+          properties: {
+            _id: { type: "string" },
+            requestNumber: { type: "string", example: "REQ-10001" },
+            order: {
+              oneOf: [
+                { type: "string" },
+                { $ref: "#/components/schemas/Order" },
+              ],
+            },
+            user: { type: "string" },
+            type: {
+              type: "string",
+              enum: ["CANCELLATION", "REFUND", "REPLACEMENT"],
+            },
+            reason: { type: "string" },
+            attachments: {
+              type: "array",
+              items: { type: "string", format: "uri" },
+            },
+            status: {
+              type: "string",
+              enum: ["PENDING", "APPROVED", "REJECTED", "COMPLETED"],
+            },
+            adminNote: { type: "string" },
+            resolvedBy: { type: "string", nullable: true },
+            resolvedAt: { type: "string", format: "date-time", nullable: true },
+            replacementOrder: {
+              oneOf: [
+                { type: "string" },
+                { $ref: "#/components/schemas/Order" },
+              ],
+              nullable: true,
+              description:
+                "Set on approved REPLACEMENT requests — points to the new auto-created order.",
+            },
+            history: {
+              type: "array",
+              items: { $ref: "#/components/schemas/OrderRequestHistoryEntry" },
+            },
+            isDeleted: { type: "boolean" },
+            createdAt: { type: "string", format: "date-time" },
+            updatedAt: { type: "string", format: "date-time" },
+          },
+        },
+        CreateOrderRequestBody: {
+          type: "object",
+          required: ["type"],
+          properties: {
+            type: {
+              type: "string",
+              enum: ["CANCELLATION", "REFUND", "REPLACEMENT"],
+            },
+            reason: { type: "string", maxLength: 2000 },
+            attachments: {
+              type: "array",
+              items: { type: "string", format: "uri" },
+              maxItems: 10,
+            },
           },
         },
       },

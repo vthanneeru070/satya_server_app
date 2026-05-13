@@ -84,6 +84,58 @@ const updatePayment = async (req, res, next) => {
   }
 };
 
+const setTracking = async (req, res, next) => {
+  try {
+    const order = await orderService.adminSetTracking(req.params.id, req.body, {
+      actorUserId: req.user.userId,
+    });
+    return sendSuccess(res, { order }, "Tracking details updated");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const dispatchOrder = async (req, res, next) => {
+  try {
+    const order = await orderService.dispatchOrder(req.params.id, req.body, {
+      actorUserId: req.user.userId,
+    });
+    return sendSuccess(res, { order }, "Order dispatched");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const confirmDelivery = async (req, res, next) => {
+  try {
+    const order = await orderService.confirmDelivery(
+      req.params.id,
+      req.user.userId,
+      req.body
+    );
+    return sendSuccess(
+      res,
+      { order },
+      order.fulfillment?.satisfied
+        ? "Thanks for confirming receipt — order marked as fulfilled."
+        : "Thanks for the feedback. Open a refund or replacement request from the app."
+    );
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const adminCancelPaidOrder = async (req, res, next) => {
+  try {
+    const order = await orderService.adminCancelOrder(req.params.id, req.body, {
+      actorUserId: req.user.userId,
+    });
+    return sendSuccess(res, { order }, "Order cancelled by admin");
+  } catch (error) {
+    return next(error);
+  }
+};
+
 /** @deprecated Use POST /api/v1/payments/initialize with body { orderId } */
 const initializePaystack = async (req, res, next) => {
   try {
@@ -128,6 +180,10 @@ module.exports = {
   updateOrderStatus,
   cancelMyOrder,
   updatePayment,
+  setTracking,
+  dispatchOrder,
+  confirmDelivery,
+  adminCancelPaidOrder,
   initializePaystack,
   verifyPaystack,
 };

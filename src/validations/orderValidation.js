@@ -82,6 +82,25 @@ const paystackVerifySchema = Joi.object({
   reference: Joi.string().trim().min(3).max(200).required(),
 });
 
+const setTrackingSchema = Joi.object({
+  courier: Joi.string().trim().min(2).max(120).required(),
+  trackingNumber: Joi.string().trim().min(2).max(120).required(),
+  trackingUrl: Joi.string().trim().uri().max(2048).allow("").optional(),
+});
+
+const dispatchOrderSchema = setTrackingSchema.keys({
+  note: Joi.string().trim().max(300).allow("").optional(),
+});
+
+const confirmDeliverySchema = Joi.object({
+  satisfied: Joi.boolean().required(),
+  feedback: Joi.string().trim().max(2000).allow("").optional(),
+});
+
+const adminCancelPaidSchema = Joi.object({
+  reason: Joi.string().trim().max(2000).allow("").optional(),
+});
+
 module.exports = {
   shippingAddressSchema,
   checkoutOrderSchema,
@@ -93,4 +112,8 @@ module.exports = {
   adminListOrdersQuerySchema,
   paystackInitSchema,
   paystackVerifySchema,
+  setTrackingSchema,
+  dispatchOrderSchema,
+  confirmDeliverySchema,
+  adminCancelPaidSchema,
 };

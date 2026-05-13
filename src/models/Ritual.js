@@ -1,0 +1,228 @@
+const mongoose = require("mongoose");
+
+const ritualContentSchema = new mongoose.Schema(
+  {
+    title: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    description: {
+      type: String,
+      default: "",
+    },
+
+    imageUrl: {
+      type: String,
+      default: "",
+    }
+  },
+  { _id: false }
+);
+
+const ritualSectionSchema = new mongoose.Schema(
+  {
+    key: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    label: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    contents: {
+      type: [ritualContentSchema],
+      default: [],
+    },
+  },
+  { _id: false }
+);
+
+const ritualDaySchema = new mongoose.Schema(
+  {
+    dayNumber: {
+      type: Number,
+      required: true,
+    },
+
+    title: {
+      type: String,
+      required: true,
+    },
+
+    activities: {
+      type: [String],
+      default: [],
+    },
+
+    mantra: {
+      type: String,
+      default: "",
+    },
+
+    affirmation: {
+      type: String,
+      default: "",
+    },
+  },
+  { _id: false }
+);
+
+const ritualSchema = new mongoose.Schema(
+  {
+    title: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    slug: {
+      type: String,
+      unique: true,
+      trim: true,
+      lowercase: true,
+    },
+
+    description: {
+      type: String,
+      default: "",
+    },
+
+    deity: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Deity",
+      required: true,
+    },
+
+    category: {
+      type: String,
+      default: "",
+    },
+
+    purpose: {
+      type: String,
+      default: "",
+    },
+
+    ritualDays: {
+      type: Number,
+      required: true,
+    },
+
+    bestDayTime: {
+      type: String,
+      default: "",
+    },
+
+    startingDay: {
+      type: String,
+      default: "",
+    },
+
+    difficulty: {
+      type: String,
+      enum: [
+        "BEGINNER",
+        "INTERMEDIATE",
+        "ADVANCED",
+      ],
+      default: "BEGINNER",
+    },
+
+    // 🪔 Dynamic CMS sections
+    sections: {
+      type: [ritualSectionSchema],
+      default: [],
+    },
+
+    // 📅 Multi-day ritual flow
+    days: {
+      type: [ritualDaySchema],
+      default: [],
+    },
+
+    // 🎧 Media
+    images: {
+      type: [String],
+      default: [],
+    },
+
+    audio: {
+      type: [String],
+      default: [],
+    },
+
+    videos: {
+      type: [String],
+      default: [],
+    },
+
+    // 💰 Access control
+    accessType: {
+      type: String,
+      enum: ["FREE", "PAID"],
+      default: "FREE",
+    },
+
+    price: {
+      type: Number,
+      default: 0,
+    },
+
+    currency: {
+      type: String,
+      default: "ZAR",
+    },
+
+    // ⭐ Analytics
+    isFeatured: {
+      type: Boolean,
+      default: false,
+    },
+
+    viewCount: {
+      type: Number,
+      default: 0,
+    },
+
+    purchaseCount: {
+      type: Number,
+      default: 0,
+    },
+
+    status: {
+      type: String,
+      enum: [
+        "DRAFT",
+        "PENDING",
+        "APPROVED",
+        "REJECTED",
+      ],
+      default: "PENDING",
+    },
+
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+module.exports = mongoose.model(
+  "Ritual",
+  ritualSchema
+);

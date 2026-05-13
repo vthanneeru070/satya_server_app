@@ -51,7 +51,7 @@ const orderSchema = new mongoose.Schema(
     },
     orderStatus: {
       type: String,
-      enum: ["PLACED", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED"],
+      enum: ["PLACED", "PROCESSING", "SHIPPED", "DELIVERED", "FULFILLED", "CANCELLED"],
       default: "PLACED",
       index: true,
     },
@@ -74,6 +74,29 @@ const orderSchema = new mongoose.Schema(
      * Used for admin cancel → restock only when appropriate.
      */
     inventoryReserved: { type: Boolean, default: false, index: true },
+
+    /** Courier / dispatch — populated by admin before SHIPPED transition */
+    tracking: {
+      courier: { type: String, default: "" },
+      trackingNumber: { type: String, default: "" },
+      trackingUrl: { type: String, default: "" },
+      dispatchedAt: { type: Date, default: null },
+      sharedWithUserAt: { type: Date, default: null },
+    },
+
+    /** Generated invoice (HTML in v1, hosted on S3) */
+    invoice: {
+      number: { type: String, default: "" },
+      url: { type: String, default: "" },
+      generatedAt: { type: Date, default: null },
+    },
+
+    /** Post-delivery customer satisfaction; drives the BRS "satisfied?" branch */
+    fulfillment: {
+      satisfied: { type: Boolean, default: null },
+      ratedAt: { type: Date, default: null },
+      feedback: { type: String, default: "" },
+    },
 
     orderStatusHistory: [
       {

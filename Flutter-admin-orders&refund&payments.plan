@@ -1,0 +1,229 @@
+# Flutter admin — orders, refunds, and payments (e-commerce)
+
+This plan maps the **Satya backend** e-commerce BRS-aligned APIs to a **Flutter admin app** (admin / superadmin). Base URL example: `https://<host>/api/v1`. All calls use `Authorization: Bearer <Firebase JWT>` unless noted.
+
+---
+
+## 1. Roles and access
+
+- Treat **`admin`** and **`superadmin`** as allowed for every endpoint below that says “admin”.
+- If the token role is neither, hide the module or show a locked state.
+
+---
+
+## 2. Core API reference (admin)
+
+### 2.1 Orders
+
+| Action | Method | Path | Notes |
+|--------|--------|------|--------|
+| List all orders | `GET` | `/orders/all` | Query: `page`, `limit`, `orderStatus` or `status`, `paymentStatus`, `user` (ObjectId), `search` (order number substring) |
+| Order detail | `GET` | `/orders/:id` | Same id as Mongo `Order._id` |
+| Update fulfilment status | `PATCH` | `/orders/:id/status` | Body: `{ "status": "PROCESSING" \| "SHIPPED" \| "DELIVERED" \| "CANCELLED", "note"?: string }` |
+| **Important:** `SHIPPED` requires `tracking.trackingNumber` already set (see §2.2). |
+| Update payment fields | `PATCH` | `/orders/:id/payment` | Body: `{ "paymentStatus"?, "paymentMethod"? }` — use sparingly; Paystack flow normally sets PAID via verify |
+
+### 2.2 Tracking and dispatch
+
+| Action | Method | Path | Body |
+|--------|--------|------|------|
+| Set tracking only | `PATCH` | `/orders/:id/tracking` | `{ "courier": string, "trackingNumber": string, "trackingUrl"?: string }` |
+| Set tracking + mark shipped | `POST` | `/orders/:id/dispatch` | Same as tracking + optional `"note"` |
+
+**UX rule:** Prefer a single “Dispatch” screen that calls `POST …/dispatch` after the admin enters courier + AWB. Alternatively, two-step: save tracking with `PATCH …/tracking`, then `PATCH …/status` with `SHIPPED` (backend sends tracking email on SHIPPED).
+
+### 2.3 Admin cancel (paid / pre-ship)
+
+| Action | Method | Path | Body |
+|--------|--------|------|------|
+| Terminal cancel | `POST` | `/orders/:id/cancel-paid` | `{ "reason"?: string }` |
+
+Allowed only when the order is **not** `SHIPPED`, `DELIVERED`, `FULFILLED`, or `CANCELLED`. Restocks if stock was deducted; sets `paymentStatus` to `REFUNDED` if it was `PAID`.
+
+### 2.4 Payments (canonical Paystack)
+
+| Action | Method | Path | Body / params |
+|--------|--------|------|---------------|
+| Initialize Paystack | `POST` | `/payments/initialize` | `{ "orderId": "<order _id>", "callbackUrl"?: "<https…>" }` |
+| Verify (idempotent) | `GET` | `/payments/verify/:reference` | `reference` from initialize / Paystack redirect |
+
+**Admin note:** Verification is usually triggered by the **customer app** after checkout. The admin screen may show “Payment: PENDING” and a **copy reference** button; support can paste the reference into an internal tool or you can add a small “Verify now” that calls `GET /payments/verify/:reference` with an admin token (backend allows admin verify).
+
+Deprecated but still mounted on orders (optional):  
+`POST /orders/:id/payments/paystack/initialize`, `POST /orders/:id/payments/paystack/verify`.
+
+### 2.5 Order requests (cancellations, refunds, replacements)
+
+| Action | Method | Path | Body / query |
+|--------|--------|------|----------------|
+| List all requests | `GET` | `/orders/requests` | `page`, `limit`, `status`, `type`, `user` |
+| Request detail | `GET` | `/orders/requests/:requestId` | — |
+| Approve | `POST` | `/orders/requests/:requestId/approve` | `{ "adminNote"?: string }` |
+| Reject | `POST` | `/orders/requests/:requestId/reject` | `{ "adminNote"?: string }` |
+
+**Approve behaviour (mirror in UI copy):**
+
+- **CANCELLATION** → runs admin cancel on the order (→ `CANCELLED`, restock, `PAID` → `REFUNDED`). Request status becomes **COMPLETED**.
+- **REFUND** → sets order `paymentStatus` to **REFUNDED** only (v1: **no** Paystack API refund; finance settles in Paystack dashboard). Request stays **APPROVED**.
+- **REPLACEMENT** → creates a new **PAID** replacement order and links it on the request. Request becomes **COMPLETED**.
+
+After approve/reject, the user receives a **request status email** (best-effort on server).
+
+---
+
+## 3. Suggested Flutter module layout
+
+```
+lib/features/admin_orders/
+  data/
+    orders_api.dart          // GET /orders/all, GET /orders/:id, PATCH status, PATCH payment
+    order_dispatch_api.dart  // PATCH tracking, POST dispatch, POST cancel-paid
+    order_requests_api.dart  // GET list, GET one, POST approve/reject
+    payments_api.dart        // POST initialize, GET verify (if exposed in admin)
+  domain/
+    order_models.dart        // Order, OrderItem, Tracking, Invoice, Fulfillment, enums
+    order_request_models.dart
+    order_status_machine.dart // allowed next statuses for buttons
+  presentation/
+    orders_list_screen.dart
+    order_detail_screen.dart
+    order_status_actions_sheet.dart
+    tracking_form_screen.dart   // or bottom sheet
+    dispatch_confirm_dialog.dart
+    order_requests_inbox_screen.dart
+    order_request_detail_screen.dart
+    approve_reject_dialog.dart
+```
+
+Use a single **`Dio`** (or `http`) client with interceptors for base URL + bearer token + 401 refresh/logout.
+
+---
+
+## 4. Screen-level UX
+
+### 4.1 Orders inbox (`GET /orders/all`)
+
+- **Filters:** chips or dropdowns for `orderStatus`, `paymentStatus`; optional text field bound to `search`.
+- **Row:** order number, customer name/email (if populated), total + currency, payment badge, status badge, created date.
+- **Tap** → order detail.
+
+### 4.2 Order detail
+
+**Sections:**
+
+1. **Summary** — `orderNumber`, `totalAmount`, `currency`, `paymentMethod`, `paymentStatus`, `orderStatus`.
+2. **Line items** — title, qty, line total (read-only snapshots).
+3. **Shipping** — full address from `shippingAddress`.
+4. **Tracking** — show `tracking.courier`, `tracking.trackingNumber`, link button if `tracking.trackingUrl`; show `dispatchedAt`, `sharedWithUserAt` if present.
+5. **Invoice** — if `invoice.url` present, “Open invoice” (external browser / in-app WebView).
+6. **Fulfillment** — `fulfillment.satisfied`, `ratedAt`, `feedback` (read-only; customer-driven).
+
+**Primary actions (contextual):**
+
+- If status allows → **“Mark processing”** → `PATCH /status` `{ "status": "PROCESSING" }`.
+- If `PROCESSING` and tracking incomplete → **“Add tracking”** → `PATCH /tracking` then either **“Mark shipped”** (`PATCH /status` `SHIPPED`) or one **“Dispatch”** (`POST /dispatch`).
+- If `SHIPPED` → **“Mark delivered”** → `PATCH /status` `{ "status": "DELIVERED" }` (triggers delivery prompt email to customer).
+- If eligible for admin cancel → **“Cancel order (admin)”** → confirm dialog → `POST /cancel-paid` with optional reason.
+- **Danger:** `PATCH /status` `{ "status": "CANCELLED" }` still exists on the state machine from earlier states — align UI with backend rules (cancel restocks when inventory was reserved).
+
+**Disable rules:**
+
+- Do not show “Mark shipped” until `trackingNumber` is non-empty (or only show “Dispatch” which sets both).
+- Hide cancel if status is `SHIPPED` or later (backend will 400).
+
+### 4.3 Requests inbox (`GET /orders/requests`)
+
+- **Tabs or filters:** `PENDING` first (default), then `APPROVED`, `REJECTED`, `COMPLETED`; filter by `type`.
+- **Row:** `requestNumber`, `type`, order number (from populated `order`), user, created time, status.
+- **Tap** → request detail.
+
+### 4.4 Request detail
+
+- Show **type**, **reason**, **attachments** (thumbnail grid → full screen image).
+- Link **“Open order”** → navigate to order detail with `order._id`.
+- **Approve** / **Reject** with optional `adminNote` (required for reject in your product policy if you want stricter ops).
+
+**Copy to show before approve:**
+
+- **REFUND:** “Marks order as REFUNDED in Satya. Process the actual refund in Paystack dashboard (v1).”
+- **REPLACEMENT:** “Creates a new paid replacement order. Check stock errors — API returns 409-style messaging if stock insufficient.”
+- **CANCELLATION:** “Cancels order and restocks. Not allowed if already shipped.”
+
+---
+
+## 5. State machine cheat sheet (admin)
+
+```
+PLACED → PROCESSING → SHIPPED → DELIVERED → (customer) → FULFILLED
+                ↘ CANCELLED     (admin cancel-paid / status cancel from early states)
+```
+
+- Customer **confirm delivery** is `POST /orders/:id/confirm-delivery` (not usually an admin screen); admin only needs to know **FULFILLED** appears after customer satisfaction.
+- **REFUNDED** is a **payment** status, not an order status.
+
+---
+
+## 6. Models (minimal Dart fields)
+
+Mirror the backend `Order` payload:
+
+- `String id`, `orderNumber`, `orderStatus`, `paymentStatus`, `paymentMethod`, `totalAmount`, `currency`
+- `List<OrderLineItem> items`
+- `ShippingAddress shippingAddress`
+- `Tracking? tracking` (nullable sub-object)
+- `Invoice? invoice` (`number`, `url`, `generatedAt`)
+- `Fulfillment? fulfillment` (`satisfied`, `ratedAt`, `feedback`)
+- `bool inventoryReserved` (optional display for support)
+
+`OrderRequest`:
+
+- `id`, `requestNumber`, `type`, `status`, `reason`, `attachments`, `adminNote`, `resolvedAt`
+- nested `order` (minimal), `replacementOrder` (if REPLACEMENT completed)
+
+Use **`json_serializable`** or **manual `fromJson`** with safe defaults for new nested objects on old documents.
+
+---
+
+## 7. Error handling and ops
+
+- **400 on SHIPPED without tracking:** show inline message: “Enter tracking number first.”
+- **409** on replacement if stock fails: show server `message` verbatim.
+- **403:** “Admin access required.”
+- **404:** treat as deleted or wrong id; pop stack.
+- After every mutation, **refresh** order or request detail from GET (avoid stale `paymentStatus`).
+
+---
+
+## 8. Deep links (optional)
+
+If your admin app uses routes, examples:
+
+- `/admin/orders` — list  
+- `/admin/orders/:orderId` — detail  
+- `/admin/order-requests` — inbox  
+- `/admin/order-requests/:requestId` — detail  
+
+Push notifications (FCM) for new orders are **user-facing** in the current backend; admin can rely on **pull-to-refresh** or a periodic poll on the orders list.
+
+---
+
+## 9. Testing checklist (manual QA)
+
+1. List orders with each filter; open detail for PAID + PROCESSING order.  
+2. Try `PATCH /status` `SHIPPED` **without** tracking → expect error; then `PATCH /tracking` → success → `SHIPPED` or `POST /dispatch`.  
+3. `DELIVERED` from `SHIPPED`; confirm customer receives delivery prompt (email).  
+4. Open `GET /orders/requests` with a seeded `PENDING` cancellation; approve → order `CANCELLED`, `REFUNDED`.  
+5. Approve **REFUND** on a delivered PAID order → `paymentStatus` becomes `REFUNDED`.  
+6. Approve **REPLACEMENT** → new order appears; open it from `replacementOrder` id.  
+7. Reject a request with `adminNote` → status `REJECTED`.
+
+---
+
+## 10. Environment (admin build)
+
+- Same **`API_BASE_URL`** as production/staging.
+- No extra Flutter env vars required for orders; optional: link template for Paystack dashboard search by `paystackReference`.
+
+---
+
+*End of plan — aligns with backend routes under `/api/v1/orders`, `/api/v1/orders/requests`, and `/api/v1/payments`.*

@@ -14,6 +14,8 @@ const {
   notifyOrderPlaced,
   notifyDonationReceived,
 } = require("./fcmOrderNotifyService");
+const invoiceService = require("./invoiceService");
+const orderEmailService = require("./orderEmailService");
 
 const appendOrderHistory = (order, status, note = "") => {
   order.orderStatusHistory = order.orderStatusHistory || [];
@@ -535,6 +537,44 @@ const verifyPaymentByReference = async (reference, { userId, isAdmin = false } =
       });
     } else {
       await notifyOrderPlaced(out.order.user);
+
+      // Best-effort invoice + email fan-out for ORDER payments. None of these
+      // should fail the verify API — invoice can be regenerated, emails can be
+      // resent. Every failure is logged for the operator.
+      try {
+        const inv = await invoiceService.generateInvoice(out.order);
+        if (inv?.number || inv?.url) {
+          out.order.invoice = {
+            number: inv.number || "",
+            url: inv.url || "",
+            generatedAt: new Date(),
+          };
+          await out.order.save();
+        }
+      } catch (err) {
+        console.error(
+          "[paymentService] invoice generation failed for order",
+          out.order?.orderNumber,
+          err?.message || err
+        );
+      }
+
+      await orderEmailService
+        .sendOrderConfirmation(out.order)
+        .catch((err) =>
+          console.error(
+            "[paymentService] sendOrderConfirmation failed:",
+            err?.message || err
+          )
+        );
+      await orderEmailService
+        .sendOrderAdminNotification(out.order)
+        .catch((err) =>
+          console.error(
+            "[paymentService] sendOrderAdminNotification failed:",
+            err?.message || err
+          )
+        );
     }
   }
 

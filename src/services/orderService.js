@@ -4,16 +4,19 @@ const Cart = require("../models/Cart");
 const Product = require("../models/Product");
 const Counter = require("../models/Counter");
 const HttpError = require("../utils/httpError");
+const orderEmailService = require("./orderEmailService");
 
 const ORDER_STATUS_TRANSITIONS = {
   PLACED: new Set(["PROCESSING", "CANCELLED"]),
   PROCESSING: new Set(["SHIPPED", "CANCELLED"]),
   SHIPPED: new Set(["DELIVERED"]),
-  DELIVERED: new Set(),
+  // DELIVERED → FULFILLED is driven by user `confirmDelivery({ satisfied: true })`.
+  DELIVERED: new Set(["FULFILLED"]),
+  FULFILLED: new Set(),
   CANCELLED: new Set(),
 };
 
-const TERMINAL_ORDER_STATUSES = new Set(["DELIVERED", "CANCELLED"]);
+const TERMINAL_ORDER_STATUSES = new Set(["FULFILLED", "CANCELLED"]);
 
 const effectivePriceOf = (product) =>
   product.salePrice && product.salePrice > 0 ? product.salePrice : product.price;
@@ -346,6 +349,8 @@ const appendHistory = (order, status, note, actorUserId) => {
 const updateStatus = async (id, { status, note = "" }, { actorUserId }) => {
   const session = await mongoose.startSession();
   let updated;
+  let didShip = false;
+  let didDeliver = false;
   try {
     await session.withTransaction(async () => {
       const order = await Order.findOne({ _id: id, isDeleted: { $ne: true } }).session(session);
@@ -362,6 +367,20 @@ const updateStatus = async (id, { status, note = "" }, { actorUserId }) => {
         throw new HttpError(`Cannot transition order from ${order.orderStatus} to ${status}`, 400);
       }
 
+      if (status === "SHIPPED") {
+        // BRS: "Courier company provides tracking details" must precede SHIPPED.
+        const tn = order?.tracking?.trackingNumber?.trim();
+        if (!tn) {
+          throw new HttpError(
+            "Tracking number is required before marking the order as SHIPPED. Set tracking via PATCH /orders/:id/tracking first.",
+            400
+          );
+        }
+        order.tracking.dispatchedAt = order.tracking.dispatchedAt || new Date();
+        order.tracking.sharedWithUserAt = new Date();
+        didShip = true;
+      }
+
       if (status === "CANCELLED") {
         await restockOrderItems(order, session);
         order.inventoryReserved = false;
@@ -371,6 +390,7 @@ const updateStatus = async (id, { status, note = "" }, { actorUserId }) => {
         if (order.paymentMethod === "COD" && order.paymentStatus === "PENDING") {
           order.paymentStatus = "PAID";
         }
+        didDeliver = true;
       }
 
       order.orderStatus = status;
@@ -381,7 +401,237 @@ const updateStatus = async (id, { status, note = "" }, { actorUserId }) => {
   } finally {
     await session.endSession();
   }
+
+  // Post-commit, best-effort email fan-out. Failures are logged, never bubbled.
+  if (updated && didShip) {
+    orderEmailService
+      .sendTrackingShared(updated)
+      .catch((err) =>
+        console.error(
+          "[orderService] sendTrackingShared failed:",
+          err?.message || err
+        )
+      );
+  }
+  if (updated && didDeliver) {
+    orderEmailService
+      .sendDeliveryConfirmationPrompt(updated)
+      .catch((err) =>
+        console.error(
+          "[orderService] sendDeliveryConfirmationPrompt failed:",
+          err?.message || err
+        )
+      );
+  }
+
   return updated;
+};
+
+/**
+ * Admin records / overwrites courier tracking details on an order. Does not
+ * change orderStatus — admin still has to call `updateStatus` to flip to
+ * SHIPPED (which then sends the tracking email).
+ */
+const adminSetTracking = async (
+  id,
+  { courier, trackingNumber, trackingUrl = "" },
+  { actorUserId }
+) => {
+  if (!courier || !String(courier).trim()) {
+    throw new HttpError("courier is required", 400);
+  }
+  if (!trackingNumber || !String(trackingNumber).trim()) {
+    throw new HttpError("trackingNumber is required", 400);
+  }
+
+  const order = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
+  if (!order) throw new HttpError("Order not found", 404);
+  if (order.orderStatus === "CANCELLED") {
+    throw new HttpError("Cannot set tracking on a cancelled order", 400);
+  }
+
+  order.tracking = {
+    ...(order.tracking || {}),
+    courier: String(courier).trim(),
+    trackingNumber: String(trackingNumber).trim(),
+    trackingUrl: trackingUrl ? String(trackingUrl).trim() : order.tracking?.trackingUrl || "",
+  };
+  appendHistory(
+    order,
+    order.orderStatus,
+    `Tracking set: ${order.tracking.courier} / ${order.tracking.trackingNumber}`,
+    actorUserId
+  );
+  await order.save();
+  return order;
+};
+
+/**
+ * Admin "dispatch" convenience: set tracking + transition to SHIPPED in one
+ * call. Wraps `adminSetTracking` followed by `updateStatus("SHIPPED")`.
+ */
+const dispatchOrder = async (
+  id,
+  { courier, trackingNumber, trackingUrl = "", note = "" },
+  { actorUserId }
+) => {
+  await adminSetTracking(
+    id,
+    { courier, trackingNumber, trackingUrl },
+    { actorUserId }
+  );
+  return updateStatus(id, { status: "SHIPPED", note }, { actorUserId });
+};
+
+/**
+ * Customer-side: confirm receipt after DELIVERED. If `satisfied === true` the
+ * order moves to terminal FULFILLED. If false we record dissatisfaction but
+ * keep the order in DELIVERED so the user can still file a request — the
+ * mobile client should prompt them to open `/orders/:id/requests`.
+ */
+const confirmDelivery = async (id, userId, { satisfied, feedback = "" } = {}) => {
+  if (typeof satisfied !== "boolean") {
+    throw new HttpError("`satisfied` must be a boolean", 400);
+  }
+  const order = await Order.findOne({
+    _id: id,
+    user: userId,
+    isDeleted: { $ne: true },
+  });
+  if (!order) throw new HttpError("Order not found", 404);
+  if (!["DELIVERED", "FULFILLED"].includes(order.orderStatus)) {
+    throw new HttpError(
+      `Cannot confirm delivery while order is ${order.orderStatus}`,
+      400
+    );
+  }
+  if (order.orderStatus === "FULFILLED" && order.fulfillment?.satisfied === true) {
+    return order;
+  }
+
+  order.fulfillment = {
+    satisfied,
+    ratedAt: new Date(),
+    feedback: feedback ? String(feedback).slice(0, 2000) : "",
+  };
+  if (satisfied) {
+    order.orderStatus = "FULFILLED";
+    appendHistory(order, "FULFILLED", "Customer confirmed receipt", userId);
+  } else {
+    appendHistory(
+      order,
+      order.orderStatus,
+      "Customer reported a problem with the delivery",
+      userId
+    );
+  }
+  await order.save();
+  return order;
+};
+
+/**
+ * Admin terminal cancellation — used by the request-approval flow as well as
+ * by direct admin action. Allowed from any non-shipped, non-cancelled state.
+ * Restocks items if inventory was deducted; marks payment REFUNDED if PAID.
+ */
+const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
+  const session = await mongoose.startSession();
+  let order;
+  try {
+    await session.withTransaction(async () => {
+      order = await Order.findOne({ _id: id, isDeleted: { $ne: true } }).session(session);
+      if (!order) throw new HttpError("Order not found", 404);
+
+      if (["SHIPPED", "DELIVERED", "FULFILLED", "CANCELLED"].includes(order.orderStatus)) {
+        throw new HttpError(
+          `Order is ${order.orderStatus}; cancel is no longer possible.`,
+          400
+        );
+      }
+
+      await restockOrderItems(order, session);
+      order.inventoryReserved = false;
+
+      if (order.paymentStatus === "PAID") {
+        order.paymentStatus = "REFUNDED";
+      }
+      order.orderStatus = "CANCELLED";
+      appendHistory(
+        order,
+        "CANCELLED",
+        reason || "Cancelled by admin",
+        actorUserId
+      );
+      await order.save({ session });
+    });
+  } finally {
+    await session.endSession();
+  }
+  return order;
+};
+
+/**
+ * Spawn a brand-new order that is a copy of `originalOrder`. Used when an
+ * admin approves a REPLACEMENT request — the new order is marked PAID with
+ * zero new charge (the original payment is reused) and linked back via the
+ * OrderRequest. Requires sufficient stock.
+ */
+const createReplacementOrder = async (originalOrder, { note = "" } = {}) => {
+  if (!originalOrder) throw new HttpError("originalOrder is required", 400);
+
+  const session = await mongoose.startSession();
+  let order;
+  try {
+    await session.withTransaction(async () => {
+      const items = originalOrder.items.map((line) => ({
+        product: line.product,
+        title: line.title,
+        imageUrl: line.imageUrl,
+        quantity: line.quantity,
+        price: line.price,
+        lineTotal: line.lineTotal,
+      }));
+
+      const orderNumber = await nextOrderNumber(session);
+      [order] = await Order.create(
+        [
+          {
+            orderNumber,
+            user: originalOrder.user,
+            items,
+            totalAmount: originalOrder.totalAmount,
+            currency: originalOrder.currency,
+            // Replacement reuses the original payment — no new charge in v1.
+            paymentStatus: "PAID",
+            orderStatus: "PROCESSING",
+            paymentMethod: originalOrder.paymentMethod || "PAYSTACK",
+            shippingAddress: originalOrder.shippingAddress,
+            inventoryReserved: true,
+            paystackReference: originalOrder.paystackReference || "",
+            transactionId: originalOrder.transactionId || "",
+            orderStatusHistory: [
+              {
+                status: "PLACED",
+                at: new Date(),
+                note: `Replacement for ${originalOrder.orderNumber}${note ? ` — ${note}` : ""}`,
+              },
+              {
+                status: "PROCESSING",
+                at: new Date(),
+                note: "Auto-advanced (replacement)",
+              },
+            ],
+          },
+        ],
+        { session }
+      );
+
+      await applyStockDeductionForOrder(order, session);
+    });
+  } finally {
+    await session.endSession();
+  }
+  return order;
 };
 
 const cancelMyOrder = async (id, userId) => {
@@ -437,6 +687,11 @@ module.exports = {
   updateStatus,
   cancelMyOrder,
   updatePayment,
+  adminSetTracking,
+  dispatchOrder,
+  confirmDelivery,
+  adminCancelOrder,
+  createReplacementOrder,
   _internal: {
     nextOrderNumber,
     buildOrderPayload,

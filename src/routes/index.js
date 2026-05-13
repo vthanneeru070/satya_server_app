@@ -3,6 +3,7 @@ const authRoutes = require("./authRoutes");
 const adminRoutes = require("./adminRoutes");
 const superAdminRoutes = require("./superAdminRoutes");
 const poojaRoutes = require("./poojaRoutes");
+const ritualRoutes = require("./ritualRoutes");
 const donationRoutes = require("./donationRoutes");
 const festivalRoutes = require("./festivalRoutes");
 const dailySlokaRoutes = require("./dailySlokaRoutes");
@@ -12,6 +13,7 @@ const deityRoutes = require("./deityRoutes");
 const productRoutes = require("./productRoutes");
 const cartRoutes = require("./cartRoutes");
 const orderRoutes = require("./orderRoutes");
+const orderRequestRoutes = require("./orderRequestRoutes");
 const paymentRoutes = require("./paymentRoutes");
 const fcmRoutes = require("./fcmRoutes");
 const notificationRoutes = require("./notificationRoutes");
@@ -27,6 +29,7 @@ router.use("/superadmin", superAdminRoutes);
 
 // shared / domain routes
 router.use("/poojas", poojaRoutes);
+router.use("/rituals", ritualRoutes);
 router.use("/donations", donationRoutes);
 router.use("/festivals", festivalRoutes);
 router.use("/daily-slokas", dailySlokaRoutes);
@@ -35,6 +38,9 @@ router.use("/calendar", calendarRoutes);
 router.use("/deities", deityRoutes);
 router.use("/products", productRoutes);
 router.use("/cart", cartRoutes);
+// Mount request-specific routes BEFORE generic orderRoutes so paths like
+// `/orders/requests/my` are not eaten by `/orders/:id`.
+router.use("/orders", orderRequestRoutes);
 router.use("/orders", orderRoutes);
 router.use("/payments", paymentRoutes);
 router.use("/fcm", fcmRoutes);

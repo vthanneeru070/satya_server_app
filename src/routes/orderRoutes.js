@@ -11,6 +11,10 @@ const {
   updateOrderStatus,
   cancelMyOrder,
   updatePayment,
+  setTracking,
+  dispatchOrder,
+  confirmDelivery,
+  adminCancelPaidOrder,
   initializePaystack,
   verifyPaystack,
 } = require("../controllers/orderController");
@@ -24,6 +28,10 @@ const {
   adminListOrdersQuerySchema,
   paystackInitSchema,
   paystackVerifySchema,
+  setTrackingSchema,
+  dispatchOrderSchema,
+  confirmDeliverySchema,
+  adminCancelPaidSchema,
 } = require("../validations/orderValidation");
 
 const router = express.Router();
@@ -413,6 +421,172 @@ router.post(
   validate(orderIdParamsSchema, "params"),
   validate(paystackVerifySchema),
   verifyPaystack
+);
+
+/**
+ * @swagger
+ * /orders/{id}/tracking:
+ *   patch:
+ *     summary: Set courier / tracking details for an order (admin)
+ *     description: |
+ *       Persists `tracking.courier`, `tracking.trackingNumber`, optional
+ *       `tracking.trackingUrl`. Required before transitioning the order to
+ *       SHIPPED — the `status` endpoint will refuse otherwise.
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [courier, trackingNumber]
+ *             properties:
+ *               courier:        { type: string, example: "The Courier Guy" }
+ *               trackingNumber: { type: string, example: "CG123456789" }
+ *               trackingUrl:    { type: string, format: uri }
+ *     responses:
+ *       200: { description: Tracking saved }
+ *       400: { description: Invalid payload / order already cancelled }
+ *       403: { description: Admin role required }
+ *       404: { description: Order not found }
+ */
+router.patch(
+  "/:id/tracking",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(orderIdParamsSchema, "params"),
+  validate(setTrackingSchema),
+  setTracking
+);
+
+/**
+ * @swagger
+ * /orders/{id}/dispatch:
+ *   post:
+ *     summary: Set tracking and mark the order SHIPPED in one call (admin)
+ *     description: |
+ *       Convenience endpoint combining `PATCH /tracking` + `PATCH /status` with
+ *       `status: SHIPPED`. Sends the "your order is on its way" email.
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [courier, trackingNumber]
+ *             properties:
+ *               courier:        { type: string }
+ *               trackingNumber: { type: string }
+ *               trackingUrl:    { type: string, format: uri }
+ *               note:           { type: string, maxLength: 300 }
+ *     responses:
+ *       200: { description: Order dispatched (status SHIPPED) }
+ *       400: { description: Illegal transition / missing tracking }
+ *       403: { description: Admin role required }
+ *       404: { description: Order not found }
+ */
+router.post(
+  "/:id/dispatch",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(orderIdParamsSchema, "params"),
+  validate(dispatchOrderSchema),
+  dispatchOrder
+);
+
+/**
+ * @swagger
+ * /orders/{id}/confirm-delivery:
+ *   post:
+ *     summary: Customer confirms (or rejects) delivery (BRS "satisfied?" branch)
+ *     description: |
+ *       `satisfied: true` flips the order to terminal `FULFILLED`.
+ *       `satisfied: false` records dissatisfaction; the client should
+ *       prompt the user to open a refund/replacement request next.
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [satisfied]
+ *             properties:
+ *               satisfied: { type: boolean }
+ *               feedback:  { type: string, maxLength: 2000 }
+ *     responses:
+ *       200: { description: Delivery confirmation recorded }
+ *       400: { description: Order is not in a deliverable state }
+ *       404: { description: Order not found }
+ */
+router.post(
+  "/:id/confirm-delivery",
+  authenticate,
+  validate(orderIdParamsSchema, "params"),
+  validate(confirmDeliverySchema),
+  confirmDelivery
+);
+
+/**
+ * @swagger
+ * /orders/{id}/cancel-paid:
+ *   post:
+ *     summary: Admin terminal cancel of a paid (or unshipped) order
+ *     description: |
+ *       Used when admin approves a CANCELLATION request out-of-band. Restocks
+ *       items if inventory was deducted; flips `paymentStatus: PAID → REFUNDED`.
+ *       Disallowed once the order is SHIPPED or beyond.
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason: { type: string, maxLength: 2000 }
+ *     responses:
+ *       200: { description: Order cancelled }
+ *       400: { description: Order already shipped / delivered / cancelled }
+ *       403: { description: Admin role required }
+ *       404: { description: Order not found }
+ */
+router.post(
+  "/:id/cancel-paid",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(orderIdParamsSchema, "params"),
+  validate(adminCancelPaidSchema),
+  adminCancelPaidOrder
 );
 
 module.exports = router;
