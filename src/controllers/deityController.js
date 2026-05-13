@@ -76,7 +76,8 @@ const buildDeityPayloadFromRequest = async (req) => {
   const homePractice = parseJsonField(body.home_practice, "home_practice");
   const devotionalExperience = parseJsonField(body.devotional_experience, "devotional_experience");
   const stories = parseJsonField(body.stories, "stories");
-  const rituals = parseObjectIdArrayField(body.rituals, "rituals");
+  const pujas =
+    body.pujas !== undefined ? parseObjectIdArrayField(body.pujas, "pujas") : undefined;
   const mediaFromBody = parseJsonField(body.media, "media");
 
   const uploadedMedia = await getUploadedMediaUrls(req.files);
@@ -99,7 +100,7 @@ const buildDeityPayloadFromRequest = async (req) => {
       homePractice,
       devotionalExperience,
       stories,
-      rituals,
+      pujas,
       mediaFromBody,
     },
     uploadedMedia,
@@ -133,7 +134,7 @@ const createDeity = async (req, res, next) => {
       ...(parsed.homePractice !== undefined && { home_practice: parsed.homePractice }),
       ...(parsed.devotionalExperience !== undefined && { devotional_experience: parsed.devotionalExperience }),
       ...(parsed.stories !== undefined && { stories: parsed.stories }),
-      ...(parsed.rituals !== undefined && { rituals: parsed.rituals }),
+      ...(parsed.pujas !== undefined && { pujas: parsed.pujas }),
       media,
       status,
       createdBy: req.user.userId,
@@ -149,7 +150,7 @@ const createDeity = async (req, res, next) => {
 const getDeities = async (req, res, next) => {
   const deities = await Deity.find({ status: "APPROVED" })
     .populate("createdBy", "email role")
-    .populate("rituals", "title");
+    .populate("pujas", "title");
 
   return sendSuccess(res, { deities }, "Deities fetched successfully");
 };
@@ -171,7 +172,7 @@ const getAllDeities = async (req, res, next) => {
         .skip(skip)
         .limit(limit)
         .populate("createdBy", "email role")
-        .populate("rituals", "title"),
+        .populate("pujas", "title"),
       Deity.countDocuments(filter),
     ]);
 
@@ -205,7 +206,7 @@ const getDeityById = async (req, res, next) => {
 
     const deity = await Deity.findOne(filter)
       .populate("createdBy", "email role")
-      .populate("rituals", "title");
+      .populate("pujas", "title");
 
     if (!deity) {
       throw new HttpError("Deity not found", 404);
@@ -241,7 +242,7 @@ const updateDeity = async (req, res, next) => {
       parsed.homePractice !== undefined ||
       parsed.devotionalExperience !== undefined ||
       parsed.stories !== undefined ||
-      parsed.rituals !== undefined ||
+      parsed.pujas !== undefined ||
       parsed.mediaFromBody !== undefined;
 
     if (!hasBodyUpdates && !hasUploadedMedia) {
@@ -261,7 +262,7 @@ const updateDeity = async (req, res, next) => {
     if (parsed.homePractice !== undefined) deity.home_practice = parsed.homePractice;
     if (parsed.devotionalExperience !== undefined) deity.devotional_experience = parsed.devotionalExperience;
     if (parsed.stories !== undefined) deity.stories = parsed.stories;
-    if (parsed.rituals !== undefined) deity.rituals = parsed.rituals;
+    if (parsed.pujas !== undefined) deity.pujas = parsed.pujas;
 
     if (body.status !== undefined && req.user.isSuperAdmin === true) {
       deity.status = body.status;
@@ -292,7 +293,7 @@ const updateDeity = async (req, res, next) => {
 
     await deity.save();
     await deity.populate("createdBy", "email role");
-    await deity.populate("rituals", "title");
+    await deity.populate("pujas", "title");
 
     return sendSuccess(res, { deity }, "Deity updated successfully");
   } catch (error) {
@@ -325,7 +326,7 @@ const reviewDeity = async (req, res, next) => {
   try {
     const deity = await Deity.findById(req.params.id)
       .populate("createdBy", "email role")
-      .populate("rituals", "title");
+      .populate("pujas", "title");
 
     if (!deity) {
       throw new HttpError("Deity not found", 404);

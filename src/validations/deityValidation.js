@@ -71,7 +71,7 @@ const createDeitySchema = Joi.object({
   home_practice: objectOrJsonString(homePracticeSchema).optional(),
   devotional_experience: objectOrJsonString(devotionalExperienceSchema).optional(),
   stories: arrayOrJsonString(Joi.array().items(storiesSchema)).optional(),
-  rituals: arrayOrJsonString(Joi.array().items(Joi.string().trim().hex().length(24))).optional(),
+  pujas: arrayOrJsonString(Joi.array().items(Joi.string().trim().hex().length(24))).optional(),
   media: objectOrJsonString(mediaSchema).optional(),
   status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED").optional(),
 });
@@ -90,7 +90,7 @@ const updateDeitySchema = Joi.object({
   home_practice: objectOrJsonString(homePracticeSchema),
   devotional_experience: objectOrJsonString(devotionalExperienceSchema),
   stories: arrayOrJsonString(Joi.array().items(storiesSchema)),
-  rituals: arrayOrJsonString(Joi.array().items(Joi.string().trim().hex().length(24))),
+  pujas: arrayOrJsonString(Joi.array().items(Joi.string().trim().hex().length(24))),
   media: objectOrJsonString(mediaSchema),
   status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"),
 });

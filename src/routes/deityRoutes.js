@@ -60,7 +60,7 @@ const router = express.Router();
  *               home_practice: { type: string, description: "JSON object string" }
  *               devotional_experience: { type: string, description: "JSON object string" }
  *               stories: { type: string, description: "JSON array string" }
- *               rituals: { type: string, description: "ObjectId comma list or JSON array string" }
+ *               pujas: { type: string, description: "Pooja ObjectId comma list or JSON array string" }
  *               media: { type: string, description: "JSON object string with images/audio/videos" }
  *               status:
  *                 type: string
@@ -224,7 +224,7 @@ router.get(
  *               home_practice: { type: string, description: "JSON object string" }
  *               devotional_experience: { type: string, description: "JSON object string" }
  *               stories: { type: string, description: "JSON array string" }
- *               rituals: { type: string, description: "ObjectId comma list or JSON array string" }
+ *               pujas: { type: string, description: "Pooja ObjectId comma list or JSON array string" }
  *               media: { type: string, description: "JSON object string with images/audio/videos" }
  *               status:
  *                 type: string

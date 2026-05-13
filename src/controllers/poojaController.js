@@ -202,8 +202,8 @@ const createPooja = async (req, res, next) => {
       createdBy: req.user.userId,
     });
 
-    // Keep Deity -> rituals in sync
-    await Deity.findByIdAndUpdate(deity, { $addToSet: { rituals: pooja._id } });
+    // Keep Deity.pujas in sync with linked pooja
+    await Deity.findByIdAndUpdate(deity, { $addToSet: { pujas: pooja._id } });
 
     return sendSuccess(res, { pooja }, "Pooja created successfully", 201);
   } catch (error) {
@@ -535,8 +535,8 @@ const updatePooja = async (req, res, next) => {
     const newDeityId = pooja.deity ? pooja.deity.toString() : null;
     if (deity !== undefined && previousDeityId && newDeityId && previousDeityId !== newDeityId) {
       await Promise.all([
-        Deity.findByIdAndUpdate(previousDeityId, { $pull: { rituals: pooja._id } }),
-        Deity.findByIdAndUpdate(newDeityId, { $addToSet: { rituals: pooja._id } }),
+        Deity.findByIdAndUpdate(previousDeityId, { $pull: { pujas: pooja._id } }),
+        Deity.findByIdAndUpdate(newDeityId, { $addToSet: { pujas: pooja._id } }),
       ]);
     }
 
@@ -578,9 +578,9 @@ const deletePooja = async (req, res, next) => {
       ...((pooja.media?.videos || []).map((url) => deleteFile(url).catch(() => {}))),
     ]);
 
-    // Remove from Deity -> rituals
+    // Remove from Deity.pujas
     if (pooja.deity) {
-      await Deity.findByIdAndUpdate(pooja.deity, { $pull: { rituals: pooja._id } });
+      await Deity.findByIdAndUpdate(pooja.deity, { $pull: { pujas: pooja._id } });
     }
 
     await pooja.deleteOne();

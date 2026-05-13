@@ -90,8 +90,8 @@ const deitySchema = new mongoose.Schema(
       },
     ],
 
-    // 🔗 RELATED RITUALS
-    rituals: [
+    // 🔗 Related poojas (linked Pooja documents)
+    pujas: [
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Pooja",
