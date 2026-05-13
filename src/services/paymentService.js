@@ -619,10 +619,73 @@ const markPaymentFailedFromWebhook = async (reference, eventData) => {
 };
 
 /**
+ * Reconcile a Paystack refund.processed / refund.failed event with our Order.
+ * Paystack refund webhooks carry `data.transaction.reference` (NOT `data.reference`).
+ */
+const handleRefundWebhook = async (event) => {
+  const data = event?.data || {};
+  const reference =
+    data.transaction?.reference || data.reference || data.transaction_reference;
+  if (!reference) {
+    return { ignored: true, reason: "refund webhook missing transaction reference" };
+  }
+
+  const order = await Order.findOne({
+    paystackReference: reference,
+    isDeleted: { $ne: true },
+  });
+  if (!order) {
+    return { ignored: true, reason: "no order matches refund reference" };
+  }
+
+  order.refund = order.refund || {};
+  const refundId = data.id != null ? String(data.id) : order.refund.paystackRefundId || "";
+
+  if (event.event === "refund.processed") {
+    order.refund.status = "PROCESSED";
+    order.refund.paystackRefundId = refundId;
+    order.refund.processedAt = new Date();
+    order.refund.lastError = "";
+    if (order.paymentStatus === "PAID") {
+      order.paymentStatus = "REFUNDED";
+    }
+    appendOrderHistory(
+      order,
+      order.orderStatus,
+      `Paystack refund processed (${refundId})`
+    );
+    await order.save();
+    return { processed: true, status: "refund-processed", orderId: order._id };
+  }
+
+  if (event.event === "refund.failed") {
+    order.refund.status = "FAILED";
+    order.refund.paystackRefundId = refundId;
+    order.refund.lastError = String(
+      data.reason || data.message || "Paystack reported refund.failed"
+    ).slice(0, 500);
+    appendOrderHistory(
+      order,
+      order.orderStatus,
+      `Paystack refund FAILED (${refundId}): ${order.refund.lastError}`
+    );
+    await order.save();
+    return { processed: true, status: "refund-failed", orderId: order._id };
+  }
+
+  return { ignored: true, reason: `unhandled refund event: ${event.event}` };
+};
+
+/**
  * Webhook handler — signature verified by route. Re-verifies success with Paystack API.
  */
 const handlePaystackWebhook = async (event) => {
   if (!event || typeof event !== "object") return { ignored: true };
+
+  // Refund events don't carry a top-level `data.reference`; route them first.
+  if (event.event === "refund.processed" || event.event === "refund.failed") {
+    return handleRefundWebhook(event);
+  }
 
   const reference = event?.data?.reference;
   if (!reference) return { ignored: true, reason: "no reference in payload" };

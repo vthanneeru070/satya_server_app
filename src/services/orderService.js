@@ -6,6 +6,7 @@ const Counter = require("../models/Counter");
 const HttpError = require("../utils/httpError");
 const orderEmailService = require("./orderEmailService");
 const { notifyOrderStatusChanged } = require("./fcmOrderNotifyService");
+const paystackService = require("./paystackService");
 
 const ORDER_STATUS_TRANSITIONS = {
   PLACED: new Set(["PROCESSING", "CANCELLED"]),
@@ -550,15 +551,94 @@ const confirmDelivery = async (id, userId, { satisfied, feedback = "" } = {}) =>
  * by direct admin action. Allowed from any non-shipped, non-cancelled state.
  * Restocks items if inventory was deducted; marks payment REFUNDED if PAID.
  */
+/**
+ * Attempt a full-amount Paystack refund for a PAID order. Pure side-effect on
+ * the in-memory `order.refund` sub-doc — caller is responsible for `.save()`.
+ *
+ * Returns:
+ *   { outcome: "REFUNDED" } — Paystack returned a terminal `processed` state.
+ *   { outcome: "PENDING"  } — Paystack accepted the refund; awaiting webhook.
+ *   { outcome: "FAILED", error } — Paystack rejected; admin must retry / settle manually.
+ */
+const attemptPaystackRefund = async (order, { reason = "" } = {}) => {
+  if (!order.paystackReference) {
+    return {
+      outcome: "FAILED",
+      error:
+        "Order has no paystackReference; cannot auto-refund. Settle manually in Paystack.",
+    };
+  }
+  try {
+    const refundData = await paystackService.refundTransaction({
+      reference: order.paystackReference,
+      amountInMajor: order.totalAmount,
+      currency: order.currency,
+      merchantNote: reason
+        ? `Admin cancel — ${reason}`.slice(0, 300)
+        : "Admin cancel",
+    });
+
+    const paystackStatus = String(refundData?.status || "").toLowerCase();
+    const isTerminalSuccess = paystackStatus === "processed";
+
+    order.refund = {
+      ...(order.refund || {}),
+      status: isTerminalSuccess ? "PROCESSED" : "PENDING",
+      paystackRefundId: refundData?.id != null ? String(refundData.id) : "",
+      amount: order.totalAmount,
+      currency: order.currency,
+      attemptedAt: new Date(),
+      processedAt: isTerminalSuccess ? new Date() : null,
+      lastError: "",
+    };
+    return { outcome: isTerminalSuccess ? "REFUNDED" : "PENDING" };
+  } catch (err) {
+    const message = err?.message || String(err);
+    order.refund = {
+      ...(order.refund || {}),
+      status: "FAILED",
+      attemptedAt: new Date(),
+      lastError: message.slice(0, 500),
+    };
+    return { outcome: "FAILED", error: message };
+  }
+};
+
 const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
+  // 1) Quick guard — make sure the order is cancellable before any side-effect.
+  const preCheck = await Order.findOne({ _id: id, isDeleted: { $ne: true } }).lean();
+  if (!preCheck) throw new HttpError("Order not found", 404);
+  if (["SHIPPED", "DELIVERED", "FULFILLED", "CANCELLED"].includes(preCheck.orderStatus)) {
+    throw new HttpError(
+      `Order is ${preCheck.orderStatus}; cancel is no longer possible.`,
+      400
+    );
+  }
+
+  // 2) If the order was PAID, try Paystack refund FIRST (outside any DB txn —
+  //    network calls don't belong inside Mongo transactions).
+  const wasPaid = preCheck.paymentStatus === "PAID";
+  let refundOutcome = null;
+  if (wasPaid) {
+    const tmp = { paystackReference: preCheck.paystackReference, totalAmount: preCheck.totalAmount, currency: preCheck.currency, refund: preCheck.refund || {} };
+    refundOutcome = await attemptPaystackRefund(tmp, { reason });
+    // copy the refund block back; we'll re-apply on the live doc below.
+    preCheck.refund = tmp.refund;
+  }
+
+  // 3) Commit the cancel + (conditionally) the refund flip in a single txn.
   const session = await mongoose.startSession();
   let order;
   let didRefund = false;
+  let refundPending = false;
+  let refundFailed = false;
+  let refundError = null;
   try {
     await session.withTransaction(async () => {
       order = await Order.findOne({ _id: id, isDeleted: { $ne: true } }).session(session);
       if (!order) throw new HttpError("Order not found", 404);
 
+      // Re-check status under transaction (race-safety).
       if (["SHIPPED", "DELIVERED", "FULFILLED", "CANCELLED"].includes(order.orderStatus)) {
         throw new HttpError(
           `Order is ${order.orderStatus}; cancel is no longer possible.`,
@@ -569,27 +649,47 @@ const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
       await restockOrderItems(order, session);
       order.inventoryReserved = false;
 
-      if (order.paymentStatus === "PAID") {
-        order.paymentStatus = "REFUNDED";
-        didRefund = true;
+      if (wasPaid && refundOutcome) {
+        // Persist the refund block we computed before the txn.
+        order.refund = preCheck.refund;
+        if (refundOutcome.outcome === "REFUNDED") {
+          order.paymentStatus = "REFUNDED";
+          didRefund = true;
+        } else if (refundOutcome.outcome === "PENDING") {
+          // Keep paymentStatus PAID until webhook confirms (or admin can flip via /payment).
+          refundPending = true;
+        } else {
+          refundFailed = true;
+          refundError = refundOutcome.error;
+        }
       }
+
       order.orderStatus = "CANCELLED";
-      appendHistory(
-        order,
-        "CANCELLED",
-        reason || "Cancelled by admin",
-        actorUserId
-      );
+      const baseNote = reason || "Cancelled by admin";
+      const noteWithRefund = wasPaid
+        ? refundOutcome.outcome === "REFUNDED"
+          ? `${baseNote} | Paystack refund processed (${order.refund.paystackRefundId || "no-id"})`
+          : refundOutcome.outcome === "PENDING"
+            ? `${baseNote} | Paystack refund initiated, awaiting confirmation (${order.refund.paystackRefundId || "no-id"})`
+            : `${baseNote} | Paystack refund FAILED: ${refundError || "unknown"} — settle manually`
+        : baseNote;
+      appendHistory(order, "CANCELLED", noteWithRefund, actorUserId);
       await order.save({ session });
     });
   } finally {
     await session.endSession();
   }
 
-  // Post-commit best-effort fan-out: cancellation email + FCM push.
+  // 4) Post-commit best-effort fan-out: cancellation email + FCM push.
   if (order) {
     orderEmailService
-      .sendOrderCancelledByAdmin(order, { reason, refunded: didRefund })
+      .sendOrderCancelledByAdmin(order, {
+        reason,
+        refunded: didRefund,
+        refundPending,
+        refundFailed,
+        refundError,
+      })
       .catch((err) =>
         console.error(
           "[orderService] sendOrderCancelledByAdmin failed:",
@@ -736,6 +836,7 @@ module.exports = {
   dispatchOrder,
   confirmDelivery,
   adminCancelOrder,
+  attemptPaystackRefund,
   createReplacementOrder,
   _internal: {
     nextOrderNumber,

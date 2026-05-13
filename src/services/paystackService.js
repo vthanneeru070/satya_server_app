@@ -167,6 +167,59 @@ const verifyTransaction = async (reference) => {
 };
 
 /**
+ * Trigger a refund on Paystack. Either `reference` (the charge reference) or
+ * `transactionId` must be supplied. Amount is optional — omit for a full refund.
+ *
+ * Paystack returns:
+ *   {
+ *     transaction: { id, reference, amount, currency, ... },
+ *     id: <refund-id>,
+ *     status: "processing" | "processed" | "failed" | "pending",
+ *     ...
+ *   }
+ *
+ * `processing` is the normal happy path — the actual settlement happens
+ * asynchronously and Paystack fires a `refund.processed` webhook later.
+ */
+const refundTransaction = async ({
+  reference,
+  transactionId,
+  amountInMajor,
+  currency = "ZAR",
+  customerNote,
+  merchantNote,
+}) => {
+  assertConfigured();
+  if (!reference && !transactionId) {
+    throw new HttpError(
+      "reference or transactionId is required to refund a Paystack transaction",
+      400
+    );
+  }
+
+  const payload = {
+    transaction: reference || transactionId,
+  };
+  if (amountInMajor != null) {
+    payload.amount = toSubunit(amountInMajor, currency);
+    payload.currency = String(currency).toUpperCase();
+  }
+  if (customerNote) payload.customer_note = String(customerNote).slice(0, 300);
+  if (merchantNote) payload.merchant_note = String(merchantNote).slice(0, 300);
+
+  try {
+    const { data } = await buildHttpClient().post("/refund", payload);
+    if (!data?.status) {
+      throw new HttpError(data?.message || "Paystack refund failed", 400);
+    }
+    return data.data;
+  } catch (err) {
+    if (err instanceof HttpError) throw err;
+    throw wrapPaystackError(err, "Failed to refund Paystack transaction");
+  }
+};
+
+/**
  * Verify the `x-paystack-signature` header against the raw request body using
  * HMAC-SHA512 with the secret key. Returns true/false — never throws — so
  * the route can decide whether to 401 or process.
@@ -192,6 +245,7 @@ const verifyWebhookSignature = (rawBody, signature) => {
 module.exports = {
   initializeTransaction,
   verifyTransaction,
+  refundTransaction,
   verifyWebhookSignature,
   toSubunit,
   fromSubunit,

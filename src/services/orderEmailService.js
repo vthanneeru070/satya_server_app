@@ -311,7 +311,16 @@ const sendRequestStatusUpdate = async (orderRequest, { order, replacementOrder }
  * Process" — admin-mediated). `refunded` is true when the cancellation
  * automatically flipped a PAID order to REFUNDED.
  */
-const sendOrderCancelledByAdmin = async (order, { reason = "", refunded = false } = {}) => {
+const sendOrderCancelledByAdmin = async (
+  order,
+  {
+    reason = "",
+    refunded = false,
+    refundPending = false,
+    refundFailed = false,
+    refundError = "",
+  } = {}
+) => {
   if (!order) return { delivered: false, reason: "no-order" };
   const user = await loadRecipientEmail(order.user);
   const to = user?.email;
@@ -324,15 +333,31 @@ const sendOrderCancelledByAdmin = async (order, { reason = "", refunded = false 
        </p>`
     : "";
 
-  const refundBlock = refunded
-    ? `<p style="margin:18px 0 0;font-size:14px;line-height:1.6;">
-         Since your order was already paid, the payment has been marked as
-         <strong>REFUNDED</strong>. The actual refund settles back to your
-         original payment method within a few business days.
-       </p>`
-    : `<p style="margin:18px 0 0;font-size:14px;line-height:1.6;">
+  let refundBlock;
+  if (refunded) {
+    refundBlock = `<p style="margin:18px 0 0;font-size:14px;line-height:1.6;">
+         Your payment has been <strong>refunded</strong> via Paystack. It will
+         appear back on your original payment method within a few business days.
+       </p>`;
+  } else if (refundPending) {
+    refundBlock = `<p style="margin:18px 0 0;font-size:14px;line-height:1.6;">
+         A <strong>refund has been initiated</strong> via Paystack and is currently
+         being processed. It will appear back on your original payment method
+         within a few business days. You'll receive a final confirmation once
+         settlement completes.
+       </p>`;
+  } else if (refundFailed) {
+    refundBlock = `<p style="margin:18px 0 0;font-size:14px;line-height:1.6;">
+         We're processing your refund manually with our payments team. You will
+         receive a separate confirmation as soon as it is on its way back to
+         your original payment method. If you don't hear from us within a few
+         business days, please reply to this email.
+       </p>`;
+  } else {
+    refundBlock = `<p style="margin:18px 0 0;font-size:14px;line-height:1.6;">
          No payment was captured for this order, so no refund is needed.
        </p>`;
+  }
 
   const body = `
     <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">Hi <strong>${escapeHtml(user.fullName || "there")}</strong>,</p>
@@ -362,8 +387,12 @@ const sendOrderCancelledByAdmin = async (order, { reason = "", refunded = false 
       `Your ${appName()} order ${order.orderNumber} has been cancelled by admin.` +
       (reason ? ` Reason: ${reason}.` : "") +
       (refunded
-        ? " Your payment has been marked as REFUNDED."
-        : " No payment was captured, so no refund is needed."),
+        ? " Your payment has been refunded via Paystack."
+        : refundPending
+          ? " A refund has been initiated and is being processed by Paystack."
+          : refundFailed
+            ? " Your refund is being processed manually by our payments team."
+            : " No payment was captured, so no refund is needed."),
   });
 };
 

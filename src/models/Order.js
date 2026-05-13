@@ -98,6 +98,28 @@ const orderSchema = new mongoose.Schema(
       feedback: { type: String, default: "" },
     },
 
+    /**
+     * Refund tracking for PAID orders.
+     *   status:
+     *     NONE       — never attempted
+     *     PENDING    — Paystack /refund returned `processing` (waiting for webhook)
+     *     PROCESSED  — Paystack `refund.processed` webhook confirmed
+     *     FAILED     — last attempt failed (lastError holds the reason; admin can retry)
+     */
+    refund: {
+      status: {
+        type: String,
+        enum: ["NONE", "PENDING", "PROCESSED", "FAILED"],
+        default: "NONE",
+      },
+      paystackRefundId: { type: String, default: "" },
+      amount: { type: Number, default: 0 },
+      currency: { type: String, default: "" },
+      attemptedAt: { type: Date, default: null },
+      processedAt: { type: Date, default: null },
+      lastError: { type: String, default: "" },
+    },
+
     orderStatusHistory: [
       {
         status: { type: String, required: true },

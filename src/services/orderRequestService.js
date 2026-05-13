@@ -245,12 +245,27 @@ const approveRequest = async (
     if (order.paymentStatus === "REFUNDED") {
       throw new HttpError("Order is already refunded.", 400);
     }
-    order.paymentStatus = "REFUNDED";
+
+    // Try a full-amount Paystack refund. On failure we still keep the order
+    // record sane: order stays as-is, paymentStatus stays PAID, refund.lastError
+    // is set so admin can retry or settle manually in the Paystack dashboard.
+    const refundOutcome = await orderService.attemptPaystackRefund(order, {
+      reason: `Approved refund request ${request.requestNumber}`,
+    });
+
+    if (refundOutcome.outcome === "REFUNDED") {
+      order.paymentStatus = "REFUNDED";
+    }
     order.orderStatusHistory = order.orderStatusHistory || [];
     order.orderStatusHistory.push({
       status: order.orderStatus,
       at: new Date(),
-      note: `Refund approved (request ${request.requestNumber})`,
+      note:
+        refundOutcome.outcome === "REFUNDED"
+          ? `Refund processed (request ${request.requestNumber}, paystack ${order.refund?.paystackRefundId || "no-id"})`
+          : refundOutcome.outcome === "PENDING"
+            ? `Refund initiated, awaiting Paystack confirmation (request ${request.requestNumber})`
+            : `Refund FAILED via Paystack: ${refundOutcome.error} — settle manually`,
     });
     await order.save();
     finalStatus = "APPROVED";

@@ -376,6 +376,24 @@ const options = {
             feedback: { type: "string" },
           },
         },
+        OrderRefund: {
+          type: "object",
+          description:
+            "Paystack refund state. `PENDING` means the refund was accepted by Paystack and we're waiting on the `refund.processed` webhook. `FAILED` means the auto-refund call was rejected and admin must settle manually.",
+          properties: {
+            status: {
+              type: "string",
+              enum: ["NONE", "PENDING", "PROCESSED", "FAILED"],
+              default: "NONE",
+            },
+            paystackRefundId: { type: "string" },
+            amount: { type: "number" },
+            currency: { type: "string" },
+            attemptedAt: { type: "string", format: "date-time", nullable: true },
+            processedAt: { type: "string", format: "date-time", nullable: true },
+            lastError: { type: "string" },
+          },
+        },
         Order: {
           type: "object",
           properties: {
@@ -425,6 +443,7 @@ const options = {
             tracking: { $ref: "#/components/schemas/OrderTracking" },
             invoice: { $ref: "#/components/schemas/OrderInvoice" },
             fulfillment: { $ref: "#/components/schemas/OrderFulfillment" },
+            refund: { $ref: "#/components/schemas/OrderRefund" },
             shippingAddress: { $ref: "#/components/schemas/ShippingAddress" },
             orderStatusHistory: {
               type: "array",
