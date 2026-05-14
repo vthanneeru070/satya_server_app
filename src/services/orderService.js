@@ -401,11 +401,6 @@ const updateStatus = async (id, { status, note = "" }, { actorUserId }) => {
         didDeliver = true;
       }
 
-      if (order.orderType === "REPLACEMENT") {
-        if (status === "SHIPPED") order.replacementStatus = "SHIPPED";
-        if (status === "DELIVERED") order.replacementStatus = "DELIVERED";
-      }
-
       order.orderStatus = status;
       appendHistory(order, status, note, actorUserId);
       await order.save({ session });
@@ -440,16 +435,38 @@ const updateStatus = async (id, { status, note = "" }, { actorUserId }) => {
   // Always push the customer on a successful status transition. Best-effort,
   // never bubbled.
   if (updated) {
-    if (status === "DELIVERED" && updated.orderType === "REPLACEMENT") {
+    if (updated.orderType === "REPLACEMENT" && status === "SHIPPED") {
       ReplacementRequest.findOneAndUpdate(
-        { replacementOrder: updated._id, status: "APPROVED" },
-        { $set: { status: "COMPLETED" } }
+        { replacementOrder: updated._id, status: { $in: ["APPROVED", "PROCESSING", "PENDING"] } },
+        { $set: { status: "SHIPPED" } }
       ).catch((err) =>
         console.warn(
-          "[orderService] ReplacementRequest COMPLETED sync failed:",
+          "[orderService] ReplacementRequest SHIPPED sync failed:",
           err?.message || err
         )
       );
+    }
+    if (updated.orderType === "REPLACEMENT" && status === "DELIVERED") {
+      ReplacementRequest.findOneAndUpdate(
+        { replacementOrder: updated._id },
+        { $set: { status: "DELIVERED", completedAt: new Date() } },
+        { new: true }
+      )
+        .then((reqDoc) => {
+          if (reqDoc && updated.replacementFor) {
+            return Order.updateOne(
+              { _id: updated.replacementFor, isDeleted: { $ne: true } },
+              { $set: { replacementState: "COMPLETED" } }
+            );
+          }
+          return null;
+        })
+        .catch((err) =>
+          console.warn(
+            "[orderService] ReplacementRequest DELIVERED / original COMPLETED sync failed:",
+            err?.message || err
+          )
+        );
     }
     notifyOrderStatusChanged(updated.user, {
       order: updated,

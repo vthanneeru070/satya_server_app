@@ -12,12 +12,21 @@ const replacementRequestIdParamsSchema = Joi.object({
   id: objectIdHex.required(),
 });
 
+const REPLACEMENT_REQUEST_STATUSES = [
+  "REQUESTED",
+  "APPROVED",
+  "REJECTED",
+  "PROCESSING",
+  "SHIPPED",
+  "DELIVERED",
+  "CANCELLED",
+  "PENDING", // legacy DB values
+];
+
 const adminListReplacementQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(20),
-  status: Joi.string()
-    .valid("PENDING", "APPROVED", "REJECTED", "COMPLETED")
-    .optional(),
+  status: Joi.string().valid(...REPLACEMENT_REQUEST_STATUSES).optional(),
 });
 
 const adminDecideReplacementSchema = Joi.object({
@@ -27,7 +36,7 @@ const adminDecideReplacementSchema = Joi.object({
 const listMyReplacementQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(20),
-  status: Joi.string().valid("PENDING", "APPROVED", "REJECTED", "COMPLETED").optional(),
+  status: Joi.string().valid(...REPLACEMENT_REQUEST_STATUSES).optional(),
 });
 
 module.exports = {
@@ -36,4 +45,5 @@ module.exports = {
   adminListReplacementQuerySchema,
   adminDecideReplacementSchema,
   listMyReplacementQuerySchema,
+  REPLACEMENT_REQUEST_STATUSES,
 };

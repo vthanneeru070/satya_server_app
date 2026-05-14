@@ -44,7 +44,7 @@ router.use(authenticate, adminMiddleware);
  *         name: status
  *         schema:
  *           type: string
- *           enum: [PENDING, APPROVED, REJECTED, COMPLETED]
+ *           enum: [REQUESTED, APPROVED, REJECTED, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
  *     responses:
  *       200: { description: OK }
  */

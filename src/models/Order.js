@@ -4,10 +4,19 @@ const shippingAddressSchema = new mongoose.Schema(
   {
     fullName: { type: String, trim: true },
     phone: { type: String, trim: true },
+
     addressLine1: { type: String, trim: true },
+    addressLine2: { type: String, trim: true, default: "" },
+
     city: { type: String, trim: true },
     state: { type: String, trim: true },
-    country: { type: String, trim: true, default: "South Africa" },
+
+    country: {
+      type: String,
+      trim: true,
+      default: "South Africa",
+    },
+
     postalCode: { type: String, trim: true },
   },
   { _id: false }
@@ -20,28 +29,92 @@ const orderItemSchema = new mongoose.Schema(
       ref: "Product",
       required: true,
     },
-    title: { type: String, required: true, trim: true },
-    imageUrl: { type: String, default: "" },
-    quantity: { type: Number, required: true, min: 1 },
-    /** Unit price at checkout (never trust client) */
-    price: { type: Number, required: true, min: 0 },
-    lineTotal: { type: Number, required: true, min: 0 },
+
+    title: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    imageUrl: {
+      type: String,
+      default: "",
+    },
+
+    quantity: {
+      type: Number,
+      required: true,
+      min: 1,
+    },
+
+    /** Unit price at checkout */
+    price: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+
+    lineTotal: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
   },
   { _id: false }
 );
 
+const orderHistorySchema = new mongoose.Schema(
+  {
+    status: {
+      type: String,
+      required: true,
+    },
+
+    at: {
+      type: Date,
+      default: Date.now,
+    },
+
+    note: {
+      type: String,
+      default: "",
+    },
+  },
+  { _id: true }
+);
+
 const orderSchema = new mongoose.Schema(
   {
-    orderNumber: { type: String, required: true, unique: true, index: true },
+    orderNumber: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+    },
+
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
       index: true,
     },
-    items: { type: [orderItemSchema], default: [] },
-    totalAmount: { type: Number, required: true, min: 0 },
-    currency: { type: String, default: "ZAR", uppercase: true },
+
+    items: {
+      type: [orderItemSchema],
+      default: [],
+    },
+
+    totalAmount: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+
+    currency: {
+      type: String,
+      default: "ZAR",
+      uppercase: true,
+    },
 
     paymentStatus: {
       type: String,
@@ -49,16 +122,25 @@ const orderSchema = new mongoose.Schema(
         "PENDING",
         "PAID",
         "FAILED",
-        "REFUNDED",
         "REFUND_INITIATED",
+        "REFUNDED",
         "REFUND_FAILED",
       ],
       default: "PENDING",
       index: true,
     },
+
     orderStatus: {
       type: String,
-      enum: ["PLACED", "PROCESSING", "SHIPPED", "DELIVERED", "FULFILLED", "CANCELLED"],
+      enum: [
+        "PLACED",
+        "PROCESSING",
+        "SHIPPED",
+        "OUT_FOR_DELIVERY",
+        "DELIVERED",
+        "FULFILLED",
+        "CANCELLED",
+      ],
       default: "PLACED",
       index: true,
     },
@@ -69,67 +151,159 @@ const orderSchema = new mongoose.Schema(
       default: "PAYSTACK",
     },
 
-    shippingAddress: { type: shippingAddressSchema, default: undefined },
-
-    /** Paystack / gateway transaction id after successful charge */
-    transactionId: { type: String, default: null, index: true },
-    /** Last Paystack reference used for initialize (for support / idempotency) */
-    paystackReference: { type: String, default: null, index: true },
+    shippingAddress: {
+      type: shippingAddressSchema,
+      default: undefined,
+    },
 
     /**
-     * True after successful payment verification when stock was decremented.
-     * Used for admin cancel → restock only when appropriate.
+     * Payment transaction
      */
-    inventoryReserved: { type: Boolean, default: false, index: true },
+    transactionId: {
+      type: String,
+      default: null,
+      index: true,
+    },
 
-    /** Courier / dispatch — populated by admin before SHIPPED transition */
+    /**
+     * Payment gateway reference
+     */
+    paystackReference: {
+      type: String,
+      default: null,
+      index: true,
+    },
+
+    /**
+     * Original payment audit fields
+     * Used for replacement orders
+     */
+    originalTransactionId: {
+      type: String,
+      default: "",
+    },
+
+    originalPaystackReference: {
+      type: String,
+      default: "",
+    },
+
+    /**
+     * Stock reserved after payment verification
+     */
+    inventoryReserved: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
     tracking: {
-      courier: { type: String, default: "" },
-      trackingNumber: { type: String, default: "" },
-      trackingUrl: { type: String, default: "" },
-      dispatchedAt: { type: Date, default: null },
-      sharedWithUserAt: { type: Date, default: null },
+      courier: {
+        type: String,
+        default: "",
+      },
+
+      trackingNumber: {
+        type: String,
+        default: "",
+      },
+
+      trackingUrl: {
+        type: String,
+        default: "",
+      },
+
+      dispatchedAt: {
+        type: Date,
+        default: null,
+      },
+
+      deliveredAt: {
+        type: Date,
+        default: null,
+      },
+
+      sharedWithUserAt: {
+        type: Date,
+        default: null,
+      },
     },
 
-    /** Generated invoice (HTML in v1, hosted on S3) */
     invoice: {
-      number: { type: String, default: "" },
-      url: { type: String, default: "" },
-      generatedAt: { type: Date, default: null },
+      number: {
+        type: String,
+        default: "",
+      },
+
+      url: {
+        type: String,
+        default: "",
+      },
+
+      generatedAt: {
+        type: Date,
+        default: null,
+      },
     },
 
-    /** Post-delivery customer satisfaction; drives the BRS "satisfied?" branch */
     fulfillment: {
-      satisfied: { type: Boolean, default: null },
-      ratedAt: { type: Date, default: null },
-      feedback: { type: String, default: "" },
+      satisfied: {
+        type: Boolean,
+        default: null,
+      },
+
+      ratedAt: {
+        type: Date,
+        default: null,
+      },
+
+      feedback: {
+        type: String,
+        default: "",
+      },
     },
 
-    /**
-     * Refund tracking for paid / refund-in-progress orders.
-     *   status:
-     *     NONE       — never attempted
-     *     PENDING    — Paystack /refund returned `processing` (waiting for webhook)
-     *     PROCESSED  — Paystack `refund.processed` webhook confirmed
-     *     FAILED     — last attempt failed (lastError holds the reason; admin can retry)
-     */
     refund: {
       status: {
         type: String,
         enum: ["NONE", "PENDING", "PROCESSED", "FAILED"],
         default: "NONE",
       },
-      paystackRefundId: { type: String, default: "" },
-      amount: { type: Number, default: 0 },
-      currency: { type: String, default: "" },
-      attemptedAt: { type: Date, default: null },
-      processedAt: { type: Date, default: null },
-      lastError: { type: String, default: "" },
+
+      paystackRefundId: {
+        type: String,
+        default: "",
+      },
+
+      amount: {
+        type: Number,
+        default: 0,
+      },
+
+      currency: {
+        type: String,
+        default: "",
+      },
+
+      attemptedAt: {
+        type: Date,
+        default: null,
+      },
+
+      processedAt: {
+        type: Date,
+        default: null,
+      },
+
+      lastError: {
+        type: String,
+        default: "",
+      },
     },
 
     /**
-     * NORMAL — standard checkout. REPLACEMENT — child order linked to original;
-     * no new Paystack charge; uses original paystackReference for audit.
+     * NORMAL
+     * REPLACEMENT
      */
     orderType: {
       type: String,
@@ -137,35 +311,105 @@ const orderSchema = new mongoose.Schema(
       default: "NORMAL",
       index: true,
     },
+
+    /**
+     * Original order reference
+     * only for REPLACEMENT orders
+     */
     replacementFor: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Order",
       default: null,
       index: true,
     },
-    replacementReason: { type: String, default: "", trim: true, maxlength: 2000 },
-    /** Set only for orderType === REPLACEMENT; mirrors fulfillment for reporting. */
-    replacementStatus: {
+
+    /**
+     * Parent order number
+     * Example:
+     * SATYA-10028
+     */
+    parentOrderNumber: {
       type: String,
-      enum: ["REQUESTED", "APPROVED", "REJECTED", "SHIPPED", "DELIVERED"],
+      default: "",
     },
 
-    orderStatusHistory: [
-      {
-        status: { type: String, required: true },
-        at: { type: Date, default: Date.now },
-        note: { type: String, default: "" },
-      },
-    ],
+    replacementReason: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 2000,
+    },
 
-    isDeleted: { type: Boolean, default: false, index: true },
+    /**
+     * Lightweight replacement state
+     * for original order UI
+     */
+    replacementState: {
+      type: String,
+      enum: [
+        "NONE",
+        "REQUESTED",
+        "APPROVED",
+        "REJECTED",
+        "IN_PROGRESS",
+        "COMPLETED",
+      ],
+      default: "NONE",
+      index: true,
+    },
+
+    replacementCount: {
+      type: Number,
+      default: 0,
+    },
+
+    latestReplacementRequest: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ReplacementRequest",
+      default: null,
+    },
+
+    latestReplacementOrder: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Order",
+      default: null,
+    },
+
+    orderStatusHistory: {
+      type: [orderHistorySchema],
+      default: [],
+    },
+
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  }
 );
 
 orderSchema.index({ createdAt: -1 });
-orderSchema.index({ user: 1, createdAt: -1 });
-orderSchema.index({ orderType: 1, replacementFor: 1 });
-orderSchema.index({ replacementFor: 1, createdAt: -1 });
+
+orderSchema.index({
+  user: 1,
+  createdAt: -1,
+});
+
+orderSchema.index({
+  orderType: 1,
+  replacementFor: 1,
+});
+
+orderSchema.index({
+  replacementFor: 1,
+  createdAt: -1,
+});
+
+orderSchema.index({
+  replacementState: 1,
+});
 
 module.exports = mongoose.model("Order", orderSchema);

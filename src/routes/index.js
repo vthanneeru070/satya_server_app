@@ -25,9 +25,10 @@ const router = express.Router();
 // auth
 router.use("/auth", authRoutes);
 
-// admin & superadmin
-router.use("/admin", adminRoutes);
+// admin & superadmin — register `/admin/replacements` before `/admin` so paths
+// are not swallowed by the generic admin router.
 router.use("/admin/replacements", replacementAdminRoutes);
+router.use("/admin", adminRoutes);
 router.use("/superadmin", superAdminRoutes);
 
 // shared / domain routes

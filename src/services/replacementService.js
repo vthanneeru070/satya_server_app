@@ -9,6 +9,20 @@ const fcmReplacementNotifyService = require("./fcmReplacementNotifyService");
 
 const notDeleted = { isDeleted: { $ne: true } };
 
+/** ReplacementRequest rows that block opening another request for the same order. */
+const BLOCKING_REPLACEMENT_REQUEST_STATUSES = [
+  "REQUESTED",
+  "PENDING", // legacy
+  "APPROVED",
+  "PROCESSING",
+  "SHIPPED",
+];
+
+const APPROVE_OR_REJECTABLE_STATUSES = new Set(["REQUESTED", "PENDING"]);
+
+const orderPopulateSummary =
+  "orderNumber orderStatus paymentStatus totalAmount currency orderType replacementState latestReplacementRequest latestReplacementOrder replacementCount parentOrderNumber";
+
 const nextReplacementRequestNumber = async (session) => {
   const doc = await Counter.findOneAndUpdate(
     { _id: "replacementRequestSequence" },
@@ -62,12 +76,12 @@ const ensureOwnedDeliveredPaidOriginal = async (orderId, userId) => {
 const assertNoBlockingReplacement = async (orderId) => {
   const pendingReq = await ReplacementRequest.findOne({
     order: orderId,
-    status: "PENDING",
+    status: { $in: BLOCKING_REPLACEMENT_REQUEST_STATUSES },
     ...notDeleted,
   });
   if (pendingReq) {
     throw new HttpError(
-      `You already have a pending replacement request (${pendingReq.requestNumber}).`,
+      `You already have an open replacement request (${pendingReq.requestNumber}).`,
       409
     );
   }
@@ -104,11 +118,19 @@ const createRequest = async (userId, { orderId, reason = "", images = [] } = {})
             order: order._id,
             reason: String(reason || "").trim().slice(0, 2000),
             images: Array.isArray(images) ? images.filter(Boolean).slice(0, 12) : [],
-            status: "PENDING",
           },
         ],
         { session }
       );
+      await Order.updateOne(
+        { _id: order._id, isDeleted: { $ne: true } },
+        {
+          $set: {
+            replacementState: "REQUESTED",
+            latestReplacementRequest: request._id,
+          },
+        }
+      ).session(session);
     });
   } finally {
     await session.endSession();
@@ -116,7 +138,7 @@ const createRequest = async (userId, { orderId, reason = "", images = [] } = {})
 
   const populated = await ReplacementRequest.findById(request._id).populate(
     "order",
-    "orderNumber orderStatus paymentStatus totalAmount currency orderType"
+    orderPopulateSummary
   );
 
   orderEmailService.sendReplacementRequestSubmitted(populated).catch((err) =>
@@ -143,8 +165,11 @@ const listMyRequests = async (userId, q = {}) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate("order", "orderNumber orderStatus paymentStatus totalAmount currency orderType")
-      .populate("replacementOrder", "orderNumber orderStatus paymentStatus orderType"),
+      .populate("order", orderPopulateSummary)
+      .populate(
+        "replacementOrder",
+        "orderNumber orderStatus paymentStatus orderType replacementFor parentOrderNumber"
+      ),
     ReplacementRequest.countDocuments(filter),
   ]);
 
@@ -184,8 +209,11 @@ const listAllForAdmin = async (q = {}) => {
       .skip(skip)
       .limit(limit)
       .populate("user", "fullName email phone role")
-      .populate("order", "orderNumber orderStatus paymentStatus totalAmount currency orderType")
-      .populate("replacementOrder", "orderNumber orderStatus paymentStatus orderType"),
+      .populate("order", orderPopulateSummary)
+      .populate(
+        "replacementOrder",
+        "orderNumber orderStatus paymentStatus orderType replacementFor parentOrderNumber"
+      ),
     ReplacementRequest.countDocuments(filter),
   ]);
 
@@ -212,7 +240,7 @@ const getRequestByIdAdmin = async (requestId) => {
 const approveRequest = async (requestId, { adminRemarks = "" } = {}, { actorUserId }) => {
   const request = await ReplacementRequest.findOne({ _id: requestId, ...notDeleted });
   if (!request) throw new HttpError("Request not found", 404);
-  if (request.status !== "PENDING") {
+  if (!APPROVE_OR_REJECTABLE_STATUSES.has(request.status)) {
     throw new HttpError(`Request is already ${request.status}.`, 400);
   }
 
@@ -226,8 +254,8 @@ const approveRequest = async (requestId, { adminRemarks = "" } = {}, { actorUser
   try {
     await session.withTransaction(async () => {
       const lockedReq = await ReplacementRequest.findById(requestId).session(session);
-      if (!lockedReq || lockedReq.status !== "PENDING") {
-        throw new HttpError("Request is no longer pending", 409);
+      if (!lockedReq || !APPROVE_OR_REJECTABLE_STATUSES.has(lockedReq.status)) {
+        throw new HttpError("Request is no longer awaiting review", 409);
       }
 
       const original = await Order.findById(lockedReq.order).session(session);
@@ -268,6 +296,9 @@ const approveRequest = async (requestId, { adminRemarks = "" } = {}, { actorUser
         lineTotal: line.lineTotal,
       }));
 
+      const origPayRef = original.paystackReference || "";
+      const origTx = original.transactionId || "";
+
       [replacementOrder] = await Order.create(
         [
           {
@@ -275,8 +306,8 @@ const approveRequest = async (requestId, { adminRemarks = "" } = {}, { actorUser
             user: original.user,
             orderType: "REPLACEMENT",
             replacementFor: original._id,
+            parentOrderNumber: original.orderNumber || "",
             replacementReason: lockedReq.reason || "",
-            replacementStatus: "APPROVED",
             items,
             totalAmount: original.totalAmount,
             currency: original.currency,
@@ -285,8 +316,10 @@ const approveRequest = async (requestId, { adminRemarks = "" } = {}, { actorUser
             paymentMethod: original.paymentMethod || "PAYSTACK",
             shippingAddress: original.shippingAddress,
             inventoryReserved: true,
-            paystackReference: original.paystackReference || "",
-            transactionId: original.transactionId || "",
+            paystackReference: origPayRef,
+            transactionId: origTx,
+            originalPaystackReference: origPayRef,
+            originalTransactionId: origTx,
             orderStatusHistory: [
               {
                 status: "PLACED",
@@ -312,16 +345,27 @@ const approveRequest = async (requestId, { adminRemarks = "" } = {}, { actorUser
       lockedReq.resolvedBy = actorUserId || null;
       lockedReq.resolvedAt = new Date();
       await lockedReq.save({ session });
+
+      await Order.updateOne(
+        { _id: original._id, isDeleted: { $ne: true } },
+        {
+          $set: {
+            replacementState: "IN_PROGRESS",
+            latestReplacementOrder: replacementOrder._id,
+          },
+          $inc: { replacementCount: 1 },
+        }
+      ).session(session);
     });
   } finally {
     await session.endSession();
   }
 
   const out = await ReplacementRequest.findById(requestId)
-    .populate("order", "orderNumber orderStatus paymentStatus totalAmount currency orderType")
+    .populate("order", orderPopulateSummary)
     .populate(
       "replacementOrder",
-      "orderNumber orderStatus paymentStatus totalAmount currency orderType replacementFor"
+      "orderNumber orderStatus paymentStatus totalAmount currency orderType replacementFor parentOrderNumber originalPaystackReference originalTransactionId"
     );
 
   orderEmailService.sendReplacementApproved(out).catch((err) =>
@@ -339,7 +383,7 @@ const approveRequest = async (requestId, { adminRemarks = "" } = {}, { actorUser
 const rejectRequest = async (requestId, { adminRemarks = "" } = {}, { actorUserId }) => {
   const request = await ReplacementRequest.findOne({ _id: requestId, ...notDeleted });
   if (!request) throw new HttpError("Request not found", 404);
-  if (request.status !== "PENDING") {
+  if (!APPROVE_OR_REJECTABLE_STATUSES.has(request.status)) {
     throw new HttpError(`Request is already ${request.status}.`, 400);
   }
 
@@ -347,10 +391,18 @@ const rejectRequest = async (requestId, { adminRemarks = "" } = {}, { actorUserI
   request.adminRemarks = adminRemarks ? String(adminRemarks).trim().slice(0, 2000) : "";
   request.resolvedBy = actorUserId || null;
   request.resolvedAt = new Date();
+  request.rejectedAt = new Date();
   await request.save();
 
+  await Order.updateOne(
+    { _id: request.order, isDeleted: { $ne: true } },
+    { $set: { replacementState: "REJECTED" } }
+  ).catch((err) =>
+    console.warn("[replacementService] original order replacementState (reject) update:", err?.message || err)
+  );
+
   const populated = await ReplacementRequest.findById(request._id)
-    .populate("order", "orderNumber orderStatus paymentStatus totalAmount currency")
+    .populate("order", orderPopulateSummary)
     .populate("user", "fullName email");
 
   orderEmailService.sendReplacementRejected(populated).catch((err) =>
