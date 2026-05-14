@@ -14,6 +14,8 @@ const productRoutes = require("./productRoutes");
 const cartRoutes = require("./cartRoutes");
 const orderRoutes = require("./orderRoutes");
 const orderRequestRoutes = require("./orderRequestRoutes");
+const replacementRoutes = require("./replacementRoutes");
+const replacementAdminRoutes = require("./replacementAdminRoutes");
 const paymentRoutes = require("./paymentRoutes");
 const fcmRoutes = require("./fcmRoutes");
 const notificationRoutes = require("./notificationRoutes");
@@ -25,6 +27,7 @@ router.use("/auth", authRoutes);
 
 // admin & superadmin
 router.use("/admin", adminRoutes);
+router.use("/admin/replacements", replacementAdminRoutes);
 router.use("/superadmin", superAdminRoutes);
 
 // shared / domain routes
@@ -38,6 +41,7 @@ router.use("/calendar", calendarRoutes);
 router.use("/deities", deityRoutes);
 router.use("/products", productRoutes);
 router.use("/cart", cartRoutes);
+router.use("/replacements", replacementRoutes);
 // Mount request-specific routes BEFORE generic orderRoutes so paths like
 // `/orders/requests/my` are not eaten by `/orders/:id`.
 router.use("/orders", orderRequestRoutes);

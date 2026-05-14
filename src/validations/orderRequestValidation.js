@@ -3,9 +3,7 @@ const Joi = require("joi");
 const objectIdHex = Joi.string().trim().hex().length(24);
 
 const createRequestSchema = Joi.object({
-  type: Joi.string()
-    .valid("CANCELLATION", "REFUND", "REPLACEMENT")
-    .required(),
+  type: Joi.string().valid("CANCELLATION", "REFUND").required(),
   reason: Joi.string().trim().max(2000).allow("").default(""),
   attachments: Joi.array()
     .items(Joi.string().trim().uri().max(2048))
@@ -32,9 +30,7 @@ const listRequestsQuerySchema = Joi.object({
   status: Joi.string()
     .valid("PENDING", "APPROVED", "REJECTED", "COMPLETED")
     .optional(),
-  type: Joi.string()
-    .valid("CANCELLATION", "REFUND", "REPLACEMENT")
-    .optional(),
+  type: Joi.string().valid("CANCELLATION", "REFUND").optional(),
   user: objectIdHex.optional(),
 });
 

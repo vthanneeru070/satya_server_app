@@ -575,6 +575,18 @@ const options = {
             invoice: { $ref: "#/components/schemas/OrderInvoice" },
             fulfillment: { $ref: "#/components/schemas/OrderFulfillment" },
             refund: { $ref: "#/components/schemas/OrderRefund" },
+            orderType: {
+              type: "string",
+              enum: ["NORMAL", "REPLACEMENT"],
+              description: "REPLACEMENT orders link to `replacementFor` and reuse original Paystack reference.",
+            },
+            replacementFor: { type: "string", nullable: true, description: "Original order id (replacement orders only)" },
+            replacementReason: { type: "string" },
+            replacementStatus: {
+              type: "string",
+              enum: ["REQUESTED", "APPROVED", "REJECTED", "SHIPPED", "DELIVERED"],
+              nullable: true,
+            },
             shippingAddress: { $ref: "#/components/schemas/ShippingAddress" },
             orderStatusHistory: {
               type: "array",
@@ -588,6 +600,27 @@ const options = {
               },
             },
             isDeleted: { type: "boolean" },
+            createdAt: { type: "string", format: "date-time" },
+            updatedAt: { type: "string", format: "date-time" },
+          },
+        },
+        ReplacementRequest: {
+          type: "object",
+          properties: {
+            _id: { type: "string" },
+            requestNumber: { type: "string", example: "REP-10001" },
+            user: { type: "string" },
+            order: { type: "string", description: "Original order id" },
+            reason: { type: "string" },
+            images: { type: "array", items: { type: "string", format: "uri" } },
+            status: {
+              type: "string",
+              enum: ["PENDING", "APPROVED", "REJECTED", "COMPLETED"],
+            },
+            adminRemarks: { type: "string" },
+            replacementOrder: { type: "string", nullable: true },
+            resolvedBy: { type: "string", nullable: true },
+            resolvedAt: { type: "string", format: "date-time", nullable: true },
             createdAt: { type: "string", format: "date-time" },
             updatedAt: { type: "string", format: "date-time" },
           },
@@ -647,7 +680,7 @@ const options = {
             user: { type: "string" },
             type: {
               type: "string",
-              enum: ["CANCELLATION", "REFUND", "REPLACEMENT"],
+              enum: ["CANCELLATION", "REFUND"],
             },
             reason: { type: "string" },
             attachments: {
@@ -685,7 +718,7 @@ const options = {
           properties: {
             type: {
               type: "string",
-              enum: ["CANCELLATION", "REFUND", "REPLACEMENT"],
+              enum: ["CANCELLATION", "REFUND"],
             },
             reason: { type: "string", maxLength: 2000 },
             attachments: {

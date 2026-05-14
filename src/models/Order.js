@@ -127,6 +127,29 @@ const orderSchema = new mongoose.Schema(
       lastError: { type: String, default: "" },
     },
 
+    /**
+     * NORMAL — standard checkout. REPLACEMENT — child order linked to original;
+     * no new Paystack charge; uses original paystackReference for audit.
+     */
+    orderType: {
+      type: String,
+      enum: ["NORMAL", "REPLACEMENT"],
+      default: "NORMAL",
+      index: true,
+    },
+    replacementFor: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Order",
+      default: null,
+      index: true,
+    },
+    replacementReason: { type: String, default: "", trim: true, maxlength: 2000 },
+    /** Set only for orderType === REPLACEMENT; mirrors fulfillment for reporting. */
+    replacementStatus: {
+      type: String,
+      enum: ["REQUESTED", "APPROVED", "REJECTED", "SHIPPED", "DELIVERED"],
+    },
+
     orderStatusHistory: [
       {
         status: { type: String, required: true },
@@ -142,5 +165,7 @@ const orderSchema = new mongoose.Schema(
 
 orderSchema.index({ createdAt: -1 });
 orderSchema.index({ user: 1, createdAt: -1 });
+orderSchema.index({ orderType: 1, replacementFor: 1 });
+orderSchema.index({ replacementFor: 1, createdAt: -1 });
 
 module.exports = mongoose.model("Order", orderSchema);

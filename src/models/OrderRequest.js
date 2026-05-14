@@ -11,9 +11,8 @@ const historyEntrySchema = new mongoose.Schema(
 );
 
 /**
- * Unified post-payment request lifecycle for an order. Covers the three
- * BRS branches (CANCELLATION / REFUND / REPLACEMENT) under one schema so the
- * admin review UI can list and triage them in a single queue.
+ * Unified post-payment request lifecycle for an order (cancellation / refund).
+ * Replacement shipments use `ReplacementRequest` + `/replacements` APIs instead.
  */
 const orderRequestSchema = new mongoose.Schema(
   {
@@ -34,7 +33,7 @@ const orderRequestSchema = new mongoose.Schema(
 
     type: {
       type: String,
-      enum: ["CANCELLATION", "REFUND", "REPLACEMENT"],
+      enum: ["CANCELLATION", "REFUND"],
       required: true,
       index: true,
     },

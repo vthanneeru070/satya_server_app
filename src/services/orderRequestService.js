@@ -59,7 +59,7 @@ const assertCanCreate = (order, type) => {
     return;
   }
 
-  if (type === "REFUND" || type === "REPLACEMENT") {
+  if (type === "REFUND") {
     if (order.paymentStatus === "REFUNDED") {
       throw new HttpError(
         "This order has already been refunded; no further refund/replacement can be requested.",
@@ -243,7 +243,6 @@ const approveRequest = async (
   });
   if (!order) throw new HttpError("Order not found for this request", 404);
 
-  let replacement = null;
   let finalStatus = "APPROVED";
 
   if (request.type === "CANCELLATION") {
@@ -294,12 +293,6 @@ const approveRequest = async (
     });
     await order.save();
     finalStatus = "APPROVED";
-  } else if (request.type === "REPLACEMENT") {
-    replacement = await orderService.createReplacementOrder(order, {
-      note: `Approved request ${request.requestNumber}`,
-    });
-    request.replacementOrder = replacement._id;
-    finalStatus = "COMPLETED";
   }
 
   request.status = finalStatus;
@@ -315,7 +308,7 @@ const approveRequest = async (
   await request.save();
 
   orderEmailService
-    .sendRequestStatusUpdate(request, { order, replacementOrder: replacement })
+    .sendRequestStatusUpdate(request, { order })
     .catch((err) =>
       console.error(
         "[orderRequestService] sendRequestStatusUpdate (approve) failed:",
@@ -324,8 +317,7 @@ const approveRequest = async (
     );
 
   return OrderRequest.findById(request._id)
-    .populate("order", "orderNumber orderStatus paymentStatus totalAmount currency")
-    .populate("replacementOrder", "orderNumber orderStatus paymentStatus totalAmount currency");
+    .populate("order", "orderNumber orderStatus paymentStatus totalAmount currency");
 };
 
 const rejectRequest = async (

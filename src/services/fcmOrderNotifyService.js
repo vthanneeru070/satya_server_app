@@ -214,10 +214,28 @@ const notifyOrderStatusChanged = async (
   try {
     if (!order || !userId) return { sent: 0, failed: 0, pruned: 0 };
     const status = newStatus || order.orderStatus;
-    const copy = STATUS_COPY[status] || {
+    let copy = STATUS_COPY[status] || {
       title: `Order ${order.orderNumber} update`,
       body: (n) => `Order ${n} status is now ${status}.`,
     };
+    if (order.orderType === "REPLACEMENT") {
+      if (status === "SHIPPED") {
+        copy = {
+          title: "Replacement order shipped",
+          body: (n) => `Your replacement ${n} is on its way.`,
+        };
+      } else if (status === "DELIVERED") {
+        copy = {
+          title: "Replacement order delivered",
+          body: (n) => `Your replacement ${n} was marked delivered. Confirm receipt in the app.`,
+        };
+      } else if (status === "PROCESSING") {
+        copy = {
+          title: "Replacement order in progress",
+          body: (n) => `Your replacement ${n} is being prepared.`,
+        };
+      }
+    }
 
     const finalTitle = title || copy.title;
     const finalBody =
@@ -235,6 +253,8 @@ const notifyOrderStatusChanged = async (
         orderId: String(order._id),
         orderNumber: String(order.orderNumber || ""),
         orderStatus: String(status),
+        orderType: String(order.orderType || "NORMAL"),
+        replacementFor: order.replacementFor ? String(order.replacementFor) : "",
         note: note || "",
       },
       logTag: `notifyOrderStatusChanged(${status})`,

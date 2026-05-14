@@ -3,6 +3,7 @@ const Order = require("../models/Order");
 const Cart = require("../models/Cart");
 const Product = require("../models/Product");
 const Counter = require("../models/Counter");
+const ReplacementRequest = require("../models/ReplacementRequest");
 const HttpError = require("../utils/httpError");
 const orderEmailService = require("./orderEmailService");
 const { notifyOrderStatusChanged } = require("./fcmOrderNotifyService");
@@ -50,7 +51,7 @@ const nextOrderNumber = async (session) => {
   const doc = await Counter.findOneAndUpdate(
     { _id: "orderSequence" },
     [{ $set: { seq: { $add: [{ $ifNull: ["$seq", 10000] }, 1] } } }],
-    { new: true, upsert: true, session, updatePipeline: true }
+    { returnDocument: "after", upsert: true, session, updatePipeline: true }
   );
   return `SATYA-${doc.seq}`;
 };
@@ -172,6 +173,7 @@ const persistOrder = async (
         paymentStatus: "PENDING",
         orderStatus: "PLACED",
         paymentMethod: paymentMethod || "PAYSTACK",
+        orderType: "NORMAL",
         shippingAddress,
         inventoryReserved: false,
         orderStatusHistory: [{ status: "PLACED", at: new Date(), note: "Order created" }],
@@ -399,6 +401,11 @@ const updateStatus = async (id, { status, note = "" }, { actorUserId }) => {
         didDeliver = true;
       }
 
+      if (order.orderType === "REPLACEMENT") {
+        if (status === "SHIPPED") order.replacementStatus = "SHIPPED";
+        if (status === "DELIVERED") order.replacementStatus = "DELIVERED";
+      }
+
       order.orderStatus = status;
       appendHistory(order, status, note, actorUserId);
       await order.save({ session });
@@ -433,6 +440,17 @@ const updateStatus = async (id, { status, note = "" }, { actorUserId }) => {
   // Always push the customer on a successful status transition. Best-effort,
   // never bubbled.
   if (updated) {
+    if (status === "DELIVERED" && updated.orderType === "REPLACEMENT") {
+      ReplacementRequest.findOneAndUpdate(
+        { replacementOrder: updated._id, status: "APPROVED" },
+        { $set: { status: "COMPLETED" } }
+      ).catch((err) =>
+        console.warn(
+          "[orderService] ReplacementRequest COMPLETED sync failed:",
+          err?.message || err
+        )
+      );
+    }
     notifyOrderStatusChanged(updated.user, {
       order: updated,
       newStatus: status,
@@ -724,70 +742,6 @@ const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
   return order;
 };
 
-/**
- * Spawn a brand-new order that is a copy of `originalOrder`. Used when an
- * admin approves a REPLACEMENT request — the new order is marked PAID with
- * zero new charge (the original payment is reused) and linked back via the
- * OrderRequest. Requires sufficient stock.
- */
-const createReplacementOrder = async (originalOrder, { note = "" } = {}) => {
-  if (!originalOrder) throw new HttpError("originalOrder is required", 400);
-
-  const session = await mongoose.startSession();
-  let order;
-  try {
-    await session.withTransaction(async () => {
-      const items = originalOrder.items.map((line) => ({
-        product: line.product,
-        title: line.title,
-        imageUrl: line.imageUrl,
-        quantity: line.quantity,
-        price: line.price,
-        lineTotal: line.lineTotal,
-      }));
-
-      const orderNumber = await nextOrderNumber(session);
-      [order] = await Order.create(
-        [
-          {
-            orderNumber,
-            user: originalOrder.user,
-            items,
-            totalAmount: originalOrder.totalAmount,
-            currency: originalOrder.currency,
-            // Replacement reuses the original payment — no new charge in v1.
-            paymentStatus: "PAID",
-            orderStatus: "PROCESSING",
-            paymentMethod: originalOrder.paymentMethod || "PAYSTACK",
-            shippingAddress: originalOrder.shippingAddress,
-            inventoryReserved: true,
-            paystackReference: originalOrder.paystackReference || "",
-            transactionId: originalOrder.transactionId || "",
-            orderStatusHistory: [
-              {
-                status: "PLACED",
-                at: new Date(),
-                note: `Replacement for ${originalOrder.orderNumber}${note ? ` — ${note}` : ""}`,
-              },
-              {
-                status: "PROCESSING",
-                at: new Date(),
-                note: "Auto-advanced (replacement)",
-              },
-            ],
-          },
-        ],
-        { session }
-      );
-
-      await applyStockDeductionForOrder(order, session);
-    });
-  } finally {
-    await session.endSession();
-  }
-  return order;
-};
-
 const cancelMyOrder = async (id, userId) => {
   const session = await mongoose.startSession();
   let order;
@@ -846,11 +800,11 @@ module.exports = {
   confirmDelivery,
   adminCancelOrder,
   attemptPaystackRefund,
-  createReplacementOrder,
   _internal: {
     nextOrderNumber,
     buildOrderPayload,
     normalizeShippingAddress,
     restockOrderItems,
+    applyStockDeductionForOrder,
   },
 };

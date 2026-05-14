@@ -456,6 +456,95 @@ const sendRefundProcessed = async (order) => {
   });
 };
 
+const sendReplacementRequestSubmitted = async (request) => {
+  if (!request) return { delivered: false, reason: "no-request" };
+  const user = await loadRecipientEmail(request.user);
+  const to = user?.email;
+  if (!to) return { delivered: false, reason: "no-recipient-email" };
+  const orderNo = request.order?.orderNumber || "";
+  const subject = `Replacement request ${request.requestNumber} received`;
+  const body = `
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">Hi <strong>${escapeHtml(user.fullName || "there")}</strong>,</p>
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">
+      We received your replacement request <strong>${escapeHtml(request.requestNumber)}</strong>
+      for order <strong>${escapeHtml(orderNo)}</strong>. Our team will review it shortly.
+    </p>`;
+  return safeSend({
+    to,
+    subject,
+    html: cardShell({ accent: "#4f46e5", banner: "Replacement request", title: subject, body }),
+    text: `We received your replacement request ${request.requestNumber} for order ${orderNo}.`,
+  });
+};
+
+const sendReplacementNewRequestAdminAlert = async (request) => {
+  const inbox = adminInbox();
+  if (!inbox) return { delivered: false, reason: "no-admin-inbox" };
+  const orderNo = request.order?.orderNumber || "";
+  const subject = `[${appName()}] New replacement request ${request.requestNumber}`;
+  const body = `
+    <p><strong>Request:</strong> ${escapeHtml(request.requestNumber)}</p>
+    <p><strong>Order:</strong> ${escapeHtml(orderNo)}</p>
+    <p><strong>Reason:</strong></p>
+    <p style="background:#f3f4f6;padding:12px;border-radius:8px;">${escapeHtml(request.reason || "")}</p>
+    <p>Review in admin: <code>/admin/replacements</code></p>`;
+  return safeSend({
+    to: inbox,
+    subject,
+    html: cardShell({ accent: "#b45309", banner: "New replacement request", title: subject, body }),
+    text: `New replacement ${request.requestNumber} for order ${orderNo}.`,
+  });
+};
+
+const sendReplacementApproved = async (request) => {
+  if (!request) return { delivered: false, reason: "no-request" };
+  const user = await loadRecipientEmail(request.user);
+  const to = user?.email;
+  if (!to) return { delivered: false, reason: "no-recipient-email" };
+  const repNo = request.replacementOrder?.orderNumber || "";
+  const subject = repNo
+    ? `Your replacement was approved — ${repNo}`
+    : "Your replacement was approved";
+  const body = `
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">Hi <strong>${escapeHtml(user.fullName || "there")}</strong>,</p>
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">
+      Your replacement request <strong>${escapeHtml(request.requestNumber)}</strong> was approved.
+      A new order <strong>${escapeHtml(repNo)}</strong> has been created — no additional charge.
+      You will receive shipping updates like a normal order.
+    </p>`;
+  return safeSend({
+    to,
+    subject,
+    html: cardShell({ accent: "#059669", banner: "Replacement approved", title: subject, body }),
+    text: `Your replacement was approved. New order ${repNo}. No additional charge.`,
+  });
+};
+
+const sendReplacementRejected = async (request) => {
+  if (!request) return { delivered: false, reason: "no-request" };
+  const user = await loadRecipientEmail(request.user);
+  const to = user?.email;
+  if (!to) return { delivered: false, reason: "no-recipient-email" };
+  const orderNo = request.order?.orderNumber || "";
+  const subject = `Replacement request ${request.requestNumber} was not approved`;
+  const remarks = request.adminRemarks
+    ? `<p style="margin:14px 0;font-size:14px;background:#fef2f2;padding:12px;border-radius:8px;">${escapeHtml(request.adminRemarks)}</p>`
+    : "";
+  const body = `
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">Hi <strong>${escapeHtml(user.fullName || "there")}</strong>,</p>
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">
+      Your replacement request <strong>${escapeHtml(request.requestNumber)}</strong>
+      for order <strong>${escapeHtml(orderNo)}</strong> was not approved.
+    </p>
+    ${remarks}`;
+  return safeSend({
+    to,
+    subject,
+    html: cardShell({ accent: "#dc2626", banner: "Replacement request", title: subject, body }),
+    text: `Your replacement request ${request.requestNumber} for order ${orderNo} was not approved.`,
+  });
+};
+
 module.exports = {
   sendOrderConfirmation,
   sendOrderAdminNotification,
@@ -464,4 +553,8 @@ module.exports = {
   sendRequestStatusUpdate,
   sendOrderCancelledByAdmin,
   sendRefundProcessed,
+  sendReplacementRequestSubmitted,
+  sendReplacementNewRequestAdminAlert,
+  sendReplacementApproved,
+  sendReplacementRejected,
 };

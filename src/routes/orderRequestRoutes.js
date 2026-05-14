@@ -24,7 +24,7 @@ const router = express.Router();
  * @swagger
  * tags:
  *   name: Order Requests
- *   description: Customer-initiated cancel / refund / replacement requests on paid orders
+ *   description: Customer-initiated cancel / refund requests on paid orders (replacements use `/replacements`)
  */
 
 /**
@@ -47,7 +47,7 @@ const router = express.Router();
  *         schema: { type: string, enum: [PENDING, APPROVED, REJECTED, COMPLETED] }
  *       - in: query
  *         name: type
- *         schema: { type: string, enum: [CANCELLATION, REFUND, REPLACEMENT] }
+ *         schema: { type: string, enum: [CANCELLATION, REFUND] }
  *     responses:
  *       200: { description: Requests fetched successfully }
  */
@@ -78,7 +78,7 @@ router.get(
  *         schema: { type: string, enum: [PENDING, APPROVED, REJECTED, COMPLETED] }
  *       - in: query
  *         name: type
- *         schema: { type: string, enum: [CANCELLATION, REFUND, REPLACEMENT] }
+ *         schema: { type: string, enum: [CANCELLATION, REFUND] }
  *       - in: query
  *         name: user
  *         schema: { type: string }
@@ -126,7 +126,7 @@ router.get(
  *     description: |
  *       - **CANCELLATION** → cancels the order (restocks; Paystack refund outcome sets `paymentStatus` to REFUNDED, REFUND_INITIATED, or REFUND_FAILED).
  *       - **REFUND** → same Paystack full refund; `paymentStatus` reflects immediate vs async vs failed outcome.
- *       - **REPLACEMENT** → spawns a new PAID order with the same items and links via `replacementOrder`.
+ *       Product replacements use **PUT /admin/replacements/:id/approve** instead.
  *     tags: [Order Requests]
  *     security:
  *       - bearerAuth: []
@@ -198,11 +198,10 @@ router.post(
  * @swagger
  * /orders/{id}/requests:
  *   post:
- *     summary: Open a CANCELLATION / REFUND / REPLACEMENT request on a paid order
+ *     summary: Open a CANCELLATION or REFUND request on an order
  *     description: |
- *       Implements the BRS "Customer Satisfied? No → apply for refund or replacement"
- *       and the post-paid cancel branch. Cancellation requests on a shipped order are
- *       rejected up-front (BRS "Dispatched: Yes → Cancellation Rejected").
+ *       Post-delivery refunds / cancellations. For **replacement shipments** use
+ *       `POST /replacements/request` (delivered paid orders only).
  *     tags: [Order Requests]
  *     security:
  *       - bearerAuth: []
@@ -221,7 +220,7 @@ router.post(
  *             properties:
  *               type:
  *                 type: string
- *                 enum: [CANCELLATION, REFUND, REPLACEMENT]
+ *                 enum: [CANCELLATION, REFUND]
  *               reason: { type: string, maxLength: 2000 }
  *               attachments:
  *                 type: array
