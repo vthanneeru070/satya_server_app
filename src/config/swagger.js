@@ -119,17 +119,111 @@ const options = {
         PoojaUpdateMultipart: {
           allOf: [{ $ref: "#/components/schemas/PoojaCreateMultipart" }],
         },
-        RitualCreateMultipart: {
+        RitualContent: {
           type: "object",
-          required: ["title", "deity"],
+          required: ["title"],
           properties: {
+            title: { type: "string", example: "Morning sankalpa" },
+            description: { type: "string", example: "Set intention for the day." },
+            imageUrl: {
+              type: "string",
+              format: "uri",
+              description: "Optional illustration URL for this content block",
+            },
+          },
+        },
+        RitualSection: {
+          type: "object",
+          required: ["key", "label"],
+          properties: {
+            key: { type: "string", example: "overview", description: "Stable machine key" },
+            label: { type: "string", example: "Overview", description: "Human-readable heading" },
+            contents: {
+              type: "array",
+              items: { $ref: "#/components/schemas/RitualContent" },
+              default: [],
+            },
+          },
+        },
+        RitualDay: {
+          type: "object",
+          required: ["dayNumber", "title"],
+          properties: {
+            dayNumber: { type: "integer", minimum: 1, example: 1 },
+            title: { type: "string", example: "Day 1 — Invocation" },
+            activities: {
+              type: "array",
+              items: { type: "string" },
+              example: ["Light lamp", "Offer flowers"],
+            },
+            mantra: { type: "string", example: "" },
+            affirmation: { type: "string", example: "" },
+          },
+        },
+        Ritual: {
+          type: "object",
+          description: "Ritual document as returned by GET /rituals and related endpoints",
+          properties: {
+            _id: { type: "string", example: "507f1f77bcf86cd799439011" },
             title: { type: "string" },
-            slug: { type: "string", description: "Optional; generated from title if omitted" },
+            slug: { type: "string" },
             description: { type: "string" },
-            deity: { type: "string", description: "Deity ObjectId" },
+            deity: { oneOf: [{ type: "string" }, { type: "object" }] },
             category: { type: "string" },
             purpose: { type: "string" },
-            recommendedDuration: { type: "string" },
+            ritualDays: { type: "integer", minimum: 1, description: "Programme length in days" },
+            bestDayTime: { type: "string" },
+            startingDay: { type: "string" },
+            difficulty: {
+              type: "string",
+              enum: ["BEGINNER", "INTERMEDIATE", "ADVANCED"],
+            },
+            sections: {
+              type: "array",
+              items: { $ref: "#/components/schemas/RitualSection" },
+            },
+            days: {
+              type: "array",
+              items: { $ref: "#/components/schemas/RitualDay" },
+            },
+            images: { type: "array", items: { type: "string", format: "uri" } },
+            audio: { type: "array", items: { type: "string", format: "uri" } },
+            videos: { type: "array", items: { type: "string", format: "uri" } },
+            accessType: { type: "string", enum: ["FREE", "PAID"] },
+            price: { type: "number" },
+            currency: { type: "string", example: "ZAR" },
+            isFeatured: { type: "boolean" },
+            viewCount: { type: "integer" },
+            purchaseCount: { type: "integer" },
+            status: {
+              type: "string",
+              enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED"],
+            },
+            createdBy: { oneOf: [{ type: "string" }, { type: "object" }] },
+            isDeleted: { type: "boolean" },
+            createdAt: { type: "string", format: "date-time" },
+            updatedAt: { type: "string", format: "date-time" },
+          },
+        },
+        RitualMultipartFields: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            slug: {
+              type: "string",
+              description: "Optional on create; generated from title if omitted",
+            },
+            description: { type: "string" },
+            deity: { type: "string", description: "Deity MongoDB ObjectId (24-char hex)" },
+            category: { type: "string" },
+            purpose: { type: "string" },
+            ritualDays: {
+              type: "integer",
+              minimum: 1,
+              description:
+                "Total days in the ritual programme (required on create). In multipart/form-data you may send a numeric string.",
+              example: 7,
+            },
             bestDayTime: { type: "string" },
             startingDay: { type: "string" },
             difficulty: {
@@ -137,28 +231,58 @@ const options = {
               enum: ["BEGINNER", "INTERMEDIATE", "ADVANCED"],
               default: "BEGINNER",
             },
-            sections: { type: "string", description: "JSON array of section objects" },
-            days: { type: "string", description: "JSON array of day objects" },
-            media: { type: "string", description: "JSON string { images, audio, videos } URL arrays" },
+            sections: {
+              type: "string",
+              description:
+                "JSON array of RitualSection objects (key, label, contents[]). Same shape as `Ritual.sections` in responses.",
+            },
+            days: {
+              type: "string",
+              description:
+                "JSON array of RitualDay objects (dayNumber, title, activities[], mantra, affirmation).",
+            },
+            media: {
+              type: "string",
+              description:
+                'Optional JSON object merging URL lists with uploaded files, e.g. {"images":[],"audio":[],"videos":[]}. Uploaded `image`/`audio`/`video` files are appended server-side.',
+            },
             accessType: {
               type: "string",
               enum: ["FREE", "PAID"],
               default: "FREE",
+              description: "When PAID, price (>0) and currency are required.",
             },
-            price: { type: "number" },
-            currency: { type: "string", example: "ZAR" },
+            price: {
+              type: "number",
+              description: "Required and must be > 0 when accessType is PAID.",
+            },
+            currency: {
+              type: "string",
+              example: "ZAR",
+              description: "Required (non-empty) when accessType is PAID.",
+            },
             isFeatured: { type: "boolean" },
             status: {
               type: "string",
               enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED"],
+              description: "Superadmins may set explicitly on create; others default to PENDING.",
             },
-            image: { type: "string", format: "binary" },
-            audio: { type: "string", format: "binary" },
-            video: { type: "string", format: "binary" },
+            image: { type: "string", format: "binary", description: "Optional; merged into images[]" },
+            audio: { type: "string", format: "binary", description: "Optional; merged into audio[]" },
+            video: { type: "string", format: "binary", description: "Optional; merged into videos[]" },
           },
         },
+        RitualCreateMultipart: {
+          allOf: [
+            { $ref: "#/components/schemas/RitualMultipartFields" },
+            {
+              type: "object",
+              required: ["title", "deity", "ritualDays"],
+            },
+          ],
+        },
         RitualUpdateMultipart: {
-          allOf: [{ $ref: "#/components/schemas/RitualCreateMultipart" }],
+          allOf: [{ $ref: "#/components/schemas/RitualMultipartFields" }],
         },
         PoojaKitItem: {
           type: "object",

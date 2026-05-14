@@ -77,7 +77,7 @@ const createRitual = async (req, res, next) => {
       deity,
       category,
       purpose,
-      recommendedDuration,
+      ritualDays,
       bestDayTime,
       startingDay,
       difficulty,
@@ -110,7 +110,7 @@ const createRitual = async (req, res, next) => {
       deity,
       category: category ?? "",
       purpose: purpose ?? "",
-      recommendedDuration: recommendedDuration ?? "",
+      ritualDays: Number(ritualDays),
       bestDayTime: bestDayTime ?? "",
       startingDay: startingDay ?? "",
       difficulty: difficulty || "BEGINNER",
@@ -289,7 +289,7 @@ const updateRitual = async (req, res, next) => {
       deity,
       category,
       purpose,
-      recommendedDuration,
+      ritualDays,
       bestDayTime,
       startingDay,
       difficulty,
@@ -321,7 +321,7 @@ const updateRitual = async (req, res, next) => {
       deity !== undefined ||
       category !== undefined ||
       purpose !== undefined ||
-      recommendedDuration !== undefined ||
+      ritualDays !== undefined ||
       bestDayTime !== undefined ||
       startingDay !== undefined ||
       difficulty !== undefined ||
@@ -343,7 +343,7 @@ const updateRitual = async (req, res, next) => {
     if (deity !== undefined) ritual.deity = deity;
     if (category !== undefined) ritual.category = category;
     if (purpose !== undefined) ritual.purpose = purpose;
-    if (recommendedDuration !== undefined) ritual.recommendedDuration = recommendedDuration;
+    if (ritualDays !== undefined) ritual.ritualDays = Number(ritualDays);
     if (bestDayTime !== undefined) ritual.bestDayTime = bestDayTime;
     if (startingDay !== undefined) ritual.startingDay = startingDay;
     if (difficulty !== undefined) ritual.difficulty = difficulty;
