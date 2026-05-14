@@ -53,7 +53,16 @@ const updateOrderStatusSchema = Joi.object({
 });
 
 const updatePaymentSchema = Joi.object({
-  paymentStatus: Joi.string().valid("PENDING", "PAID", "FAILED", "REFUNDED").optional(),
+  paymentStatus: Joi.string()
+    .valid(
+      "PENDING",
+      "PAID",
+      "FAILED",
+      "REFUNDED",
+      "REFUND_INITIATED",
+      "REFUND_FAILED"
+    )
+    .optional(),
   paymentMethod: Joi.string().valid("COD", "EFT", "PAYSTACK").optional(),
 }).min(1);
 
@@ -66,7 +75,16 @@ const listOrdersQuerySchema = Joi.object({
   status: Joi.string()
     .valid("PLACED", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED")
     .optional(),
-  paymentStatus: Joi.string().valid("PENDING", "PAID", "FAILED", "REFUNDED").optional(),
+  paymentStatus: Joi.string()
+    .valid(
+      "PENDING",
+      "PAID",
+      "FAILED",
+      "REFUNDED",
+      "REFUND_INITIATED",
+      "REFUND_FAILED"
+    )
+    .optional(),
 });
 
 const adminListOrdersQuerySchema = listOrdersQuerySchema.append({

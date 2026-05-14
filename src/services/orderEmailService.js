@@ -309,7 +309,7 @@ const sendRequestStatusUpdate = async (orderRequest, { order, replacementOrder }
 /**
  * Email to the buyer when an admin cancels the order (BRS: "Cancellation
  * Process" — admin-mediated). `refunded` is true when the cancellation
- * automatically flipped a PAID order to REFUNDED.
+ * automatically flipped `paymentStatus` to `REFUNDED` (immediate Paystack success).
  */
 const sendOrderCancelledByAdmin = async (
   order,

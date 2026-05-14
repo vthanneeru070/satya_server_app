@@ -124,8 +124,8 @@ router.get(
  *   post:
  *     summary: Approve an order request (admin)
  *     description: |
- *       - **CANCELLATION** → cancels the order (restocks; flips PAID → REFUNDED).
- *       - **REFUND** → marks `paymentStatus: REFUNDED` (actual settlement happens via Paystack dashboard in v1).
+ *       - **CANCELLATION** → cancels the order (restocks; Paystack refund outcome sets `paymentStatus` to REFUNDED, REFUND_INITIATED, or REFUND_FAILED).
+ *       - **REFUND** → same Paystack full refund; `paymentStatus` reflects immediate vs async vs failed outcome.
  *       - **REPLACEMENT** → spawns a new PAID order with the same items and links via `replacementOrder`.
  *     tags: [Order Requests]
  *     security:

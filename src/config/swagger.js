@@ -542,7 +542,14 @@ const options = {
             currency: { type: "string", example: "ZAR" },
             paymentStatus: {
               type: "string",
-              enum: ["PENDING", "PAID", "FAILED", "REFUNDED"],
+              enum: [
+                "PENDING",
+                "PAID",
+                "FAILED",
+                "REFUNDED",
+                "REFUND_INITIATED",
+                "REFUND_FAILED",
+              ],
             },
             paymentMethod: {
               type: "string",

@@ -12,7 +12,7 @@ const nextRequestNumber = async (session) => {
   const doc = await Counter.findOneAndUpdate(
     { _id: "requestSequence" },
     [{ $set: { seq: { $add: [{ $ifNull: ["$seq", 10000] }, 1] } } }],
-    { new: true, upsert: true, session, updatePipeline: true }
+    { returnDocument: "after", upsert: true, session, updatePipeline: true }
   );
   return `${REQUEST_PREFIX}-${doc.seq}`;
 };
@@ -60,7 +60,25 @@ const assertCanCreate = (order, type) => {
   }
 
   if (type === "REFUND" || type === "REPLACEMENT") {
-    if (order.paymentStatus !== "PAID" && order.paymentStatus !== "REFUNDED") {
+    if (order.paymentStatus === "REFUNDED") {
+      throw new HttpError(
+        "This order has already been refunded; no further refund/replacement can be requested.",
+        400
+      );
+    }
+    if (order.paymentStatus === "REFUND_INITIATED") {
+      throw new HttpError(
+        "A refund is already in progress for this order; you cannot open another refund or replacement request yet.",
+        400
+      );
+    }
+    if (order.paymentStatus === "REFUND_FAILED") {
+      throw new HttpError(
+        "This order’s refund could not be completed automatically. Please contact support — our team will resolve it manually.",
+        400
+      );
+    }
+    if (order.paymentStatus !== "PAID") {
       throw new HttpError(
         `${type.toLowerCase()} requests are only available for paid orders.`,
         400
@@ -69,12 +87,6 @@ const assertCanCreate = (order, type) => {
     if (!["DELIVERED", "FULFILLED"].includes(order.orderStatus)) {
       throw new HttpError(
         `${type.toLowerCase()} requests can only be opened after the order is delivered (current status: ${order.orderStatus}).`,
-        400
-      );
-    }
-    if (order.paymentStatus === "REFUNDED") {
-      throw new HttpError(
-        "This order has already been refunded; no further refund/replacement can be requested.",
         400
       );
     }
@@ -242,30 +254,43 @@ const approveRequest = async (
     );
     finalStatus = "COMPLETED";
   } else if (request.type === "REFUND") {
+    if (order.paymentStatus === "REFUND_INITIATED") {
+      throw new HttpError("A refund is already in progress for this order.", 400);
+    }
     if (order.paymentStatus === "REFUNDED") {
       throw new HttpError("Order is already refunded.", 400);
     }
+    if (order.paymentStatus !== "PAID" && order.paymentStatus !== "REFUND_FAILED") {
+      throw new HttpError(
+        `Refund approval is not valid for payment status ${order.paymentStatus}.`,
+        400
+      );
+    }
 
-    // Try a full-amount Paystack refund. On failure we still keep the order
-    // record sane: order stays as-is, paymentStatus stays PAID, refund.lastError
-    // is set so admin can retry or settle manually in the Paystack dashboard.
+    // Try a full-amount Paystack refund. On failure: paymentStatus → REFUND_FAILED.
+    // On async accept: REFUND_INITIATED until Paystack webhook completes → REFUNDED.
     const refundOutcome = await orderService.attemptPaystackRefund(order, {
       reason: `Approved refund request ${request.requestNumber}`,
     });
 
     if (refundOutcome.outcome === "REFUNDED") {
       order.paymentStatus = "REFUNDED";
+    } else if (refundOutcome.outcome === "PENDING") {
+      order.paymentStatus = "REFUND_INITIATED";
+    } else {
+      order.paymentStatus = "REFUND_FAILED";
     }
     order.orderStatusHistory = order.orderStatusHistory || [];
+    const refundNoteBase =
+      refundOutcome.outcome === "REFUNDED"
+        ? `Refund processed (request ${request.requestNumber}, paystack ${order.refund?.paystackRefundId || "no-id"})`
+        : refundOutcome.outcome === "PENDING"
+          ? `Refund initiated, awaiting Paystack confirmation (request ${request.requestNumber})`
+          : `Refund FAILED via Paystack: ${refundOutcome.error} — settle manually`;
     order.orderStatusHistory.push({
       status: order.orderStatus,
       at: new Date(),
-      note:
-        refundOutcome.outcome === "REFUNDED"
-          ? `Refund processed (request ${request.requestNumber}, paystack ${order.refund?.paystackRefundId || "no-id"})`
-          : refundOutcome.outcome === "PENDING"
-            ? `Refund initiated, awaiting Paystack confirmation (request ${request.requestNumber})`
-            : `Refund FAILED via Paystack: ${refundOutcome.error} — settle manually`,
+      note: `${refundNoteBase} | paymentStatus: ${order.paymentStatus} | refund.status: ${order.refund?.status || "NONE"}`,
     });
     await order.save();
     finalStatus = "APPROVED";

@@ -57,6 +57,12 @@ const initializePayment = async (orderId, { userId, isAdmin = false, callbackUrl
   if (order.paymentStatus === "PAID") {
     throw new HttpError("Order is already paid", 400);
   }
+  if (["REFUNDED", "REFUND_INITIATED", "REFUND_FAILED"].includes(order.paymentStatus)) {
+    throw new HttpError(
+      "This order cannot accept a new payment (refund in progress or completed).",
+      400
+    );
+  }
   if (["DELIVERED", "CANCELLED"].includes(order.orderStatus)) {
     throw new HttpError(`Order is ${order.orderStatus} and cannot be paid for.`, 400);
   }
@@ -299,6 +305,20 @@ const settleOrderInTransaction = async ({
     return { order, payment, status: "success", alreadyPaid: true, shouldNotify: false };
   }
 
+  if (["REFUNDED", "REFUND_INITIATED", "REFUND_FAILED"].includes(order.paymentStatus)) {
+    if (paystackStatus === "success") {
+      if (payment.status !== "SUCCESS") {
+        payment.status = "SUCCESS";
+        payment.paymentId =
+          paystackData.id != null ? String(paystackData.id) : payment.paymentId;
+        payment.transactionId =
+          paystackData.id != null ? String(paystackData.id) : payment.transactionId;
+        payment.response = { ...(payment.response || {}), verify: paystackData };
+        await payment.save({ session });
+      }
+    }
+    return { order, payment, status: "success", alreadyPaid: true, shouldNotify: false };
+  }
   if (paystackStatus === "success") {
     const expected = paystackService.toSubunit(order.totalAmount, order.currency);
     if (Number(paystackData.amount) !== expected) {
@@ -345,7 +365,7 @@ const settleOrderInTransaction = async ({
     payment.response = { ...(payment.response || {}), verify: paystackData };
     await payment.save({ session });
 
-    if (order.paymentStatus !== "PAID") {
+    if (order.paymentStatus === "PENDING" || order.paymentStatus === "FAILED") {
       order.paymentStatus = "FAILED";
       appendOrderHistory(order, order.orderStatus, `Paystack payment ${paystackStatus}`);
       await order.save({ session });
@@ -651,13 +671,13 @@ const handleRefundWebhook = async (event) => {
     order.refund.paystackRefundId = refundId;
     if (!order.refund.processedAt) order.refund.processedAt = new Date();
     order.refund.lastError = "";
-    if (order.paymentStatus === "PAID") {
+    if (["PAID", "REFUND_INITIATED", "REFUND_FAILED"].includes(order.paymentStatus)) {
       order.paymentStatus = "REFUNDED";
     }
     appendOrderHistory(
       order,
       order.orderStatus,
-      `Paystack refund processed (${refundId})`
+      `Paystack refund processed (${refundId}) | paymentStatus: ${order.paymentStatus} | refund.status: ${order.refund.status}`
     );
     await order.save();
 
@@ -695,10 +715,13 @@ const handleRefundWebhook = async (event) => {
     order.refund.lastError = String(
       data.reason || data.message || "Paystack reported refund.failed"
     ).slice(0, 500);
+    if (order.paymentStatus === "REFUND_INITIATED" || order.paymentStatus === "PAID") {
+      order.paymentStatus = "REFUND_FAILED";
+    }
     appendOrderHistory(
       order,
       order.orderStatus,
-      `Paystack refund FAILED (${refundId}): ${order.refund.lastError}`
+      `Paystack refund FAILED (${refundId}): ${order.refund.lastError} | paymentStatus: ${order.paymentStatus} | refund.status: ${order.refund.status}`
     );
     await order.save();
     return { processed: true, status: "refund-failed", orderId: order._id };

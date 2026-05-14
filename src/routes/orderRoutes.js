@@ -122,7 +122,7 @@ router.post("/", authenticate, validate(createOrderSchema), createOrder);
  *         name: paymentStatus
  *         schema:
  *           type: string
- *           enum: [PENDING, PAID, FAILED, REFUNDED]
+ *           enum: [PENDING, PAID, FAILED, REFUNDED, REFUND_INITIATED, REFUND_FAILED]
  *     responses:
  *       200: { description: Orders fetched successfully }
  */
@@ -162,7 +162,7 @@ router.get(
  *         name: paymentStatus
  *         schema:
  *           type: string
- *           enum: [PENDING, PAID, FAILED, REFUNDED]
+ *           enum: [PENDING, PAID, FAILED, REFUNDED, REFUND_INITIATED, REFUND_FAILED]
  *       - in: query
  *         name: user
  *         schema: { type: string, description: User ObjectId }
@@ -301,7 +301,7 @@ router.patch(
  *             properties:
  *               paymentStatus:
  *                 type: string
- *                 enum: [PENDING, PAID, FAILED, REFUNDED]
+ *                 enum: [PENDING, PAID, FAILED, REFUNDED, REFUND_INITIATED, REFUND_FAILED]
  *               paymentMethod:
  *                 type: string
  *                 enum: [COD, EFT, PAYSTACK]
@@ -556,7 +556,8 @@ router.post(
  *     summary: Admin terminal cancel of a paid (or unshipped) order
  *     description: |
  *       Used when admin approves a CANCELLATION request out-of-band. Restocks
- *       items if inventory was deducted; flips `paymentStatus: PAID → REFUNDED`.
+ *       items if inventory was deducted; triggers a full Paystack refund and sets
+ *       `paymentStatus` to `REFUNDED`, `REFUND_INITIATED`, or `REFUND_FAILED` depending on Paystack’s response.
  *       Disallowed once the order is SHIPPED or beyond.
  *     tags: [Orders]
  *     security:

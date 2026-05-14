@@ -348,6 +348,10 @@ const appendHistory = (order, status, note, actorUserId) => {
   });
 };
 
+/** Appended to history notes when a refund / payment-refund state is set. */
+const refundStateHistorySuffix = (order) =>
+  `paymentStatus: ${order.paymentStatus ?? "?"} | refund.status: ${order.refund?.status ?? "NONE"}`;
+
 const updateStatus = async (id, { status, note = "" }, { actorUserId }) => {
   const session = await mongoose.startSession();
   let updated;
@@ -549,10 +553,10 @@ const confirmDelivery = async (id, userId, { satisfied, feedback = "" } = {}) =>
 /**
  * Admin terminal cancellation — used by the request-approval flow as well as
  * by direct admin action. Allowed from any non-shipped, non-cancelled state.
- * Restocks items if inventory was deducted; marks payment REFUNDED if PAID.
+ * Restocks items if inventory was deducted; sets paymentStatus from Paystack outcome.
  */
 /**
- * Attempt a full-amount Paystack refund for a PAID order. Pure side-effect on
+ * Attempt a full-amount Paystack refund for a paid order. Pure side-effect on
  * the in-memory `order.refund` sub-doc — caller is responsible for `.save()`.
  *
  * Returns:
@@ -656,9 +660,10 @@ const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
           order.paymentStatus = "REFUNDED";
           didRefund = true;
         } else if (refundOutcome.outcome === "PENDING") {
-          // Keep paymentStatus PAID until webhook confirms (or admin can flip via /payment).
+          order.paymentStatus = "REFUND_INITIATED";
           refundPending = true;
         } else {
+          order.paymentStatus = "REFUND_FAILED";
           refundFailed = true;
           refundError = refundOutcome.error;
         }
@@ -673,7 +678,11 @@ const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
             ? `${baseNote} | Paystack refund initiated, awaiting confirmation (${order.refund.paystackRefundId || "no-id"})`
             : `${baseNote} | Paystack refund FAILED: ${refundError || "unknown"} — settle manually`
         : baseNote;
-      appendHistory(order, "CANCELLED", noteWithRefund, actorUserId);
+      const noteWithRefundAndState =
+        wasPaid && refundOutcome
+          ? `${noteWithRefund} | ${refundStateHistorySuffix(order)}`
+          : noteWithRefund;
+      appendHistory(order, "CANCELLED", noteWithRefundAndState, actorUserId);
       await order.save({ session });
     });
   } finally {

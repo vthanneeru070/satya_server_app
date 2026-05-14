@@ -45,7 +45,14 @@ const orderSchema = new mongoose.Schema(
 
     paymentStatus: {
       type: String,
-      enum: ["PENDING", "PAID", "FAILED", "REFUNDED"],
+      enum: [
+        "PENDING",
+        "PAID",
+        "FAILED",
+        "REFUNDED",
+        "REFUND_INITIATED",
+        "REFUND_FAILED",
+      ],
       default: "PENDING",
       index: true,
     },
@@ -99,7 +106,7 @@ const orderSchema = new mongoose.Schema(
     },
 
     /**
-     * Refund tracking for PAID orders.
+     * Refund tracking for paid / refund-in-progress orders.
      *   status:
      *     NONE       — never attempted
      *     PENDING    — Paystack /refund returned `processing` (waiting for webhook)
