@@ -66,10 +66,10 @@ router.post("/create-sloka", authenticate, authorizeRoles("admin"), validate(cre
  *     summary: Bulk import daily slokas from xlsx or docx table
  *     description: |
  *       Requires super admin role.
- *       Accepts .xlsx or .docx file with headers:
- *       Date/date, sloka/Shloka, author/source (Author/Source supported),
- *       and optional meaning/explanation.
- *       Date format can be dd-mm-yyyy or yyyy-mm-dd.
+ *       Accepts .xlsx or .docx file with headers (case-insensitive):
+ *       Date, sloka/Shloka/Verse, Verse Reference (→ author), and optional
+ *       Meaning, Contemplation, Prayer.
+ *       Date format: dd-mm-yyyy, yyyy-mm-dd, or Excel date cells.
  *       Existing sloka with same date is updated.
  *     tags: [Daily Sloka]
  *     security:

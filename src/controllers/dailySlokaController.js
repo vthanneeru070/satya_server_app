@@ -49,17 +49,47 @@ const normalizeHeader = (value) =>
   String(value || "")
     .trim()
     .toLowerCase()
-    .replace(/[^a-z]/g, "");
+    .replace(/[^a-z0-9]/g, "");
+
+const stringifyImportCell = (value) => {
+  if (value === undefined || value === null) return "";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, "0");
+    const d = String(value.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const parsed = xlsx.SSF.parse_date_code(value);
+    if (parsed?.y) {
+      return `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
+    }
+  }
+  return String(value).trim();
+};
 
 const getCellValue = (row, keys) => {
-  const mappedEntries = Object.entries(row || {}).map(([key, value]) => [normalizeHeader(key), value]);
-  for (const key of keys) {
+  const wanted = keys.map(normalizeHeader).filter(Boolean);
+  const mappedEntries = Object.entries(row || {}).map(([key, value]) => [
+    normalizeHeader(key),
+    value,
+  ]);
+  for (const key of wanted) {
     const found = mappedEntries.find(([normalizedKey]) => normalizedKey === key);
     if (found) {
-      return String(found[1] ?? "").trim();
+      const text = stringifyImportCell(found[1]);
+      if (text) return text;
     }
   }
   return "";
+};
+
+const parseImportDateParts = (raw) => {
+  const asString = stringifyImportCell(raw);
+  if (asString) {
+    return toDateParts(asString);
+  }
+  throw new HttpError("date must be in dd-mm-yyyy or yyyy-mm-dd format", 400);
 };
 
 const parseXlsxRows = (fileBuffer) => {
@@ -147,12 +177,25 @@ const bulkImportDailySlokas = async (req, res, next) => {
 
     rows.forEach((row, index) => {
       const rowNumber = index + 2;
-      const dateRaw = getCellValue(row, ["date", "datekey","Date"]);
-      const sloka = getCellValue(row, ["sloka", "shloka","Shloka","Sloka"]);
-      const author = getCellValue(row, ["author", "source","Author/Source","Author","Source"]);
-      const meaning = getCellValue(row, ["meaning", "explanation","Meaning"]);
-      const contemplation = getCellValue(row, ["contemplation","Contemplation"])
-      const prayer = getCellValue(row, ["prayer","Prayer","Resolve","Prayer/Resolve"])
+      const dateRaw = getCellValue(row, ["date", "datekey", "day"]);
+      const sloka = getCellValue(row, [
+        "sloka",
+        "shloka",
+        "verse",
+        "versetext",
+        "text",
+        "content",
+      ]);
+      const author = getCellValue(row, [
+        "author",
+        "source",
+        "versereference",
+        "reference",
+        "citation",
+      ]);
+      const meaning = getCellValue(row, ["meaning", "explanation", "translation"]);
+      const contemplation = getCellValue(row, ["contemplation", "reflection"]);
+      const prayer = getCellValue(row, ["prayer", "resolve", "prayerresolve"]);
 
       if (!dateRaw) {
         invalidRows.push({ row: rowNumber, reason: "date is required" });
@@ -160,12 +203,16 @@ const bulkImportDailySlokas = async (req, res, next) => {
       }
 
       if (!sloka) {
-        invalidRows.push({ row: rowNumber, reason: "sloka is required" });
+        invalidRows.push({
+          row: rowNumber,
+          reason:
+            "sloka/verse is required (column: sloka, Shloka, Verse, or verse text)",
+        });
         return;
       }
 
       try {
-        const parts = toDateParts(dateRaw);
+        const parts = parseImportDateParts(dateRaw);
         const dateKey = toDateKey(parts);
         const normalizedDate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
 
@@ -189,7 +236,14 @@ const bulkImportDailySlokas = async (req, res, next) => {
 
     const validEntries = Array.from(latestByDateKey.values());
     if (!validEntries.length) {
-      throw new HttpError("No valid rows found in import file", 400);
+      const sample = invalidRows.slice(0, 5);
+      const headerHint = Object.keys(rows[0] || {}).join(", ") || "(no headers detected)";
+      throw new HttpError(
+        `No valid rows found in import file. Expected columns like Date and Verse/sloka. ` +
+          `Found headers: ${headerHint}.` +
+          (sample.length ? ` Sample errors: ${JSON.stringify(sample)}` : ""),
+        400
+      );
     }
 
     const operations = validEntries.map((entry) => ({
