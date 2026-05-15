@@ -556,8 +556,9 @@ router.post(
  *     summary: Admin terminal cancel of a paid (or unshipped) order
  *     description: |
  *       Used when admin approves a CANCELLATION request out-of-band. Restocks
- *       items if inventory was deducted; triggers a full Paystack refund and sets
- *       `paymentStatus` to `REFUNDED`, `REFUND_INITIATED`, or `REFUND_FAILED` depending on Paystack’s response.
+ *       items if inventory was deducted. For **NORMAL** paid orders, triggers a full
+ *       Paystack refund. **REPLACEMENT** orders are cancelled without refund (they
+ *       reuse the original charge; refund the original order only if needed).
  *       Disallowed once the order is SHIPPED or beyond.
  *     tags: [Orders]
  *     security:

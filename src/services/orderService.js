@@ -643,6 +643,44 @@ const attemptPaystackRefund = async (order, { reason = "" } = {}) => {
   }
 };
 
+/**
+ * Replacement shipments reuse the original Paystack charge (`paymentStatus: PAID`
+ * with no new payment). Cancelling them must not call Paystack refund.
+ */
+const syncReplacementOrderCancelled = async (replacementOrder, { reason = "" } = {}) => {
+  if (!replacementOrder || replacementOrder.orderType !== "REPLACEMENT") return;
+
+  const cancellationReason = reason ? String(reason).trim().slice(0, 2000) : "";
+
+  await ReplacementRequest.findOneAndUpdate(
+    { replacementOrder: replacementOrder._id },
+    {
+      $set: {
+        status: "CANCELLED",
+        cancellationReason,
+        completedAt: new Date(),
+      },
+    }
+  ).catch((err) =>
+    console.warn(
+      "[orderService] ReplacementRequest CANCELLED sync failed:",
+      err?.message || err
+    )
+  );
+
+  if (replacementOrder.replacementFor) {
+    await Order.updateOne(
+      { _id: replacementOrder.replacementFor, isDeleted: { $ne: true } },
+      { $set: { replacementState: "NONE", latestReplacementOrder: null } }
+    ).catch((err) =>
+      console.warn(
+        "[orderService] original order replacementState (cancel) update failed:",
+        err?.message || err
+      )
+    );
+  }
+};
+
 const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
   // 1) Quick guard — make sure the order is cancellable before any side-effect.
   const preCheck = await Order.findOne({ _id: id, isDeleted: { $ne: true } }).lean();
@@ -654,9 +692,12 @@ const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
     );
   }
 
+  const isReplacementShipment = preCheck.orderType === "REPLACEMENT";
+
   // 2) If the order was PAID, try Paystack refund FIRST (outside any DB txn —
   //    network calls don't belong inside Mongo transactions).
-  const wasPaid = preCheck.paymentStatus === "PAID";
+  // Replacement orders are marked PAID but share the original charge — never refund here.
+  const wasPaid = preCheck.paymentStatus === "PAID" && !isReplacementShipment;
   let refundOutcome = null;
   if (wasPaid) {
     const tmp = { paystackReference: preCheck.paystackReference, totalAmount: preCheck.totalAmount, currency: preCheck.currency, refund: preCheck.refund || {} };
@@ -706,13 +747,16 @@ const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
 
       order.orderStatus = "CANCELLED";
       const baseNote = reason || "Cancelled by admin";
+      const replacementNote = isReplacementShipment
+        ? `${baseNote} | Replacement shipment cancelled — no Paystack refund (no separate charge)`
+        : baseNote;
       const noteWithRefund = wasPaid
         ? refundOutcome.outcome === "REFUNDED"
-          ? `${baseNote} | Paystack refund processed (${order.refund.paystackRefundId || "no-id"})`
+          ? `${replacementNote} | Paystack refund processed (${order.refund.paystackRefundId || "no-id"})`
           : refundOutcome.outcome === "PENDING"
-            ? `${baseNote} | Paystack refund initiated, awaiting confirmation (${order.refund.paystackRefundId || "no-id"})`
-            : `${baseNote} | Paystack refund FAILED: ${refundError || "unknown"} — settle manually`
-        : baseNote;
+            ? `${replacementNote} | Paystack refund initiated, awaiting confirmation (${order.refund.paystackRefundId || "no-id"})`
+            : `${replacementNote} | Paystack refund FAILED: ${refundError || "unknown"} — settle manually`
+        : replacementNote;
       const noteWithRefundAndState =
         wasPaid && refundOutcome
           ? `${noteWithRefund} | ${refundStateHistorySuffix(order)}`
@@ -726,6 +770,10 @@ const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
 
   // 4) Post-commit best-effort fan-out: cancellation email + FCM push.
   if (order) {
+    if (order.orderType === "REPLACEMENT") {
+      syncReplacementOrderCancelled(order, { reason }).catch(() => {});
+    }
+
     orderEmailService
       .sendOrderCancelledByAdmin(order, {
         reason,
