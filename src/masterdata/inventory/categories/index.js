@@ -8,7 +8,11 @@ module.exports = {
   model,
   service,
   validation,
-  // Friendly aliases for callers
+  // Primary aliases (used by controllers / services)
+  list: service.list,
+  seed: service.seed,
+  assertValid: service.assertValid,
+  // Legacy / explicit names
   listCategories: service.list,
   seedCategories: service.seed,
   assertCategoryValid: service.assertValid,
