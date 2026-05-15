@@ -1,0 +1,405 @@
+# Flutter Admin — Pooja Kit (Product) API Flow
+
+Base URL: `{HOST}/api/v1`  
+Auth: `Authorization: Bearer <accessToken>` from `POST /auth/admin-login` (use API JWT, not Firebase ID token on product calls).
+
+**Prerequisite:** Create warehouse rows first — see [Flutter-admin-inventory-flow.plan](Flutter-admin-inventory-flow.plan) for `GET/POST /inventory`, categories, stock fields (`stockQuantity`, `itemQuantity`, `unit`), and inventory unit pricing (`price`, `salePrice`, `currency`). Kit lines reference those inventory ids.
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+  Inv[InventoryItem stock units]
+  Prod[Product pooja kit]
+  Order[Order checkout]
+  Inv -->|"items[].inventoryItem + quantity"| Prod
+  Prod -->|"computed stockQuantity"| Prod
+  Order -->|"deducts InventoryItem.stockQuantity"| Inv
+```
+
+| Field | Layer | Meaning |
+|-------|--------|---------|
+| `items[].inventoryItem` | Product | 24-char `InventoryItem` ObjectId |
+| `items[].quantity` | Product | **Stock units per kit** (e.g. 2 packs), not grams |
+| `price` / `salePrice` / `currency` | Product | **Kit selling price** (customer-facing) |
+| `stockQuantity` | Product (API only) | **Computed** max kits buildable from inventory — do not send on create/update |
+| `effectivePrice` | Product (virtual) | `salePrice` if set and > 0, else `price` |
+| `status` | Product | Review workflow: `DRAFT`, `PENDING`, `APPROVED`, `REJECTED`, `QUEUED` |
+| `productStatus` | Product | Publish toggle: `ACTIVE`, `INACTIVE` |
+
+Public catalog only shows `status=APPROVED`, `productStatus=ACTIVE`, and not soft-deleted.
+
+Stock math (read-only on product): for each kit line, `floor(inventory.stockQuantity / line.quantity)`; product `stockQuantity` = minimum across lines. See `inventoryService.computeAvailableKits` in the backend.
+
+---
+
+## Response envelope
+
+Success:
+
+```json
+{
+  "success": true,
+  "data": { ... },
+  "message": "..."
+}
+```
+
+Error: `{ "success": false, "message": "..." }`
+
+---
+
+## Admin product endpoints
+
+| Method | Path | Auth | Content-Type | Purpose |
+|--------|------|------|--------------|---------|
+| GET | `/products/my` | admin | — | Products created by logged-in admin |
+| GET | `/products/all` | admin | — | Full catalog (any review status) |
+| GET | `/products` | optional JWT | — | List/search; admin query flags when JWT present |
+| GET | `/products/:id` | optional JWT | — | Detail; admin sees non-public rows |
+| POST | `/products/create-product` | admin | `multipart/form-data` | Create kit |
+| PATCH | `/products/:id` | admin | `multipart/form-data` | Update kit |
+| DELETE | `/products/:id` | admin | — | Soft-delete (`?hard=true` permanent) |
+| PATCH | `/products/:id/restore` | admin | — | Undo soft-delete |
+| PATCH | `/products/:id/status` | admin | `application/json` | Set `productStatus` ACTIVE/INACTIVE |
+| PATCH | `/products/:id/featured` | admin | `application/json` | Set `isFeatured` |
+| PUT | `/products/review/:id` | **superadmin** | `application/json` | Approve/reject review |
+
+Public (store app, no admin write): `GET /products/featured`, `GET /products/popular`, `GET /products`, `GET /products/:id`.
+
+---
+
+## Create product
+
+`POST /api/v1/products/create-product`
+
+### Multipart fields
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `title` | yes | 2–200 chars |
+| `items` | yes | JSON **string** array (see below) |
+| `price` | yes | Kit list price, ≥ 0 |
+| `currency` | yes | e.g. `ZAR` |
+| `salePrice` | no | Must be ≤ `price` |
+| `slug` | no | Auto from title if omitted |
+| `description` | no | Max 5000 chars |
+| `deity` | no | Deity ObjectId (24 hex) |
+| `category` | no | Free-text merchandising category |
+| `status` | no | `DRAFT` or `PENDING` only (default `PENDING`) |
+| `productStatus` | no | `ACTIVE` or `INACTIVE` |
+| `isFeatured` | no | `true` / `false` |
+| `image` | no | File field name: `image` |
+
+### `items` JSON shape
+
+```json
+[
+  { "inventoryItem": "674a1b2c3d4e5f6789012345", "quantity": 1 },
+  { "inventoryItem": "674a1b2c3d4e5f6789012346", "quantity": 2 }
+]
+```
+
+- `inventoryItem`: id from `GET /inventory` or inventory create response.
+- `quantity`: positive number — stock **units** consumed per kit (not `itemQuantity` grams).
+- Each row must exist, `status=ACTIVE`, not deleted.
+
+### curl (bash)
+
+```bash
+curl -X POST "${BASE_URL}/api/v1/products/create-product" \
+  -H "Authorization: Bearer ${ADMIN_JWT}" \
+  -F 'title=Ganesh Pooja Kit' \
+  -F 'slug=ganesh-pooja-kit' \
+  -F 'description=Complete kit for Ganesh Pooja' \
+  -F 'items=[{"inventoryItem":"INVENTORY_ID_1","quantity":1},{"inventoryItem":"INVENTORY_ID_2","quantity":2}]' \
+  -F 'price=999' \
+  -F 'salePrice=799' \
+  -F 'currency=ZAR' \
+  -F 'category=Ganesh' \
+  -F 'status=PENDING' \
+  -F 'productStatus=ACTIVE' \
+  -F 'isFeatured=false' \
+  -F 'image=@/path/to/kit.jpg'
+```
+
+### curl (PowerShell)
+
+Escape quotes inside `items`:
+
+```powershell
+curl.exe -X POST "$env:BASE_URL/api/v1/products/create-product" `
+  -H "Authorization: Bearer $env:ADMIN_JWT" `
+  -F "title=Ganesh Pooja Kit" `
+  -F "items=[{\`"inventoryItem\`":\`"INVENTORY_ID_1\`",\`"quantity\`":1}]" `
+  -F "price=999" `
+  -F "currency=ZAR" `
+  -F "status=DRAFT"
+```
+
+### 201 response (`data.product`)
+
+Includes populated `items.inventoryItem` (full inventory row), computed `stockQuantity`, `effectivePrice`, `status`, `productStatus`, `imageUrl`, timestamps.
+
+---
+
+## Update product
+
+`PATCH /api/v1/products/{id}`
+
+Same multipart fields as create; **at least one** field required. Partial updates supported.
+
+- Admin may set `status` only to `DRAFT` or `PENDING` (not `APPROVED` — use superadmin review).
+- Clear `salePrice`: send empty or null on update (Joi allows null).
+
+### curl
+
+```bash
+curl -X PATCH "${BASE_URL}/api/v1/products/${PRODUCT_ID}" \
+  -H "Authorization: Bearer ${ADMIN_JWT}" \
+  -F 'title=Ganesh Pooja Kit (Updated)' \
+  -F 'price=1099' \
+  -F 'salePrice=899' \
+  -F 'currency=ZAR' \
+  -F 'items=[{"inventoryItem":"INVENTORY_ID_1","quantity":2}]' \
+  -F 'productStatus=ACTIVE' \
+  -F 'status=DRAFT' \
+  -F 'image=@/path/to/new-kit.jpg'
+```
+
+---
+
+## List / get (admin)
+
+### My products
+
+```bash
+curl -G "${BASE_URL}/api/v1/products/my" \
+  -H "Authorization: Bearer ${ADMIN_JWT}" \
+  --data-urlencode "page=1" \
+  --data-urlencode "limit=20" \
+  --data-urlencode "status=PENDING" \
+  --data-urlencode "productStatus=ACTIVE" \
+  --data-urlencode "search=ganesh"
+```
+
+Query params: `page`, `limit` (max 100), `status`, `productStatus`, `search`.
+
+### All products (admin catalog)
+
+```bash
+curl -G "${BASE_URL}/api/v1/products/all" \
+  -H "Authorization: Bearer ${ADMIN_JWT}" \
+  --data-urlencode "page=1" \
+  --data-urlencode "limit=20" \
+  --data-urlencode "status=APPROVED" \
+  --data-urlencode "includeDeleted=false"
+```
+
+### List with admin filters (optional JWT on public URL)
+
+`GET /api/v1/products` with same admin query params when Bearer token is sent: `status`, `productStatus`, `isFeatured`, `inStock`, `minPrice`, `maxPrice`, `sortBy` (`createdAt`|`price`|`title`|`purchaseCount`), `sortOrder` (`asc`|`desc`), `includeDeleted`, `deity`, `category`, `search`.
+
+### Get by id
+
+```bash
+curl "${BASE_URL}/api/v1/products/${PRODUCT_ID}" \
+  -H "Authorization: Bearer ${ADMIN_JWT}"
+```
+
+Response: `items[].inventoryItem` populated; top-level `stockQuantity` = kits buildable.
+
+---
+
+## Delete / restore
+
+**Soft delete** (sets inactive, keeps review status):
+
+```bash
+curl -X DELETE "${BASE_URL}/api/v1/products/${PRODUCT_ID}" \
+  -H "Authorization: Bearer ${ADMIN_JWT}"
+```
+
+**Hard delete** (removes document and S3 image):
+
+```bash
+curl -X DELETE "${BASE_URL}/api/v1/products/${PRODUCT_ID}?hard=true" \
+  -H "Authorization: Bearer ${ADMIN_JWT}"
+```
+
+**Restore**
+
+```bash
+curl -X PATCH "${BASE_URL}/api/v1/products/${PRODUCT_ID}/restore" \
+  -H "Authorization: Bearer ${ADMIN_JWT}"
+```
+
+---
+
+## Publish and featured (JSON)
+
+**Publish toggle** (`productStatus` only; does not change review `status`):
+
+```bash
+curl -X PATCH "${BASE_URL}/api/v1/products/${PRODUCT_ID}/status" \
+  -H "Authorization: Bearer ${ADMIN_JWT}" \
+  -H "Content-Type: application/json" \
+  -d '{"productStatus":"INACTIVE"}'
+```
+
+**Featured flag**
+
+```bash
+curl -X PATCH "${BASE_URL}/api/v1/products/${PRODUCT_ID}/featured" \
+  -H "Authorization: Bearer ${ADMIN_JWT}" \
+  -H "Content-Type: application/json" \
+  -d '{"isFeatured":true}'
+```
+
+---
+
+## Superadmin review
+
+`PUT /api/v1/products/review/{id}`
+
+```bash
+curl -X PUT "${BASE_URL}/api/v1/products/review/${PRODUCT_ID}" \
+  -H "Authorization: Bearer ${SUPERADMIN_JWT}" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"APPROVED"}'
+```
+
+Allowed values: `APPROVED`, `REJECTED`, `QUEUED`, `DRAFT`.
+
+---
+
+## Review workflow
+
+```mermaid
+stateDiagram-v2
+  [*] --> DRAFT: create status=DRAFT
+  [*] --> PENDING: create default
+  DRAFT --> PENDING: admin patch
+  PENDING --> APPROVED: superadmin review
+  PENDING --> REJECTED: superadmin review
+  PENDING --> QUEUED: superadmin review
+  APPROVED --> ACTIVE: productStatus ACTIVE
+```
+
+| `status` | Who sets | Meaning |
+|----------|----------|---------|
+| `DRAFT` | Admin | Work in progress |
+| `PENDING` | Admin (default on create) | Submitted for review |
+| `APPROVED` | Superadmin | Visible to public if `productStatus=ACTIVE` |
+| `REJECTED` | Superadmin | Needs revision |
+| `QUEUED` | Superadmin | Held for later |
+
+---
+
+## Product vs inventory pricing
+
+| | Inventory item | Product (kit) |
+|--|----------------|---------------|
+| Purpose | List price per **stock unit** (pack) | Customer **kit** price |
+| Fields | `price`, `salePrice`, `currency` on `InventoryItem` | Same names on `Product` |
+| Stock field | `stockQuantity` = pack count in warehouse | `stockQuantity` = max kits (derived) |
+
+Kit BOM does **not** auto-sum inventory prices; set kit `price` explicitly (optional client-side helper only).
+
+---
+
+## Flutter implementation
+
+### Recommended flow
+
+1. Admin login → store `accessToken`.
+2. Load categories/inventory: `GET /inventory/categories`, `GET /inventory?status=ACTIVE` (see inventory plan).
+3. **Kit list screen** → `GET /products/my`.
+4. **Kit editor** → multipart `POST /create-product` or `PATCH /:id`.
+5. **Inventory picker** → multi-select rows; per line enter “units per kit”; build `items` and `jsonEncode` into form field `items`.
+6. Show read-only `stockQuantity` from save/get response; block publish if 0 when business rules require stock.
+
+### Screens
+
+| Screen | API | Notes |
+|--------|-----|-------|
+| Kit list | `GET /products/my` | Filter chips: `status`, `productStatus` |
+| Kit detail | `GET /products/:id` | Show BOM with populated inventory |
+| Kit editor | POST/PATCH multipart | Price row + image + inventory lines |
+| Publish toggle | `PATCH .../status` | JSON body |
+| Featured toggle | `PATCH .../featured` | JSON body |
+| Superadmin queue | `GET /products/all?status=PENDING` | + `PUT .../review/:id` |
+
+### Dart models (sketch)
+
+```dart
+class PoojaKitLine {
+  final String inventoryItem;
+  final double quantity; // stock units per kit
+}
+
+class Product {
+  final String id;
+  final String title;
+  final String slug;
+  final String? imageUrl;
+  final List<PoojaKitLine> items;
+  final double price;
+  final double? salePrice;
+  final String currency;
+  final double effectivePrice;
+  final int stockQuantity; // computed, read-only
+  final String status;
+  final String productStatus;
+  final bool isFeatured;
+}
+```
+
+Use `http.MultipartRequest` or `dio` `FormData`; file field name **`image`**.
+
+### Client validation (mirror backend)
+
+- `items` non-empty; each `quantity` > 0.
+- `salePrice` ≤ `price` when set.
+- All inventory ids active before submit (handle 400: missing/inactive inventory).
+
+---
+
+## Errors
+
+| HTTP | Typical cause |
+|------|----------------|
+| 400 | Invalid `items` JSON, empty items, bad inventory id, `salePrice > price` |
+| 401 | Missing or expired JWT |
+| 403 | Non-admin on write; non-superadmin on review |
+| 404 | Product or inventory not found |
+| 409 | Duplicate `slug` |
+
+---
+
+## Auth quick reference
+
+```bash
+# 1) Firebase password sign-in on device → ID token
+# 2) Exchange for API tokens
+curl -X POST "${BASE_URL}/api/v1/auth/admin-login" \
+  -H "Authorization: Bearer ${FIREBASE_ID_TOKEN}"
+
+# 3) Use data.accessToken on all /products admin calls
+```
+
+---
+
+## Backend source files
+
+| File | Role |
+|------|------|
+| `src/routes/productRoutes.js` | Route definitions |
+| `src/validations/productValidation.js` | Joi schemas |
+| `src/models/Product.js` | Schema, `effectivePrice`, price guard |
+| `src/services/productService.js` | Create/update, `items` JSON parse |
+| `src/services/inventoryService.js` | `enrichProductStock`, order deduct/restock |
+
+Interactive API docs: `{HOST}/api-docs` → **Products** tag.

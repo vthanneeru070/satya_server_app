@@ -133,7 +133,9 @@ const buildProductPayload = (body = {}) => {
 
 const assertInventoryItemsValid = async (kitItems) => {
   if (!kitItems?.length) return;
-  const ids = kitItems.map((l) => l.inventoryItem);
+  const ids = kitItems
+    .map((l) => inventoryService.resolveInventoryItemId(l.inventoryItem))
+    .filter(Boolean);
   const rows = await InventoryItem.find({
     _id: { $in: ids },
     isDeleted: { $ne: true },

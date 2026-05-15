@@ -101,6 +101,23 @@ const applyPricingUpdates = (item, body) => {
   if (body.currency !== undefined) item.currency = mergedCurrency;
 };
 
+/** ObjectId, hex string, or populated subdoc → 24-char hex id (or null). */
+const resolveInventoryItemId = (ref) => {
+  if (ref == null || ref === "") return null;
+  if (typeof ref === "string") {
+    const trimmed = ref.trim();
+    return /^[a-f0-9]{24}$/i.test(trimmed) ? trimmed : null;
+  }
+  if (typeof ref === "object") {
+    const raw = ref._id ?? ref.id;
+    if (raw != null) {
+      const s = String(raw).trim();
+      return /^[a-f0-9]{24}$/i.test(s) ? s : null;
+    }
+  }
+  return null;
+};
+
 const formatInventorySummary = (inv) => {
   if (!inv) return inv;
   const stockQuantity = Number(inv.stockQuantity) || 0;
@@ -131,7 +148,7 @@ const computeAvailableKits = (kitItems = [], inventoryById = new Map()) => {
   if (!kitItems.length) return 0;
   let minKits = Infinity;
   for (const line of kitItems) {
-    const invId = String(line.inventoryItem?._id || line.inventoryItem || "");
+    const invId = resolveInventoryItemId(line.inventoryItem) || "";
     const inv = inventoryById.get(invId);
     const unitsPerKit = parseKitLineQuantity(line.quantity);
     if (!inv || !unitsPerKit) return 0;
@@ -143,7 +160,9 @@ const computeAvailableKits = (kitItems = [], inventoryById = new Map()) => {
 };
 
 const loadInventoryMap = async (inventoryIds) => {
-  const ids = [...new Set(inventoryIds.filter(Boolean).map(String))];
+  const ids = [
+    ...new Set(inventoryIds.map(resolveInventoryItemId).filter(Boolean)),
+  ];
   if (!ids.length) return new Map();
   const rows = await InventoryItem.find({
     _id: { $in: ids },
@@ -156,7 +175,8 @@ const collectInventoryIdsFromProducts = (products) => {
   const ids = [];
   for (const p of products) {
     for (const line of p.items || []) {
-      if (line.inventoryItem) ids.push(line.inventoryItem);
+      const id = resolveInventoryItemId(line.inventoryItem);
+      if (id) ids.push(id);
     }
   }
   return ids;
@@ -168,11 +188,13 @@ const collectInventoryIdsFromProducts = (products) => {
 const enrichProductStock = async (product) => {
   if (!product) return product;
   const plain = product.toObject ? product.toObject({ virtuals: true }) : { ...product };
-  const invIds = (plain.items || []).map((l) => l.inventoryItem).filter(Boolean);
+  const invIds = (plain.items || [])
+    .map((l) => resolveInventoryItemId(l.inventoryItem))
+    .filter(Boolean);
   const invMap = await loadInventoryMap(invIds);
 
   plain.items = (plain.items || []).map((line) => {
-    const invId = String(line.inventoryItem?._id || line.inventoryItem || "");
+    const invId = resolveInventoryItemId(line.inventoryItem) || "";
     const inv = invMap.get(invId);
     return {
       ...line,
@@ -191,7 +213,7 @@ const enrichProductsStock = async (products) => {
   const invMap = await loadInventoryMap(collectInventoryIdsFromProducts(list));
   return list.map((plain) => {
     plain.items = (plain.items || []).map((line) => {
-      const invId = String(line.inventoryItem?._id || line.inventoryItem || "");
+      const invId = resolveInventoryItemId(line.inventoryItem) || "";
       const inv = invMap.get(invId);
       return {
         ...line,
@@ -227,7 +249,7 @@ const buildInventoryDeductionOps = (orderLines, productMap) => {
     const product = productMap.get(String(line.product));
     if (!product?.items?.length) continue;
     for (const kitLine of product.items) {
-      const invId = String(kitLine.inventoryItem?._id || kitLine.inventoryItem || "");
+      const invId = resolveInventoryItemId(kitLine.inventoryItem);
       const perKit = parseKitLineQuantity(kitLine.quantity);
       if (!invId || !perKit) continue;
       const total = line.quantity * perKit;
@@ -253,7 +275,7 @@ const buildInventoryRestockOps = (orderLines, productMap) => {
     const product = productMap.get(String(line.product));
     if (!product?.items?.length) continue;
     for (const kitLine of product.items) {
-      const invId = String(kitLine.inventoryItem?._id || kitLine.inventoryItem || "");
+      const invId = resolveInventoryItemId(kitLine.inventoryItem);
       const perKit = parseKitLineQuantity(kitLine.quantity);
       if (!invId || !perKit) continue;
       const total = line.quantity * perKit;
@@ -462,6 +484,7 @@ module.exports = {
   restockInventoryForOrder,
   loadProductsForOrderLines,
   loadInventoryMap,
+  resolveInventoryItemId,
   computeAvailableKits,
   parseKitLineQuantity,
   _internal: { generateUniqueSlug, buildInventoryDeductionOps },
