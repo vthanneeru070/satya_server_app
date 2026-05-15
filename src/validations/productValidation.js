@@ -3,9 +3,10 @@ const Joi = require("joi");
 const objectIdHex = Joi.string().trim().hex().length(24);
 
 const poojaKitItemSchema = Joi.object({
-  itemName: Joi.string().trim().min(1).max(150).required(),
-  quantity: Joi.string().trim().min(1).max(50).required(),
-  unit: Joi.string().trim().min(1).max(30).required(),
+  inventoryItem: objectIdHex.required(),
+  quantity: Joi.alternatives()
+    .try(Joi.number().positive(), Joi.string().trim().pattern(/^\d+(\.\d+)?$/))
+    .required(),
 });
 
 // Multipart form-data ships nested fields as JSON strings. Accept either a
@@ -29,7 +30,6 @@ const createProductSchema = Joi.object({
 
   items: itemsField.required(),
 
-  stockQuantity: numericFromForm(Joi.number().integer().min(0)).required(),
   price: numericFromForm(Joi.number().min(0)).required(),
   salePrice: numericFromForm(Joi.number().min(0)).optional(),
   currency: Joi.string().trim().uppercase().min(2).max(10).required(),
@@ -62,7 +62,6 @@ const updateProductSchema = Joi.object({
 
   items: itemsField,
 
-  stockQuantity: numericFromForm(Joi.number().integer().min(0)),
   price: numericFromForm(Joi.number().min(0)),
   salePrice: numericFromForm(Joi.number().min(0)).allow(null),
   currency: Joi.string().trim().uppercase().min(2).max(10),

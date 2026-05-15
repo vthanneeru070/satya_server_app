@@ -12,6 +12,7 @@
     "migrate:roles": "node scripts/migrateRoles.js",
     "test:email": "node scripts/testEmail.js",
     "seed:moon": "node scripts/seedMoon.js",
+    "seed:inventory-categories": "node scripts/masterdata/seed-inventory-categories.js",
     "test:moon-april-2026": "node scripts/testMoonApril2026.js"
   },
   "keywords": [],

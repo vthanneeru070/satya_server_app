@@ -1,6 +1,7 @@
 const Cart = require("../models/Cart");
 const Product = require("../models/Product");
 const HttpError = require("../utils/httpError");
+const inventoryService = require("./inventoryService");
 
 const getOrCreateCart = async (userId) => {
   let cart = await Cart.findOne({ user: userId, isDeleted: { $ne: true } });
@@ -24,22 +25,19 @@ const isProductPubliclyAvailable = (product) =>
   product.status === "APPROVED" &&
   product.productStatus === "ACTIVE";
 
-const assertProductBuyable = (product, requestedQty) => {
+const assertProductBuyable = async (product, requestedQty) => {
   if (!product || product.isDeleted) {
     throw new HttpError("Product not found", 404);
   }
   if (product.status !== "APPROVED" || product.productStatus !== "ACTIVE") {
     throw new HttpError("This product is not available right now", 400);
   }
-  if (product.stockQuantity <= 0) {
-    throw new HttpError("This product is out of stock", 400);
+  if (!product.items?.length) {
+    throw new HttpError(`"${product.title}" has no inventory kit configured`, 400);
   }
-  if (requestedQty > product.stockQuantity) {
-    throw new HttpError(
-      `Only ${product.stockQuantity} unit(s) of "${product.title}" are in stock`,
-      400
-    );
-  }
+  const invIds = (product.items || []).map((l) => l.inventoryItem).filter(Boolean);
+  const invMap = await inventoryService.loadInventoryMap(invIds);
+  inventoryService.assertKitStockForOrder(product, requestedQty, invMap);
 };
 
 const unitPrice = (product) =>
@@ -63,8 +61,11 @@ const serializeCart = async (cart) => {
   }
 
   const productIds = cart.items.map((it) => it.product);
-  const products = await Product.find({ _id: { $in: productIds } }).lean();
-  const productMap = new Map(products.map((p) => [String(p._id), p]));
+  const products = await Product.find({ _id: { $in: productIds } })
+    .populate("items.inventoryItem")
+    .lean();
+  const enriched = await inventoryService.enrichProductsStock(products);
+  const productMap = new Map(enriched.map((p) => [String(p._id), p]));
 
   let currency = cart.currency || "ZAR";
   const removedIdx = [];
@@ -132,11 +133,11 @@ const addItem = async (userId, { productId, quantity = 1 }) => {
   const qty = Math.floor(Number(quantity) || 1);
   if (qty < 1) throw new HttpError("quantity must be at least 1", 400);
 
-  const product = await Product.findById(productId);
+  const product = await Product.findById(productId).populate("items.inventoryItem");
   const cart = await getOrCreateCart(userId);
   const existing = cart.items.find((it) => String(it.product) === String(productId));
   const newQty = (existing ? existing.quantity : 0) + qty;
-  assertProductBuyable(product, newQty);
+  await assertProductBuyable(product, newQty);
 
   const snap = unitPrice(product);
   if (existing) {
@@ -161,8 +162,8 @@ const updateQuantity = async (userId, { productId, quantity }) => {
   const item = cart.items.find((it) => String(it.product) === String(productId));
   if (!item) throw new HttpError("Item not in cart", 404);
 
-  const product = await Product.findById(productId);
-  assertProductBuyable(product, qty);
+  const product = await Product.findById(productId).populate("items.inventoryItem");
+  await assertProductBuyable(product, qty);
 
   item.quantity = qty;
   item.price = unitPrice(product);

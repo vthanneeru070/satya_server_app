@@ -4,6 +4,7 @@ const Cart = require("../models/Cart");
 const Product = require("../models/Product");
 const Counter = require("../models/Counter");
 const ReplacementRequest = require("../models/ReplacementRequest");
+const inventoryService = require("./inventoryService");
 const HttpError = require("../utils/httpError");
 const orderEmailService = require("./orderEmailService");
 const { notifyOrderStatusChanged } = require("./fcmOrderNotifyService");
@@ -56,21 +57,15 @@ const nextOrderNumber = async (session) => {
   return `SATYA-${doc.seq}`;
 };
 
-const assertProductBuyable = (product, requestedQty) => {
+const assertProductBuyable = (product) => {
   if (!product || product.isDeleted) {
     throw new HttpError("Product not found", 404);
   }
   if (product.status !== "APPROVED" || product.productStatus !== "ACTIVE") {
     throw new HttpError("This product is not available right now", 400);
   }
-  if (product.stockQuantity <= 0) {
-    throw new HttpError("This product is out of stock", 400);
-  }
-  if (requestedQty > product.stockQuantity) {
-    throw new HttpError(
-      `Only ${product.stockQuantity} unit(s) of "${product.title}" are in stock`,
-      400
-    );
+  if (!product.items?.length) {
+    throw new HttpError(`"${product.title}" has no inventory kit configured`, 400);
   }
 };
 
@@ -115,6 +110,13 @@ const buildOrderPayload = async (userId, { items, useCart }) => {
   const productIds = requested.map((r) => r.productId);
   const products = await Product.find({ _id: { $in: productIds }, isDeleted: { $ne: true } });
   const productMap = new Map(products.map((p) => [String(p._id), p]));
+  const invIds = [];
+  for (const p of products) {
+    for (const line of p.items || []) {
+      if (line.inventoryItem) invIds.push(line.inventoryItem);
+    }
+  }
+  const invMap = await inventoryService.loadInventoryMap(invIds);
 
   const snapshots = [];
   let totalAmount = 0;
@@ -122,7 +124,8 @@ const buildOrderPayload = async (userId, { items, useCart }) => {
 
   for (const r of requested) {
     const product = productMap.get(r.productId);
-    assertProductBuyable(product, r.quantity);
+    assertProductBuyable(product);
+    inventoryService.assertKitStockForOrder(product, r.quantity, invMap);
     if (product.currency && currency && product.currency !== currency) {
       throw new HttpError("All items in an order must use the same currency", 400);
     }
@@ -136,25 +139,27 @@ const buildOrderPayload = async (userId, { items, useCart }) => {
 };
 
 const applyStockDeductionForOrder = async (order, session) => {
-  const ops = order.items.map((line) => ({
+  const productMap = await inventoryService.loadProductsForOrderLines(order.items, session);
+  const invIds = [];
+  for (const p of productMap.values()) {
+    for (const line of p.items || []) {
+      if (line.inventoryItem) invIds.push(line.inventoryItem);
+    }
+  }
+  const invMap = await inventoryService.loadInventoryMap(invIds);
+  for (const line of order.items) {
+    const product = productMap.get(String(line.product));
+    if (!product) throw new HttpError("Product not found", 404);
+    inventoryService.assertKitStockForOrder(product, line.quantity, invMap);
+  }
+  await inventoryService.applyInventoryDeductionForOrder(order, productMap, session);
+  const productOps = order.items.map((line) => ({
     updateOne: {
-      filter: {
-        _id: line.product,
-        stockQuantity: { $gte: line.quantity },
-        isDeleted: { $ne: true },
-      },
-      update: {
-        $inc: { stockQuantity: -line.quantity, purchaseCount: line.quantity },
-      },
+      filter: { _id: line.product, isDeleted: { $ne: true } },
+      update: { $inc: { purchaseCount: line.quantity } },
     },
   }));
-  const result = await Product.bulkWrite(ops, { session });
-  if (result.modifiedCount !== ops.length) {
-    throw new HttpError(
-      "One or more items went out of stock during checkout. Please review your cart.",
-      409
-    );
-  }
+  if (productOps.length) await Product.bulkWrite(productOps, { session });
 };
 
 const persistOrder = async (
@@ -331,15 +336,15 @@ const getOrderById = async (id, { userId = null, isAdmin = false } = {}) => {
 
 const restockOrderItems = async (order, session) => {
   if (!order.inventoryReserved) return;
-  const ops = order.items.map((line) => ({
+  const productMap = await inventoryService.loadProductsForOrderLines(order.items, session);
+  await inventoryService.restockInventoryForOrder(order, productMap, session);
+  const productOps = order.items.map((line) => ({
     updateOne: {
       filter: { _id: line.product },
-      update: {
-        $inc: { stockQuantity: line.quantity, purchaseCount: -line.quantity },
-      },
+      update: { $inc: { purchaseCount: -line.quantity } },
     },
   }));
-  if (ops.length) await Product.bulkWrite(ops, { session });
+  if (productOps.length) await Product.bulkWrite(productOps, { session });
 };
 
 const appendHistory = (order, status, note, actorUserId) => {

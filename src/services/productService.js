@@ -1,6 +1,8 @@
 const Product = require("../models/Product");
+const InventoryItem = require("../models/InventoryItem");
 const HttpError = require("../utils/httpError");
 const { deleteFile } = require("./s3Service");
+const inventoryService = require("./inventoryService");
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -91,9 +93,6 @@ const buildProductPayload = (body = {}) => {
   const isFeatured = normalizeBoolean(body.isFeatured);
   if (isFeatured !== undefined) payload.isFeatured = isFeatured;
 
-  const stockQuantity = normalizeNumber(body.stockQuantity);
-  if (stockQuantity !== undefined) payload.stockQuantity = Math.floor(stockQuantity);
-
   const price = normalizeNumber(body.price);
   if (price !== undefined) payload.price = price;
 
@@ -115,22 +114,39 @@ const buildProductPayload = (body = {}) => {
       if (!it || typeof it !== "object") {
         throw new HttpError(`items[${idx}] must be an object`, 400);
       }
-      const itemName = String(it.itemName || "").trim();
-      const quantity = String(it.quantity ?? "").trim();
-      const unit = String(it.unit || "").trim();
-      if (!itemName || !quantity || !unit) {
-        throw new HttpError(
-          `items[${idx}] requires itemName, quantity, and unit`,
-          400
-        );
+      const inventoryItem = String(it.inventoryItem || "").trim();
+      const qty = inventoryService.parseKitLineQuantity(it.quantity);
+      if (!inventoryItem || inventoryItem.length !== 24) {
+        throw new HttpError(`items[${idx}] requires a valid inventoryItem id`, 400);
       }
-      return { itemName, quantity, unit };
+      if (!qty) {
+        throw new HttpError(`items[${idx}] requires a positive numeric quantity`, 400);
+      }
+      return { inventoryItem, quantity: qty };
     });
   }
 
   if (body.slug !== undefined) payload.slug = slugify(body.slug);
 
   return payload;
+};
+
+const assertInventoryItemsValid = async (kitItems) => {
+  if (!kitItems?.length) return;
+  const ids = kitItems.map((l) => l.inventoryItem);
+  const rows = await InventoryItem.find({
+    _id: { $in: ids },
+    isDeleted: { $ne: true },
+    status: "ACTIVE",
+  })
+    .select("_id name")
+    .lean();
+  if (rows.length !== ids.length) {
+    throw new HttpError(
+      "One or more inventory items are missing, inactive, or deleted",
+      400
+    );
+  }
 };
 
 const assertPriceConsistency = (price, salePrice) => {
@@ -152,12 +168,10 @@ const createProduct = async ({ body, imageUrl, userId }) => {
 
   if (!payload.title) throw new HttpError("title is required", 400);
   if (payload.price === undefined) throw new HttpError("price is required", 400);
-  if (payload.stockQuantity === undefined) {
-    throw new HttpError("stockQuantity is required", 400);
-  }
   if (!payload.items || payload.items.length === 0) {
     throw new HttpError("items is required", 400);
   }
+  await assertInventoryItemsValid(payload.items);
   assertPriceConsistency(payload.price, payload.salePrice);
 
   payload.slug = await generateUniqueSlug(payload.slug || payload.title);
@@ -166,7 +180,7 @@ const createProduct = async ({ body, imageUrl, userId }) => {
 
   try {
     const product = await Product.create(payload);
-    return product;
+    return inventoryService.enrichProductStock(product);
   } catch (err) {
     if (err.code === 11000) {
       throw new HttpError("A product with this slug already exists", 409);
@@ -180,6 +194,7 @@ const updateProduct = async ({ id, body, imageUrl }) => {
   if (!existing) throw new HttpError("Product not found", 404);
 
   const payload = buildProductPayload(body);
+  if (payload.items) await assertInventoryItemsValid(payload.items);
 
   // Validate consistency against the resulting merged document.
   const mergedPrice = payload.price !== undefined ? payload.price : existing.price;
@@ -215,7 +230,7 @@ const updateProduct = async ({ id, body, imageUrl }) => {
     deleteFile(previousImageUrl).catch(() => {});
   }
 
-  return existing;
+  return inventoryService.enrichProductStock(existing);
 };
 
 /**
@@ -289,10 +304,6 @@ const buildListFilter = (query, viewer) => {
     if (query.maxPrice !== undefined) filter.price.$lte = Number(query.maxPrice);
   }
 
-  const inStock = normalizeBoolean(query.inStock);
-  if (inStock === true) filter.stockQuantity = { $gt: 0 };
-  if (inStock === false) filter.stockQuantity = { $lte: 0 };
-
   if (query.search) {
     const safe = String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     filter.title = { $regex: safe, $options: "i" };
@@ -312,13 +323,14 @@ const getProductById = async (id, { viewer = "public" } = {}) => {
   }
   const product = await Product.findOne(filter)
     .populate("deity", "name")
+    .populate("items.inventoryItem")
     .populate("createdBy", "fullName email role");
   if (!product) throw new HttpError("Product not found", 404);
 
   // Fire-and-forget view counter for analytics; never block the request.
   Product.updateOne({ _id: product._id }, { $inc: { viewCount: 1 } }).catch(() => {});
 
-  return product;
+  return inventoryService.enrichProductStock(product);
 };
 
 const paginatedFind = async (filter, query) => {
@@ -330,18 +342,25 @@ const paginatedFind = async (filter, query) => {
   const sortOrder = query.sortOrder === "asc" ? 1 : -1;
   const sort = { [sortBy]: sortOrder };
 
+  const inStock = normalizeBoolean(query.inStock);
+
   const [items, total] = await Promise.all([
     Product.find(filter)
       .sort(sort)
       .skip(skip)
       .limit(limit)
       .populate("deity", "name")
+      .populate("items.inventoryItem")
       .populate("createdBy", "fullName email role"),
     Product.countDocuments(filter),
   ]);
 
+  let products = await inventoryService.enrichProductsStock(items);
+  if (inStock === true) products = products.filter((p) => p.inStock);
+  if (inStock === false) products = products.filter((p) => !p.inStock);
+
   return {
-    products: items,
+    products,
     pagination: {
       page,
       limit,
@@ -424,20 +443,24 @@ const reviewProduct = async (id, status) => {
 };
 
 const getFeaturedProducts = async ({ limit = 10 } = {}) => {
-  return Product.find({
+  const items = await Product.find({
     ...publicBuyableFilter(),
     isFeatured: true,
   })
     .sort({ updatedAt: -1 })
     .limit(Math.min(Number(limit) || 10, 100))
-    .populate("deity", "name");
+    .populate("deity", "name")
+    .populate("items.inventoryItem");
+  return inventoryService.enrichProductsStock(items);
 };
 
 const getPopularProducts = async ({ limit = 10 } = {}) => {
-  return Product.find(publicBuyableFilter())
+  const items = await Product.find(publicBuyableFilter())
     .sort({ purchaseCount: -1, viewCount: -1 })
     .limit(Math.min(Number(limit) || 10, 100))
-    .populate("deity", "name");
+    .populate("deity", "name")
+    .populate("items.inventoryItem");
+  return inventoryService.enrichProductsStock(items);
 };
 
 module.exports = {

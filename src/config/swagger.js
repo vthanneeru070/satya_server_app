@@ -286,16 +286,54 @@ const options = {
         },
         PoojaKitItem: {
           type: "object",
-          required: ["itemName", "quantity", "unit"],
+          required: ["inventoryItem", "quantity"],
           properties: {
-            itemName: { type: "string", example: "Kumkum" },
-            quantity: { type: "string", example: "500" },
+            inventoryItem: {
+              type: "string",
+              description: "InventoryItem ObjectId",
+              example: "6a030010936141f352857e07",
+            },
+            quantity: {
+              type: "number",
+              description: "Units of inventory consumed per one kit sold",
+              example: 1,
+            },
+          },
+        },
+        InventoryCategory: {
+          type: "object",
+          properties: {
+            _id: { type: "string" },
+            code: {
+              type: "string",
+              example: "SACRED_POWDERS",
+              description: "Stored on InventoryItem.category",
+            },
+            label: { type: "string", example: "Sacred Powders" },
+            sortOrder: { type: "integer" },
+            isActive: { type: "boolean" },
+          },
+        },
+        InventoryItem: {
+          type: "object",
+          properties: {
+            _id: { type: "string" },
+            name: { type: "string" },
+            slug: { type: "string" },
+            category: {
+              type: "string",
+              description: "InventoryCategory code (see GET /inventory/categories)",
+              example: "SACRED_POWDERS",
+            },
             unit: { type: "string", example: "grams" },
+            stockQuantity: { type: "number", description: "Warehouse stock (source of truth)" },
+            lowStockThreshold: { type: "number" },
+            status: { type: "string", enum: ["ACTIVE", "INACTIVE"] },
           },
         },
         ProductCreateMultipart: {
           type: "object",
-          required: ["title", "items", "stockQuantity", "price"],
+          required: ["title", "items", "price"],
           properties: {
             title: { type: "string", example: "Ganesh Pooja Kit" },
             slug: { type: "string", example: "ganesh-pooja-kit" },
@@ -306,9 +344,14 @@ const options = {
             items: {
               type: "string",
               description:
-                "JSON array of pooja kit items. Example: [{\"itemName\":\"Kumkum\",\"quantity\":\"500\",\"unit\":\"grams\"}]",
+                'JSON array of kit lines referencing inventory. Example: [{"inventoryItem":"6a03...","quantity":1}]',
             },
-            stockQuantity: { type: "number", example: 100 },
+            stockQuantity: {
+              type: "number",
+              readOnly: true,
+              description:
+                "Computed on read — max kits buildable from inventory (not sent on create)",
+            },
             price: { type: "number", example: 999 },
             salePrice: { type: "number", example: 799 },
             currency: { type: "string", example: "ZAR" },

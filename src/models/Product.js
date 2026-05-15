@@ -8,22 +8,21 @@ const mongoose = require("mongoose");
  * "0.5" kg). Free-form unit lets us cover grams / kg / liters / pieces / packets
  * without a brittle enum.
  */
+/**
+ * One line in a pooja kit — references warehouse stock (`InventoryItem`).
+ * `quantity` is how many inventory base units are consumed per kit sold.
+ */
 const poojaKitItemSchema = new mongoose.Schema(
   {
-    itemName: {
-      type: String,
+    inventoryItem: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "InventoryItem",
       required: true,
-      trim: true,
     },
     quantity: {
-      type: String,
+      type: Number,
       required: true,
-      trim: true,
-    },
-    unit: {
-      type: String,
-      required: true,
-      trim: true,
+      min: 0.000001,
     },
   },
   { _id: false }
@@ -64,13 +63,13 @@ const productSchema = new mongoose.Schema(
     items: {
       type: [poojaKitItemSchema],
       default: [],
-    },
-
-    stockQuantity: {
-      type: Number,
-      required: true,
-      min: 0,
-      default: 0,
+      validate: {
+        validator(items) {
+          return items.length > 0;
+        },
+        message:
+          "At least one inventory item is required",
+      },
     },
 
     price: {
@@ -164,18 +163,11 @@ productSchema.pre("validate", function ensurePriceConsistency() {
   ) {
     throw new Error("salePrice cannot be greater than price");
   }
-  if (this.stockQuantity !== undefined && this.stockQuantity < 0) {
-    throw new Error("stockQuantity cannot be negative");
-  }
 });
 
 // ── Virtuals ─────────────────────────────────────────────────────────────────
 productSchema.virtual("effectivePrice").get(function effectivePriceGetter() {
   return this.salePrice && this.salePrice > 0 ? this.salePrice : this.price;
-});
-
-productSchema.virtual("inStock").get(function inStockGetter() {
-  return (this.stockQuantity || 0) > 0;
 });
 
 productSchema.set("toJSON", { virtuals: true });

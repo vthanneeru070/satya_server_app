@@ -252,26 +252,8 @@ const initializeDonationPayment = async (
 // ── ORDER: stock decrement helper ───────────────────────────────────────────
 
 const applyStockDecrement = async (order, session) => {
-  const ops = order.items.map((line) => ({
-    updateOne: {
-      filter: {
-        _id: line.product,
-        stockQuantity: { $gte: line.quantity },
-        isDeleted: { $ne: true },
-      },
-      update: {
-        $inc: { stockQuantity: -line.quantity, purchaseCount: line.quantity },
-      },
-    },
-  }));
-  if (!ops.length) return;
-  const result = await Product.bulkWrite(ops, { session });
-  if (result.modifiedCount !== ops.length) {
-    throw new HttpError(
-      "Inventory changed while confirming payment. Please contact support with your order number.",
-      409
-    );
-  }
+  const orderService = require("./orderService");
+  await orderService._internal.applyStockDeductionForOrder(order, session);
 };
 
 // ── ORDER verify path ───────────────────────────────────────────────────────
