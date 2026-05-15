@@ -30,15 +30,102 @@ const generateUniqueSlug = async (rawValue, ignoreId = null) => {
   throw new HttpError("Could not generate a unique slug", 500);
 };
 
-/** Per-kit usage amount (inventory base units). */
-const parseKitLineQuantity = (value) => {
+const parsePositiveNumber = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return null;
   return n;
 };
 
+/** Product kit line: stock units consumed per kit sold (must be a positive number). */
+const parseKitLineQuantity = (value) => parsePositiveNumber(value);
+
+const parseItemQuantity = (value) => parsePositiveNumber(value);
+
+const normalizeNumber = (value) => {
+  if (value === undefined || value === null || value === "") return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+};
+
+const resolvePricing = ({ price, salePrice, currency }) => {
+  const resolvedPrice = normalizeNumber(price);
+  if (resolvedPrice === undefined) {
+    throw new HttpError("price is required", 400);
+  }
+  if (resolvedPrice < 0) throw new HttpError("price must be >= 0", 400);
+
+  let resolvedSale = null;
+  if (salePrice !== undefined && salePrice !== null && salePrice !== "") {
+    const sp = normalizeNumber(salePrice);
+    if (sp !== undefined) resolvedSale = sp;
+  }
+  if (resolvedSale !== null && resolvedSale > resolvedPrice) {
+    throw new HttpError("salePrice must be less than or equal to price", 400);
+  }
+
+  const resolvedCurrency = String(currency || "ZAR")
+    .trim()
+    .toUpperCase();
+  if (!resolvedCurrency) throw new HttpError("currency is required", 400);
+
+  return { price: resolvedPrice, salePrice: resolvedSale, currency: resolvedCurrency };
+};
+
+const applyPricingUpdates = (item, body) => {
+  const mergedPrice = body.price !== undefined ? normalizeNumber(body.price) : item.price;
+  const mergedSale =
+    body.salePrice !== undefined
+      ? body.salePrice === null || body.salePrice === ""
+        ? null
+        : normalizeNumber(body.salePrice)
+      : item.salePrice;
+  const mergedCurrency =
+    body.currency !== undefined
+      ? String(body.currency).trim().toUpperCase()
+      : item.currency;
+
+  if (mergedPrice !== undefined && mergedPrice < 0) {
+    throw new HttpError("price must be >= 0", 400);
+  }
+  if (
+    mergedSale !== null &&
+    mergedSale !== undefined &&
+    mergedPrice !== undefined &&
+    mergedSale > mergedPrice
+  ) {
+    throw new HttpError("salePrice must be less than or equal to price", 400);
+  }
+
+  if (body.price !== undefined && mergedPrice !== undefined) item.price = mergedPrice;
+  if (body.salePrice !== undefined) item.salePrice = mergedSale;
+  if (body.currency !== undefined) item.currency = mergedCurrency;
+};
+
+const formatInventorySummary = (inv) => {
+  if (!inv) return inv;
+  const stockQuantity = Number(inv.stockQuantity) || 0;
+  const itemQuantity = Number(inv.itemQuantity) || 0;
+  const totalAvailableQuantity = Math.round(stockQuantity * itemQuantity * 1000) / 1000;
+  const price = Number(inv.price) || 0;
+  const salePrice =
+    inv.salePrice !== null && inv.salePrice !== undefined ? Number(inv.salePrice) : null;
+  const effectivePrice = salePrice && salePrice > 0 ? salePrice : price;
+  return {
+    ...inv,
+    stockQuantity,
+    itemQuantity,
+    unit: inv.unit,
+    totalAvailableQuantity,
+    price,
+    salePrice,
+    currency: inv.currency,
+    effectivePrice,
+  };
+};
+
 /**
  * How many full kits can be assembled from current inventory rows.
+ * Kit line `quantity` = stock units needed per kit (e.g. 2 packs of 50g turmeric).
  */
 const computeAvailableKits = (kitItems = [], inventoryById = new Map()) => {
   if (!kitItems.length) return 0;
@@ -46,11 +133,11 @@ const computeAvailableKits = (kitItems = [], inventoryById = new Map()) => {
   for (const line of kitItems) {
     const invId = String(line.inventoryItem?._id || line.inventoryItem || "");
     const inv = inventoryById.get(invId);
-    const perKit = parseKitLineQuantity(line.quantity);
-    if (!inv || !perKit) return 0;
+    const unitsPerKit = parseKitLineQuantity(line.quantity);
+    if (!inv || !unitsPerKit) return 0;
     if (inv.status !== "ACTIVE" || inv.isDeleted) return 0;
-    const stock = Number(inv.stockQuantity) || 0;
-    minKits = Math.min(minKits, Math.floor(stock / perKit));
+    const stockUnits = Number(inv.stockQuantity) || 0;
+    minKits = Math.min(minKits, Math.floor(stockUnits / unitsPerKit));
   }
   return Number.isFinite(minKits) ? Math.max(0, minKits) : 0;
 };
@@ -89,19 +176,7 @@ const enrichProductStock = async (product) => {
     const inv = invMap.get(invId);
     return {
       ...line,
-      inventoryItem: inv
-        ? {
-            _id: inv._id,
-            name: inv.name,
-            slug: inv.slug,
-            imageUrl: inv.imageUrl,
-            category: inv.category,
-            unit: inv.unit,
-            stockQuantity: inv.stockQuantity,
-            status: inv.status,
-            lowStockThreshold: inv.lowStockThreshold,
-          }
-        : line.inventoryItem,
+      inventoryItem: inv ? formatInventorySummary(inv) : line.inventoryItem,
     };
   });
 
@@ -120,19 +195,7 @@ const enrichProductsStock = async (products) => {
       const inv = invMap.get(invId);
       return {
         ...line,
-        inventoryItem: inv
-          ? {
-              _id: inv._id,
-              name: inv.name,
-              slug: inv.slug,
-              imageUrl: inv.imageUrl,
-              category: inv.category,
-              unit: inv.unit,
-              stockQuantity: inv.stockQuantity,
-              status: inv.status,
-              lowStockThreshold: inv.lowStockThreshold,
-            }
-          : line.inventoryItem,
+        inventoryItem: inv ? formatInventorySummary(inv) : line.inventoryItem,
       };
     });
     const availableKits = computeAvailableKits(plain.items, invMap);
@@ -241,11 +304,18 @@ const createInventoryItem = async ({ body, imageUrl, userId }) => {
   const unit = String(body.unit || "").trim();
   if (!unit) throw new HttpError("unit is required", 400);
 
+  const itemQuantity = parseItemQuantity(body.itemQuantity);
+  if (!itemQuantity) {
+    throw new HttpError("itemQuantity must be a positive number (amount per stock unit)", 400);
+  }
+
   const stockQuantity = Math.max(0, Math.floor(Number(body.stockQuantity) || 0));
   const lowStockThreshold = Math.max(
     0,
     Math.floor(Number(body.lowStockThreshold ?? 10) || 10)
   );
+
+  const pricing = resolvePricing(body);
 
   const slug = await generateUniqueSlug(body.slug || name);
   const doc = await InventoryItem.create({
@@ -255,7 +325,11 @@ const createInventoryItem = async ({ body, imageUrl, userId }) => {
     imageUrl: imageUrl || null,
     category,
     unit,
+    itemQuantity,
     stockQuantity,
+    price: pricing.price,
+    salePrice: pricing.salePrice,
+    currency: pricing.currency,
     supplierName: String(body.supplierName || "").trim(),
     lowStockThreshold,
     status: body.status === "INACTIVE" ? "INACTIVE" : "ACTIVE",
@@ -279,6 +353,12 @@ const updateInventoryItem = async ({ id, body, imageUrl }) => {
     item.unit = u;
   }
   if (body.supplierName !== undefined) item.supplierName = String(body.supplierName).trim();
+  applyPricingUpdates(item, body);
+  if (body.itemQuantity !== undefined) {
+    const iq = parseItemQuantity(body.itemQuantity);
+    if (!iq) throw new HttpError("itemQuantity must be a positive number", 400);
+    item.itemQuantity = iq;
+  }
   if (body.stockQuantity !== undefined) {
     item.stockQuantity = Math.max(0, Math.floor(Number(body.stockQuantity) || 0));
   }

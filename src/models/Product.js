@@ -10,7 +10,8 @@ const mongoose = require("mongoose");
  */
 /**
  * One line in a pooja kit — references warehouse stock (`InventoryItem`).
- * `quantity` is how many inventory base units are consumed per kit sold.
+ * `quantity` = stock units consumed per kit (e.g. 2 packs where each pack is
+ * `itemQuantity` + `unit` on the inventory row, such as 50 grams).
  */
 const poojaKitItemSchema = new mongoose.Schema(
   {

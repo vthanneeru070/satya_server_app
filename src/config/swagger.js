@@ -295,7 +295,8 @@ const options = {
             },
             quantity: {
               type: "number",
-              description: "Units of inventory consumed per one kit sold",
+              description:
+                "Stock units consumed per kit sold (e.g. 2 packs of 50g if itemQuantity is 50)",
               example: 1,
             },
           },
@@ -325,8 +326,26 @@ const options = {
               description: "InventoryCategory code (see GET /inventory/categories)",
               example: "SACRED_POWDERS",
             },
-            unit: { type: "string", example: "grams" },
-            stockQuantity: { type: "number", description: "Warehouse stock (source of truth)" },
+            unit: { type: "string", example: "grams", description: "Unit for itemQuantity" },
+            itemQuantity: {
+              type: "number",
+              example: 50,
+              description: "Amount per one stock unit (e.g. 50 grams per pack)",
+            },
+            stockQuantity: {
+              type: "integer",
+              example: 50,
+              description: "Count of stock units in warehouse (e.g. 50 packs)",
+            },
+            totalAvailableQuantity: {
+              type: "number",
+              example: 2500,
+              description: "stockQuantity × itemQuantity (e.g. 50 packs × 50g)",
+            },
+            price: { type: "number", example: 29.99, description: "Per stock unit" },
+            salePrice: { type: "number", nullable: true, example: 24.99 },
+            currency: { type: "string", example: "ZAR" },
+            effectivePrice: { type: "number", description: "salePrice if set, else price" },
             lowStockThreshold: { type: "number" },
             status: { type: "string", enum: ["ACTIVE", "INACTIVE"] },
           },

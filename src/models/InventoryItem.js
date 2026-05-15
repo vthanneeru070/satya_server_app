@@ -38,7 +38,10 @@ const inventoryItemSchema = new mongoose.Schema(
       index: true,
     },
 
-    // Current available stock
+    /**
+     * Number of sellable units in warehouse (e.g. 50 packs).
+     * Each unit holds `itemQuantity` of `unit` (e.g. 50 grams per pack).
+     */
     stockQuantity: {
       type: Number,
       required: true,
@@ -46,13 +49,38 @@ const inventoryItemSchema = new mongoose.Schema(
       default: 0,
     },
 
-    // Base unit
+    /** Amount per single stock unit (e.g. 50). */
+    itemQuantity: {
+      type: Number,
+      required: true,
+      min: 0.000001,
+    },
+
+    /** Measure for itemQuantity (e.g. grams, pieces, ml). */
     unit: {
       type: String,
       required: true,
       trim: true,
     },
 
+    /** Unit list price (per one stock unit). */
+    price: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+    salePrice: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
+    currency: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: "ZAR",
+      required: true,
+    },
 
     supplierName: {
       type: String,
@@ -103,11 +131,34 @@ inventoryItemSchema.index({
 });
 
 // ── Virtuals ─────────────────────────────────────────────────────────────
+/** Total amount in stock = stockQuantity × itemQuantity (e.g. 50 packs × 50g = 2500g). */
+inventoryItemSchema.virtual("totalAvailableQuantity").get(function () {
+  const units = Number(this.stockQuantity) || 0;
+  const perUnit = Number(this.itemQuantity) || 0;
+  return Math.round(units * perUnit * 1000) / 1000;
+});
+
 inventoryItemSchema.virtual("isLowStock").get(function () {
   return (
     (this.stockQuantity || 0) <=
     (this.lowStockThreshold || 0)
   );
+});
+
+inventoryItemSchema.virtual("effectivePrice").get(function () {
+  return this.salePrice && this.salePrice > 0 ? this.salePrice : this.price;
+});
+
+inventoryItemSchema.pre("validate", function ensurePriceConsistency() {
+  if (
+    this.salePrice !== null &&
+    this.salePrice !== undefined &&
+    this.price !== null &&
+    this.price !== undefined &&
+    this.salePrice > this.price
+  ) {
+    throw new Error("salePrice cannot be greater than price");
+  }
 });
 
 inventoryItemSchema.set("toJSON", {
