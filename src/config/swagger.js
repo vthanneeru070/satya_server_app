@@ -84,6 +84,63 @@ const options = {
             updatedAt: { type: "string", format: "date-time" },
           },
         },
+        PoojaHistoryOverview: {
+          type: "object",
+          properties: {
+            pendingCount: { type: "integer", example: 2 },
+            finishedCount: { type: "integer", example: 15 },
+            totalCount: { type: "integer", example: 17 },
+            pending: {
+              type: "array",
+              items: { $ref: "#/components/schemas/UserPoojaSession" },
+            },
+            finished: {
+              type: "array",
+              items: { $ref: "#/components/schemas/UserPoojaSession" },
+            },
+            pagination: {
+              type: "object",
+              properties: {
+                pending: {
+                  type: "object",
+                  properties: {
+                    page: { type: "integer" },
+                    limit: { type: "integer" },
+                    total: { type: "integer" },
+                    totalPages: { type: "integer" },
+                  },
+                },
+                finished: {
+                  type: "object",
+                  properties: {
+                    page: { type: "integer" },
+                    limit: { type: "integer" },
+                    total: { type: "integer" },
+                    totalPages: { type: "integer" },
+                  },
+                },
+              },
+            },
+          },
+        },
+        UserPoojaSession: {
+          type: "object",
+          properties: {
+            _id: { type: "string" },
+            status: { type: "string", enum: ["PENDING", "FINISHED"] },
+            currentStep: { type: "integer", example: 2 },
+            totalSteps: { type: "integer", example: 5 },
+            progressPercent: { type: "integer", example: 40 },
+            startedAt: { type: "string", format: "date-time" },
+            finishedAt: { type: "string", format: "date-time", nullable: true },
+            pooja: {
+              type: "object",
+              description: "Populated Pooja document",
+            },
+            createdAt: { type: "string", format: "date-time" },
+            updatedAt: { type: "string", format: "date-time" },
+          },
+        },
         DeitySummary: {
           type: "object",
           properties: {
