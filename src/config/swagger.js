@@ -84,6 +84,41 @@ const options = {
             updatedAt: { type: "string", format: "date-time" },
           },
         },
+        GlobalSearchHit: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "Item ObjectId" },
+            type: {
+              type: "string",
+              enum: ["pooja", "festival", "ritual", "deity", "donation"],
+            },
+            title: { type: "string", example: "Ganesh Pooja" },
+            name: { type: "string", example: "Ganesha", description: "Same as title for deities" },
+            description: { type: "string" },
+            imageUrl: { type: "string", nullable: true },
+            updatedAt: { type: "string", format: "date-time" },
+          },
+        },
+        GlobalSearchResponse: {
+          type: "object",
+          properties: {
+            query: { type: "string" },
+            total: { type: "integer" },
+            results: {
+              type: "array",
+              items: { $ref: "#/components/schemas/GlobalSearchHit" },
+            },
+            countsByType: {
+              type: "object",
+              additionalProperties: { type: "integer" },
+              example: { pooja: 2, festival: 1, ritual: 0, deity: 3, donation: 1 },
+            },
+            byType: {
+              type: "object",
+              description: "Optional grouped results per type",
+            },
+          },
+        },
         PoojaHistoryOverview: {
           type: "object",
           properties: {

@@ -21,6 +21,7 @@ const replacementAdminRoutes = require("./replacementAdminRoutes");
 const paymentRoutes = require("./paymentRoutes");
 const fcmRoutes = require("./fcmRoutes");
 const notificationRoutes = require("./notificationRoutes");
+const globalSearchRoutes = require("./globalSearchRoutes");
 
 const router = express.Router();
 
@@ -41,6 +42,7 @@ router.use("/festivals", festivalRoutes);
 router.use("/daily-slokas", dailySlokaRoutes);
 router.use("/user-home", userHomeRoutes);
 router.use("/user/pooja-history", userPoojaHistoryRoutes);
+router.use("/search", globalSearchRoutes);
 router.use("/calendar", calendarRoutes);
 router.use("/deities", deityRoutes);
 router.use("/inventory", inventoryRoutes);
