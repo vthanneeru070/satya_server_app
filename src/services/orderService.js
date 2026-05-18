@@ -411,14 +411,86 @@ const createOrder = async (
   return order;
 };
 
+/**
+ * Pull TCG tracking, then advance order status via the normal state machine
+ * (SHIPPED / DELIVERED) so customer + admin emails and push/inbox fire.
+ */
+const applyCourierStatusFromTracking = async (
+  orderId,
+  { note = "Auto-updated from Courier Guy tracking" } = {}
+) => {
+  const doc = await Order.findOne({ _id: orderId, isDeleted: { $ne: true } });
+  if (!doc?.delivery?.shipmentId) {
+    return { order: doc, statusAdvanced: false, reason: "no_shipment" };
+  }
+
+  const before = doc.orderStatus;
+  const { syncOrderTracking } = require("./courierGuyShipmentService");
+  const syncResult = await syncOrderTracking(doc);
+  const targetStatus = syncResult.targetStatus;
+
+  if (!targetStatus) {
+    return {
+      order: await Order.findById(orderId),
+      statusAdvanced: false,
+      tcgStatus: syncResult.tcgStatus,
+    };
+  }
+
+  const courierNote =
+    syncResult.tcgStatus != null
+      ? `${note} (${syncResult.tcgStatus})`
+      : note;
+
+  let current = await Order.findById(orderId);
+
+  const advanceToShipped = async () => {
+    if (!current || !["PLACED", "PROCESSING"].includes(current.orderStatus)) return;
+    if (!current.tracking?.trackingNumber?.trim()) return;
+    current = await updateStatus(
+      orderId,
+      {
+        status: "SHIPPED",
+        note: courierNote,
+        skipNotify: targetStatus === "DELIVERED",
+      },
+      { actorUserId: null }
+    );
+  };
+
+  const advanceToDelivered = async () => {
+    if (!current || current.orderStatus !== "SHIPPED") return;
+    current = await updateStatus(
+      orderId,
+      { status: "DELIVERED", note: courierNote },
+      { actorUserId: null }
+    );
+  };
+
+  if (targetStatus === "SHIPPED" || targetStatus === "DELIVERED") {
+    await advanceToShipped();
+    current = await Order.findById(orderId);
+  }
+  if (targetStatus === "DELIVERED") {
+    await advanceToDelivered();
+    current = await Order.findById(orderId);
+  }
+
+  const statusAdvanced = Boolean(current && current.orderStatus !== before);
+  return {
+    order: current,
+    statusAdvanced,
+    tcgStatus: syncResult.tcgStatus,
+    targetStatus,
+  };
+};
+
 const syncOrderCourierTracking = async (orderId, { userId, isAdmin } = {}) => {
   const order = await getOrderById(orderId, { userId, isAdmin });
   if (!order.delivery?.shipmentId) {
     throw new HttpError("No Courier Guy shipment linked to this order", 404);
   }
-  const { syncOrderTracking } = require("./courierGuyShipmentService");
-  const doc = await Order.findById(orderId);
-  const result = await syncOrderTracking(doc);
+  await applyCourierStatusFromTracking(orderId);
   return getOrderById(orderId, { userId, isAdmin });
 };
 
@@ -567,6 +639,8 @@ const updateStatus = async (
         if (order.paymentMethod === "COD" && order.paymentStatus === "PENDING") {
           order.paymentStatus = "PAID";
         }
+        order.tracking = order.tracking || {};
+        order.tracking.deliveredAt = order.tracking.deliveredAt || new Date();
         didDeliver = true;
       }
 
@@ -596,6 +670,14 @@ const updateStatus = async (
       .catch((err) =>
         console.error(
           "[orderService] sendDeliveryConfirmationPrompt failed:",
+          err?.message || err
+        )
+      );
+    orderEmailService
+      .sendOrderDeliveredAdminNotification(updated)
+      .catch((err) =>
+        console.error(
+          "[orderService] sendOrderDeliveredAdminNotification failed:",
           err?.message || err
         )
       );
@@ -1065,6 +1147,7 @@ module.exports = {
   adminCancelOrder,
   attemptPaystackRefund,
   notifyCustomerOrderStatus,
+  applyCourierStatusFromTracking,
   syncOrderCourierTracking,
   _internal: {
     nextOrderNumber,

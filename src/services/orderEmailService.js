@@ -256,6 +256,43 @@ const sendDeliveryConfirmationPrompt = async (order) => {
 };
 
 /**
+ * Email to the admin mailbox when an order is marked DELIVERED (manual or Courier Guy).
+ */
+const sendOrderDeliveredAdminNotification = async (order) => {
+  if (!order) return { delivered: false, reason: "no-order" };
+  const to = adminInbox();
+  if (!to) return { delivered: false, reason: "no-admin-inbox" };
+
+  const buyer = await loadRecipientEmail(order.user);
+  const tracking = order.tracking || {};
+  const subject = `[${appName()}] Order ${order.orderNumber} delivered`;
+  const trackingLine = tracking.trackingUrl
+    ? `<a href="${escapeHtml(tracking.trackingUrl)}" style="color:#4f46e5;">${escapeHtml(tracking.trackingNumber || "Track shipment")}</a>`
+    : escapeHtml(tracking.trackingNumber || "—");
+
+  const body = `
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">
+      Order <strong>${escapeHtml(order.orderNumber)}</strong> has been marked as delivered.
+    </p>
+    <table width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;font-size:14px;">
+      <tr><td style="padding:6px 0;color:#6b7280;width:140px;">Buyer</td><td>${escapeHtml(buyer?.fullName || "—")} ${buyer?.email ? `&lt;${escapeHtml(buyer.email)}&gt;` : ""}</td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280;">Courier</td><td><strong>${escapeHtml(tracking.courier || "The Courier Guy")}</strong></td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280;">Tracking</td><td>${trackingLine}</td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280;">Delivered at</td><td>${escapeHtml(tracking.deliveredAt ? new Date(tracking.deliveredAt).toISOString() : new Date().toISOString())}</td></tr>
+    </table>
+    ${renderItemsTable(order.items, order.currency)}
+    <div style="margin-top:24px;font-size:13px;color:#6b7280;text-transform:uppercase;letter-spacing:1px;">Shipped to</div>
+    <div style="margin-top:6px;font-size:14px;line-height:1.5;">${renderAddress(order.shippingAddress)}</div>`;
+
+  return safeSend({
+    to,
+    subject,
+    html: cardShell({ accent: "#059669", banner: "Order delivered", title: subject, body }),
+    text: `Order ${order.orderNumber} delivered to ${buyer?.fullName || "customer"}. Tracking: ${tracking.trackingNumber || "—"}`,
+  });
+};
+
+/**
  * Email to the buyer whenever their CANCELLATION / REFUND / REPLACEMENT request
  * transitions (APPROVED / REJECTED / COMPLETED).
  */
@@ -548,6 +585,7 @@ const sendReplacementRejected = async (request) => {
 module.exports = {
   sendOrderConfirmation,
   sendOrderAdminNotification,
+  sendOrderDeliveredAdminNotification,
   sendTrackingShared,
   sendDeliveryConfirmationPrompt,
   sendRequestStatusUpdate,

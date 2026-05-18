@@ -1,7 +1,6 @@
 const Order = require("../models/Order");
 const { tcgEnabled, trackingSyncIntervalMs } = require("../config/courierGuy");
-const { syncOrderTracking } = require("./courierGuyShipmentService");
-const { notifyCustomerOrderStatus } = require("./orderService");
+const { applyCourierStatusFromTracking } = require("./orderService");
 
 const syncDueOrders = async ({ limit = 40 } = {}) => {
   if (!tcgEnabled) return { processed: 0 };
@@ -19,19 +18,11 @@ const syncDueOrders = async ({ limit = 40 } = {}) => {
 
   for (const order of orders) {
     try {
-      const before = order.orderStatus;
-      const result = await syncOrderTracking(order);
+      const result = await applyCourierStatusFromTracking(order._id, {
+        note: "Courier tracking sync",
+      });
       processed += 1;
-      if (result.statusAdvanced) {
-        advanced += 1;
-        const fresh = await Order.findById(order._id).select("orderStatus").lean();
-        if (fresh && fresh.orderStatus !== before) {
-          notifyCustomerOrderStatus(order._id, {
-            newStatus: fresh.orderStatus,
-            note: "Courier tracking update",
-          });
-        }
-      }
+      if (result.statusAdvanced) advanced += 1;
     } catch (err) {
       console.warn(
         `[tcg] tracking sync failed for order ${order.orderNumber}:`,

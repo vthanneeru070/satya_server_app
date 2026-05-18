@@ -14,6 +14,12 @@ const addBusinessDays = (from, days) => {
   return d;
 };
 
+/** After this many ms from mock shipment creation, tracking reports "delivered". */
+const MOCK_DELIVERED_AFTER_MS =
+  Number(process.env.TCG_MOCK_DELIVERED_AFTER_MS) || 120_000;
+
+const mockShipmentCreatedAt = new Map();
+
 const getMockRates = ({ kitCount = 1 } = {}) => {
   const now = new Date();
   const qty = Math.max(1, Number(kitCount) || 1);
@@ -55,6 +61,7 @@ const createMockShipment = ({ serviceLevelCode = "OVN" } = {}) => {
   mockShipmentSeq += 1;
   const waybill = `TCGD-MOCK-${mockShipmentSeq}`;
   const now = new Date();
+  mockShipmentCreatedAt.set(mockShipmentSeq, now);
   return {
     id: mockShipmentSeq,
     custom_tracking_reference: waybill,
@@ -65,27 +72,82 @@ const createMockShipment = ({ serviceLevelCode = "OVN" } = {}) => {
   };
 };
 
-const getMockTracking = (shipmentId, waybill) => ({
-  shipment_id: shipmentId,
-  custom_tracking_reference: waybill,
-  status: "in-transit",
-  tracking_events: [
-    {
-      id: 1,
-      date: new Date().toISOString(),
-      status: "submitted",
-      message: "Shipment created (mock)",
-      location: "Johannesburg",
-    },
-    {
-      id: 2,
-      date: new Date().toISOString(),
+const getMockTracking = (shipmentId, waybill) => {
+  const id = Number(shipmentId) || 0;
+  const created = mockShipmentCreatedAt.get(id);
+  const ageMs = created ? Date.now() - created.getTime() : 0;
+  const nowIso = new Date().toISOString();
+
+  if (ageMs >= MOCK_DELIVERED_AFTER_MS) {
+    return {
+      shipment_id: id,
+      custom_tracking_reference: waybill,
+      status: "delivered",
+      tracking_events: [
+        {
+          id: 1,
+          date: nowIso,
+          status: "submitted",
+          message: "Shipment created (mock)",
+          location: "Johannesburg",
+        },
+        {
+          id: 2,
+          date: nowIso,
+          status: "in-transit",
+          message: "Parcel in transit (mock)",
+          location: "Hub",
+        },
+        {
+          id: 3,
+          date: nowIso,
+          status: "delivered",
+          message: "Delivered to recipient (mock)",
+          location: "Destination",
+        },
+      ],
+    };
+  }
+
+  if (ageMs >= MOCK_DELIVERED_AFTER_MS / 2) {
+    return {
+      shipment_id: id,
+      custom_tracking_reference: waybill,
       status: "in-transit",
-      message: "Parcel in transit (mock)",
-      location: "Hub",
-    },
-  ],
-});
+      tracking_events: [
+        {
+          id: 1,
+          date: nowIso,
+          status: "submitted",
+          message: "Shipment created (mock)",
+          location: "Johannesburg",
+        },
+        {
+          id: 2,
+          date: nowIso,
+          status: "in-transit",
+          message: "Parcel in transit (mock)",
+          location: "Hub",
+        },
+      ],
+    };
+  }
+
+  return {
+    shipment_id: id,
+    custom_tracking_reference: waybill,
+    status: "submitted",
+    tracking_events: [
+      {
+        id: 1,
+        date: nowIso,
+        status: "submitted",
+        message: "Shipment created (mock)",
+        location: "Johannesburg",
+      },
+    ],
+  };
+};
 
 module.exports = {
   getMockRates,

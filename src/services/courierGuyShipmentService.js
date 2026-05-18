@@ -139,21 +139,35 @@ const createShipmentForOrder = async (orderId) => {
   }
 };
 
-const mapTcgStatusToOrderStatus = (tcgStatus) => {
-  const s = String(tcgStatus || "").toLowerCase();
-  if (["delivered", "delivery-complete", "completed"].includes(s)) return "DELIVERED";
-  if (
-    [
-      "collected",
-      "in-transit",
-      "in_transit",
-      "out-for-delivery",
-      "out_for_delivery",
-      "at-hub",
-      "at_hub",
-    ].includes(s)
-  ) {
-    return "SHIPPED";
+const DELIVERED_TCG_STATUSES = new Set([
+  "delivered",
+  "delivery-complete",
+  "delivery_complete",
+  "completed",
+]);
+
+const SHIPPED_TCG_STATUSES = new Set([
+  "collected",
+  "in-transit",
+  "in_transit",
+  "out-for-delivery",
+  "out_for_delivery",
+  "at-hub",
+  "at_hub",
+]);
+
+const mapTcgStatusToOrderStatus = (tcgStatus, trackingEvents = []) => {
+  const fromTop = String(tcgStatus || "").toLowerCase();
+  if (DELIVERED_TCG_STATUSES.has(fromTop)) return "DELIVERED";
+  if (SHIPPED_TCG_STATUSES.has(fromTop)) return "SHIPPED";
+
+  for (const e of trackingEvents || []) {
+    const es = String(e?.status || "").toLowerCase();
+    if (DELIVERED_TCG_STATUSES.has(es)) return "DELIVERED";
+  }
+  for (const e of trackingEvents || []) {
+    const es = String(e?.status || "").toLowerCase();
+    if (SHIPPED_TCG_STATUSES.has(es)) return "SHIPPED";
   }
   return null;
 };
@@ -200,34 +214,13 @@ const syncOrderTracking = async (order) => {
     };
   }
 
-  const mapped = mapTcgStatusToOrderStatus(tracking.status);
-  let statusAdvanced = false;
-
-  if (mapped === "SHIPPED" && ["PLACED", "PROCESSING"].includes(order.orderStatus)) {
-    order.orderStatus = "SHIPPED";
-    order.tracking.dispatchedAt = order.tracking.dispatchedAt || new Date();
-    order.tracking.sharedWithUserAt = new Date();
-    order.orderStatusHistory.push({
-      status: "SHIPPED",
-      at: new Date(),
-      note: `Auto-updated from Courier Guy (${tracking.status})`,
-    });
-    statusAdvanced = true;
-  }
-
-  if (mapped === "DELIVERED" && ["PLACED", "PROCESSING", "SHIPPED"].includes(order.orderStatus)) {
-    order.orderStatus = "DELIVERED";
-    order.tracking.deliveredAt = order.tracking.deliveredAt || new Date();
-    order.orderStatusHistory.push({
-      status: "DELIVERED",
-      at: new Date(),
-      note: `Auto-updated from Courier Guy (${tracking.status})`,
-    });
-    statusAdvanced = true;
-  }
+  const targetStatus = mapTcgStatusToOrderStatus(
+    tracking.status,
+    tracking.tracking_events
+  );
 
   await order.save();
-  return { synced: true, statusAdvanced, tcgStatus: tracking.status, waybill };
+  return { synced: true, targetStatus, tcgStatus: tracking.status, waybill };
 };
 
 module.exports = {
