@@ -17,6 +17,7 @@ const {
 } = require("./fcmOrderNotifyService");
 const invoiceService = require("./invoiceService");
 const orderEmailService = require("./orderEmailService");
+const { createShipmentForOrder } = require("./courierGuyShipmentService");
 
 const appendOrderHistory = (order, status, note = "") => {
   order.orderStatusHistory = order.orderStatusHistory || [];
@@ -540,6 +541,8 @@ const verifyPaymentByReference = async (reference, { userId, isAdmin = false } =
       });
     } else {
       await notifyOrderPlaced(out.order.user, { order: out.order });
+
+      await createShipmentForOrder(out.order._id);
 
       // Best-effort invoice + email fan-out for ORDER payments. None of these
       // should fail the verify API — invoice can be regenerated, emails can be

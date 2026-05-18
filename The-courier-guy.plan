@@ -1,0 +1,610 @@
+# The Courier Guy — Integration Plan (Satya Pooja Kit Orders)
+
+End-to-end plan for **The Courier Guy (TCG / ShipLogic)** door-to-door shipping: quotes at checkout, delivery fee on order total, automatic shipment after payment, and tracking in the mobile app and admin panel.
+
+**API docs:** https://api-tcg.co.za/  
+
+| Environment | Base URL | When |
+|-------------|----------|------|
+| **Test (default in dev)** | `https://api-sandbox.shiplogic.com` | `TCG_API_ENV=test` or `NODE_ENV` ≠ `production` |
+| **Production** | `https://api-tcg.co.za` | `TCG_API_ENV=production` |
+| **Mock (no HTTP)** | — | `TCG_USE_MOCK=true` |
+
+---
+
+## 1. Business goal
+
+| Step | Who | What happens |
+|------|-----|----------------|
+| 1 | User | Selects Pooja Kit(s), adds to cart |
+| 2 | User | Enters delivery address (South Africa) |
+| 3 | Backend | Calls TCG **rates** API → returns delivery options + prices + ETA |
+| 4 | User | Chooses **Express (~1–2 days)** or **Standard (~3–4 days)** |
+| 5 | User | Sees **Product subtotal + delivery = total** |
+| 6 | User | Pays via **Paystack** (full total) |
+| 7 | Backend | Creates TCG **shipment** → waybill / tracking number |
+| 8 | System | Syncs tracking → updates order status + push + inbox notifications |
+
+---
+
+## 2. User journey (mobile)
+
+```mermaid
+sequenceDiagram
+  participant U as User App
+  participant B as Satya API
+  participant T as The Courier Guy
+  participant P as Paystack
+
+  U->>B: POST /shipping/quotes (address + cart)
+  B->>T: POST /rates (D2D)
+  T-->>B: OVN + ECO rates
+  B-->>U: options (price, ETA)
+
+  U->>B: POST /orders/checkout + deliveryOption
+  B-->>U: order (subtotal, shipping, total)
+
+  U->>P: Pay order.totalAmount
+  P-->>B: webhook / verify
+  B->>T: POST /shipments
+  T-->>B: waybill + shipment id
+  B-->>U: order with tracking
+
+  loop Every 15 min + on demand
+    B->>T: GET /tracking/shipments
+    T-->>B: status + events
+    B-->>U: SHIPPED / DELIVERED notifications
+  end
+```
+
+---
+
+## 3. Delivery options shown in the app
+
+TCG returns multiple **service levels**. We expose two to the user:
+
+| App label | `optionKey` | TCG `serviceLevelCode` | Typical ETA (from TCG) |
+|-----------|-------------|------------------------|-------------------------|
+| Express delivery | `express` | `OVN` (Overnight) | ~1–2 business days |
+| Standard delivery | `standard` | `ECO` (Economy) | ~3–4 business days |
+
+Configurable via env: `TCG_OFFERED_SERVICE_LEVELS=OVN,ECO`
+
+---
+
+## 4. Backend architecture (implemented)
+
+```
+src/config/courierGuy.js              → env, warehouse address, parcel defaults
+src/utils/saAddressZones.js           → province → TCG zone (GP, WC, KZN, …)
+src/services/courierGuyClient.js      → HTTP: /rates, /shipments, /tracking
+src/services/shippingQuoteService.js  → build parcels, map rates → app options
+src/services/courierGuyShipmentService.js → create shipment after pay, sync tracking
+src/services/courierGuyTrackingSyncService.js → cron every 15 min
+src/routes/shippingRoutes.js          → POST /shipping/quotes
+src/services/orderService.js          → subtotal + shipping on checkout, pricing validation
+src/services/paymentService.js        → createShipmentForOrder after Paystack success
+```
+
+### Order pricing fields
+
+| Field | Meaning |
+|-------|---------|
+| `subtotalAmount` | Sum of product line totals only |
+| `shippingAmount` | Selected TCG option price |
+| `totalAmount` | `subtotalAmount + shippingAmount` (Paystack charges this) |
+
+### `order.delivery` snapshot
+
+| Field | Purpose |
+|-------|---------|
+| `provider` | `THE_COURIER_GUY` |
+| `serviceLevelCode` | `OVN` or `ECO` |
+| `serviceLevelName` | e.g. Overnight |
+| `optionKey` | `express` / `standard` |
+| `label` | UI label stored on order |
+| `estimatedDeliveryFrom` / `To` | From TCG quote |
+| `shipmentId` | TCG shipment id (after pay) |
+| `waybill` | Tracking reference e.g. `TCGD000500` |
+| `shipmentStatus` | TCG status string |
+| `trackingEvents[]` | `{ status, message, at, location }` |
+
+### `order.tracking` (existing + auto-filled)
+
+| Field | Set when |
+|-------|----------|
+| `courier` | `The Courier Guy` |
+| `trackingNumber` | Waybill from TCG |
+| `trackingUrl` | Public track URL + waybill |
+| `dispatchedAt` | Auto when status → SHIPPED |
+| `deliveredAt` | Auto when status → DELIVERED |
+
+---
+
+## 5. API reference (Satya backend)
+
+Base: `/api/v1`  
+Auth: `Authorization: Bearer <user_jwt>` unless noted.
+
+### 5.1 Get delivery quotes
+
+**When:** After user enters shipping address (before payment).
+
+```http
+POST /api/v1/shipping/quotes
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "shippingAddress": {
+    "fullName": "Jane Doe",
+    "phone": "0821234567",
+    "addressLine1": "12 Main Road",
+    "city": "Cape Town",
+    "state": "Western Cape",
+    "postalCode": "8001",
+    "country": "South Africa"
+  }
+}
+```
+
+Optional: pass `items` instead of using cart:
+
+```json
+{
+  "shippingAddress": { ... },
+  "items": [{ "productId": "674a...", "quantity": 2 }],
+  "useCart": false
+}
+```
+
+**Success `200` (example):**
+
+```json
+{
+  "success": true,
+  "message": "Delivery options fetched",
+  "data": {
+    "enabled": true,
+    "provider": "THE_COURIER_GUY",
+    "subtotalAmount": 450,
+    "currency": "ZAR",
+    "kitCount": 2,
+    "options": [
+      {
+        "optionKey": "express",
+        "serviceLevelCode": "OVN",
+        "serviceLevelName": "Overnight",
+        "label": "Express delivery",
+        "subtitle": "Expect delivery between 1 - 2 business days.",
+        "price": 120.5,
+        "currency": "ZAR",
+        "estimatedDeliveryFrom": "2026-05-20T00:00:00.000Z",
+        "estimatedDeliveryTo": "2026-05-22T00:00:00.000Z"
+      },
+      {
+        "optionKey": "standard",
+        "serviceLevelCode": "ECO",
+        "serviceLevelName": "Economy",
+        "label": "Standard delivery",
+        "subtitle": "Expect delivery between 3 - 4 business days.",
+        "price": 85,
+        "currency": "ZAR",
+        "estimatedDeliveryFrom": "2026-05-23T00:00:00.000Z",
+        "estimatedDeliveryTo": "2026-05-26T00:00:00.000Z"
+      }
+    ]
+  }
+}
+```
+
+**If TCG not configured:** `enabled: false` + message (503 on strict paths).
+
+---
+
+### 5.2 Checkout (create order with delivery)
+
+**When:** User confirms cart + address + delivery option.
+
+```http
+POST /api/v1/orders/checkout
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "shippingAddress": { ... same as quotes ... },
+  "deliveryOption": {
+    "serviceLevelCode": "OVN",
+    "shippingAmount": 120.5
+  }
+}
+```
+
+**Rules:**
+
+- `deliveryOption` is **required** when TCG is enabled (`TCG_API_KEY` + warehouse address set).
+- Server **re-quotes** TCG and rejects if `shippingAmount` differs by more than `TCG_SHIPPING_PRICE_TOLERANCE` (default **R1**) → **`409`** “Delivery price has changed”.
+- Response order includes `subtotalAmount`, `shippingAmount`, `totalAmount`, `delivery`.
+
+Alternative: `POST /api/v1/orders` with same body + optional `items` / `paymentMethod`.
+
+---
+
+### 5.3 Pay (unchanged Paystack flow)
+
+```http
+POST /api/v1/payments/initialize
+{ "orderId": "<orderId>" }
+
+GET /api/v1/payments/verify/:reference
+```
+
+Paystack amount = **`order.totalAmount`** (products + shipping).
+
+**After successful payment (automatic):**
+
+1. Stock deducted (existing logic)  
+2. `notifyOrderPlaced` → push + inbox `ORDER_PLACED`  
+3. **`createShipmentForOrder`** → TCG `POST /shipments`  
+4. Order → `PROCESSING`, `tracking.trackingNumber` = waybill  
+5. Emails / invoice (existing)
+
+---
+
+### 5.4 Refresh tracking (user or admin)
+
+```http
+POST /api/v1/orders/:orderId/sync-courier-tracking
+Authorization: Bearer <token>
+```
+
+Pulls latest events from TCG and may advance:
+
+- `PROCESSING` / `PLACED` → **`SHIPPED`** when TCG reports in-transit / collected  
+- → **`DELIVERED`** when TCG reports delivered  
+
+Also sends **`ORDER_SHIPPED`** / **`ORDER_DELIVERED`** inbox + FCM (existing notification pipeline).
+
+**Background:** scheduler runs every **15 minutes** (`TCG_TRACKING_SYNC_INTERVAL_MS`, default 900000).
+
+---
+
+### 5.5 Admin dispatch (optional manual step)
+
+If TCG already created a waybill, admin can mark shipped without re-entering tracking:
+
+```http
+POST /api/v1/orders/:id/dispatch
+Authorization: Bearer <admin_jwt>
+
+{ "note": "Handed to courier" }
+```
+
+If no waybill yet, admin still uses full body:
+
+```json
+{
+  "courier": "The Courier Guy",
+  "trackingNumber": "TCGD000500",
+  "trackingUrl": "https://...",
+  "note": "Dispatched"
+}
+```
+
+---
+
+## 6. The Courier Guy API mapping
+
+| Satya action | TCG endpoint | Method |
+|--------------|--------------|--------|
+| Quote | `/rates` | POST |
+| Create shipment | `/shipments` | POST |
+| Track by shipment id | `/tracking/shipments?id={id}` | GET |
+| Public track by waybill | `/tracking/shipments/public?waybill=` | GET |
+
+**Auth:** `Authorization: Bearer {TCG_API_KEY}` and query `api_key={TCG_API_KEY}`  
+**Key format:** `accountId|secret` (from TCG / ShipLogic portal)
+
+**D2D rates request (conceptual):**
+
+- `collection_address` — warehouse (from env)  
+- `delivery_address` — user shipping address  
+- `parcels[]` — dimensions/weight (defaults: 40×30×8 cm, 2 kg × kit qty)
+
+**Create shipment** additionally requires:
+
+- `collection_contact` / `delivery_contact` (name, email, mobile)  
+- `service_level_code` — `OVN` or `ECO` from user selection  
+
+---
+
+## 7. Environment variables
+
+Add to `.env` (see `.env.example`):
+
+```env
+# test (sandbox) | production — dev defaults to test
+TCG_API_ENV=test
+
+# Optional: no real TCG calls (Flutter / local backend)
+# TCG_USE_MOCK=true
+
+# Sandbox API key from TCG / ShipLogic portal (NOT production key)
+TCG_API_KEY=yourSandboxAccountId|yourSandboxSecret
+
+# Only if support gives a different test host:
+# TCG_API_BASE_URL=https://api-sandbox.shiplogic.com
+
+# Warehouse (collection) — JSON recommended
+TCG_COLLECTION_ADDRESS_JSON={"type":"business","company":"Satya","street_address":"...","city":"Johannesburg","code":"2000","zone":"GP","country":"South Africa","entered_address":"..."}
+TCG_COLLECTION_CONTACT_JSON={"name":"Warehouse","email":"warehouse@example.com","mobile_number":"+27821234567"}
+
+# Or split fields:
+# TCG_COLLECTION_STREET=...
+# TCG_COLLECTION_CITY=...
+# TCG_COLLECTION_POSTAL_CODE=...
+# TCG_COLLECTION_ZONE=GP
+# TCG_COLLECTION_CONTACT_NAME=...
+# TCG_COLLECTION_CONTACT_EMAIL=...
+# TCG_COLLECTION_CONTACT_PHONE=...
+
+# Parcel defaults (one consolidated parcel per order)
+TCG_DEFAULT_PARCEL_LENGTH_CM=40
+TCG_DEFAULT_PARCEL_WIDTH_CM=30
+TCG_DEFAULT_PARCEL_HEIGHT_CM=8
+TCG_DEFAULT_PARCEL_WEIGHT_KG=2
+
+# App-facing service levels
+TCG_OFFERED_SERVICE_LEVELS=OVN,ECO
+
+# Price mismatch tolerance on checkout (ZAR)
+TCG_SHIPPING_PRICE_TOLERANCE=1
+
+# Tracking poll interval (ms)
+TCG_TRACKING_SYNC_INTERVAL_MS=900000
+
+TCG_TRACKING_PUBLIC_BASE_URL=https://www.thecourierguy.co.za/track
+```
+
+**Enable check:**
+
+- `TCG_USE_MOCK=true` → enabled without API key  
+- Else → `TCG_API_KEY` + collection address + contact  
+
+---
+
+## 7b. Test API modes (use these in UAT / local)
+
+### Mode A — Mock (fastest, no TCG account)
+
+```env
+TCG_USE_MOCK=true
+```
+
+- Quotes return fixed **Express** / **Standard** prices  
+- Shipment waybill: `TCGD-MOCK-9001`, etc.  
+- Response includes `apiEnvironment: "mock"`  
+
+### Mode B — Sandbox HTTP (real test API)
+
+```env
+TCG_API_ENV=test
+TCG_API_KEY=<sandbox_accountId|sandbox_secret>
+TCG_COLLECTION_ADDRESS_JSON={...}
+TCG_COLLECTION_CONTACT_JSON={...}
+```
+
+- Calls **`https://api-sandbox.shiplogic.com`** (`POST /rates`, `POST /shipments`)  
+- Use credentials from **ShipLogic / TCG sandbox** portal (not live billing)  
+- Logs prefixed `[tcg:test]`  
+
+### Mode C — Production
+
+```env
+NODE_ENV=production
+TCG_API_ENV=production
+TCG_API_KEY=<live_key>
+```
+
+- Calls **`https://api-tcg.co.za`**
+
+### Quote response flags (all modes)
+
+```json
+{
+  "apiEnvironment": "test",
+  "apiBaseUrl": "https://api-sandbox.shiplogic.com",
+  "isTestApi": true
+}
+```
+
+---
+
+## 8. Flutter implementation guide
+
+### Screens / steps
+
+1. **Cart** — unchanged  
+2. **Delivery address** — form: fullName, phone, addressLine1, city, state (province), postalCode, country (default South Africa)  
+3. **Delivery options** — on “Continue”, call `POST /shipping/quotes`  
+   - Show 2 cards: Express / Standard with **price**, **subtitle**, **estimated dates**  
+   - Store selected `serviceLevelCode` + `shippingAmount`  
+4. **Order summary** — `subtotalAmount` + `shippingAmount` = `totalAmount`  
+5. **Checkout** — `POST /orders/checkout` with `shippingAddress` + `deliveryOption`  
+6. **Paystack** — initialize with returned `orderId`; amount is server-side `totalAmount`  
+7. **Order detail** — show `tracking.trackingNumber`, `tracking.trackingUrl`, list `delivery.trackingEvents`  
+8. **Pull to refresh** — `POST /orders/:id/sync-courier-tracking`
+
+### State to keep between quotes and checkout
+
+```dart
+class DeliverySelection {
+  final String serviceLevelCode; // OVN | ECO
+  final double shippingAmount;
+  final String optionKey;        // express | standard
+}
+```
+
+### Error handling
+
+| HTTP | UX |
+|------|-----|
+| 409 | “Delivery price updated — please review options” → re-call quotes |
+| 503 | “Delivery not available — contact support” |
+| 400 | Show validation message from API |
+
+### Notifications (already on backend)
+
+| Event | Inbox `type` |
+|-------|----------------|
+| Paid | `ORDER_PLACED` |
+| Shipped | `ORDER_SHIPPED` |
+| Delivered | `ORDER_DELIVERED` |
+
+List: `GET /api/v1/user/notifications`
+
+---
+
+## 9. Admin panel guide
+
+1. **Orders list** — show `orderStatus`, `tracking.trackingNumber`, `delivery.shipmentStatus`  
+2. **Order detail** — `delivery.trackingEvents`, waybill, estimated dates  
+3. **Dispatch** — prefer automatic TCG waybill; manual dispatch only if shipment creation failed (check logs `[tcg]`)  
+4. **Retry shipment** (future): admin endpoint to call `createShipmentForOrder` if pay succeeded but shipment failed  
+
+---
+
+## 10. Order status automation
+
+| TCG-ish status | Order status |
+|----------------|--------------|
+| submitted / deposit-pending | `PROCESSING` (after shipment create) |
+| collected, in-transit, out-for-delivery | `SHIPPED` |
+| delivered | `DELIVERED` |
+
+User still confirms receipt → `FULFILLED` via `POST /orders/:id/confirm-delivery` (existing).
+
+---
+
+## 11. Testing checklist
+
+### Config
+
+- [ ] `TCG_API_KEY` valid on UAT/Render  
+- [ ] Collection address + contact JSON valid  
+- [ ] Server logs: `[tcg] tracking sync scheduler started`  
+
+### Quotes
+
+- [ ] `POST /shipping/quotes` with Gauteng → Western Cape address returns 2 options  
+- [ ] Prices > 0, dates parse in app  
+
+### Checkout
+
+- [ ] Checkout with matching `shippingAmount` succeeds  
+- [ ] Tampered `shippingAmount` returns **409**  
+
+### Payment → shipment
+
+- [ ] After Paystack verify, order has `delivery.shipmentId` and `tracking.trackingNumber`  
+- [ ] Logs: `[tcg] shipment created for order SATYA-...`  
+
+### Tracking
+
+- [ ] `POST .../sync-courier-tracking` returns updated `trackingEvents`  
+- [ ] Scheduler updates orders in `PROCESSING` / `SHIPPED`  
+
+### Notifications
+
+- [ ] User receives inbox rows for placed / shipped / delivered  
+
+---
+
+## 12. cURL examples (local)
+
+```bash
+BASE=http://localhost:3000/api/v1
+TOKEN=<user_jwt>
+
+# 1) Quotes
+curl -s -X POST "$BASE/shipping/quotes" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "shippingAddress": {
+      "fullName": "Test User",
+      "phone": "0821234567",
+      "addressLine1": "1 Long Street",
+      "city": "Cape Town",
+      "state": "Western Cape",
+      "postalCode": "8001",
+      "country": "South Africa"
+    }
+  }'
+
+# 2) Checkout (use serviceLevelCode + shippingAmount from quote)
+curl -s -X POST "$BASE/orders/checkout" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "shippingAddress": { ... },
+    "deliveryOption": {
+      "serviceLevelCode": "OVN",
+      "shippingAmount": 120.5
+    }
+  }'
+
+# 3) Sync tracking
+curl -s -X POST "$BASE/orders/<orderId>/sync-courier-tracking" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+## 13. Known limitations & follow-ups
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Single parcel per order | Current | Weight = `2 kg × total kit qty`; dims from env |
+| Per-product weight/dims | Future | Add fields on `Product` or inventory kit |
+| Geocoding lat/lng | Optional | TCG accepts `entered_address`; lat/lng improves accuracy |
+| Locker delivery (D2L/L2L) | Not in v1 | TCG supports lockers — separate UI flow |
+| Cancel shipment on order cancel | Future | `PUT /shipments/{id}` cancel |
+| Admin “retry shipment” API | Future | For failed post-payment creates |
+| COD orders | Partial | Shipment also created on COD `createOrder` |
+
+---
+
+## 14. Troubleshooting
+
+| Symptom | Check |
+|---------|--------|
+| `503` on quotes | `TCG_API_KEY`, collection JSON env vars |
+| `502` Courier Guy API error | Key format, account active, TCG sandbox vs prod |
+| No shipment after pay | Logs `[tcg] createShipmentForOrder`; order must have `delivery.serviceLevelCode` |
+| Checkout requires deliveryOption | Expected when TCG enabled |
+| Tracking never updates | Scheduler running; call sync endpoint; verify `delivery.shipmentId` |
+| Admin dispatch fails “tracking required” | Wait for auto waybill or pass `trackingNumber` |
+
+---
+
+## 15. File index (repo)
+
+| Path | Role |
+|------|------|
+| `src/config/courierGuy.js` | Configuration |
+| `src/services/courierGuyClient.js` | TCG HTTP client |
+| `src/services/shippingQuoteService.js` | Quotes → app options |
+| `src/services/courierGuyShipmentService.js` | Shipment + sync |
+| `src/services/courierGuyTrackingSyncService.js` | Background job |
+| `src/routes/shippingRoutes.js` | `/shipping/quotes` |
+| `src/models/Order.js` | `subtotalAmount`, `shippingAmount`, `delivery` |
+| `src/services/orderService.js` | Pricing validation, checkout |
+| `src/services/paymentService.js` | Post-pay shipment |
+| `src/validations/shippingValidation.js` | Quote request schema |
+| `src/validations/orderValidation.js` | `deliveryOption` on checkout |
+| `.env.example` | TCG env template |
+
+---
+
+*Last updated: test/sandbox via `TCG_API_ENV=test` + `TCG_USE_MOCK`, production via `api-tcg.co.za`.*

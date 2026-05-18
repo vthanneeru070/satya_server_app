@@ -151,6 +151,18 @@ const initializePaystack = async (req, res, next) => {
 };
 
 /** @deprecated Use GET /api/v1/payments/verify/:reference */
+const syncCourierTracking = async (req, res, next) => {
+  try {
+    const order = await orderService.syncOrderCourierTracking(req.params.id, {
+      userId: req.user.userId,
+      isAdmin: isAdminRole(req),
+    });
+    return sendSuccess(res, { order }, "Tracking synced from Courier Guy");
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const verifyPaystack = async (req, res, next) => {
   try {
     const reference =
@@ -186,4 +198,5 @@ module.exports = {
   adminCancelPaidOrder,
   initializePaystack,
   verifyPaystack,
+  syncCourierTracking,
 };

@@ -17,6 +17,7 @@ const CUSTOMER_INBOX_NOTIFY_STATUSES = new Set([
   ...Object.keys(ORDER_INBOX_TYPE_BY_STATUS),
 ]);
 const paystackService = require("./paystackService");
+const { tcgEnabled, shippingPriceTolerance } = require("../config/courierGuy");
 
 const ORDER_STATUS_TRANSITIONS = {
   PLACED: new Set(["PROCESSING", "CANCELLED"]),
@@ -214,9 +215,94 @@ const applyStockDeductionForOrder = async (order, session) => {
   if (productOps.length) await Product.bulkWrite(productOps, { session });
 };
 
+const resolveOrderPricing = async (
+  userId,
+  { shippingAddress, items, useCart, deliveryOption }
+) => {
+  const { snapshots, totalAmount: subtotalAmount, currency } = await buildOrderPayload(
+    userId,
+    { items, useCart }
+  );
+
+  if (!tcgEnabled) {
+    if (deliveryOption && Number(deliveryOption.shippingAmount) > 0) {
+      throw new HttpError("Courier delivery is not enabled on this server", 503);
+    }
+    return {
+      snapshots,
+      subtotalAmount,
+      shippingAmount: 0,
+      totalAmount: subtotalAmount,
+      currency,
+      delivery: null,
+    };
+  }
+
+  if (!deliveryOption?.serviceLevelCode) {
+    throw new HttpError(
+      "deliveryOption is required (serviceLevelCode and shippingAmount from /shipping/quotes)",
+      400
+    );
+  }
+
+  const shippingQuoteService = require("./shippingQuoteService");
+  const quotes = await shippingQuoteService.getDeliveryQuotes(userId, {
+    shippingAddress,
+    items,
+    useCart,
+  });
+  const selected = shippingQuoteService.findQuoteOption(
+    quotes,
+    deliveryOption.serviceLevelCode
+  );
+  if (!selected) {
+    throw new HttpError("Selected delivery option is no longer available", 400);
+  }
+
+  const clientShipping = Number(deliveryOption.shippingAmount);
+  if (
+    !Number.isFinite(clientShipping) ||
+    Math.abs(selected.price - clientShipping) > shippingPriceTolerance
+  ) {
+    throw new HttpError(
+      "Delivery price has changed. Please refresh delivery options and try again.",
+      409
+    );
+  }
+
+  const shippingAmount = selected.price;
+  return {
+    snapshots,
+    subtotalAmount,
+    shippingAmount,
+    totalAmount: subtotalAmount + shippingAmount,
+    currency,
+    delivery: {
+      provider: "THE_COURIER_GUY",
+      serviceLevelCode: selected.serviceLevelCode,
+      serviceLevelName: selected.serviceLevelName,
+      optionKey: selected.optionKey,
+      label: selected.label,
+      shippingAmount,
+      estimatedDeliveryFrom: selected.estimatedDeliveryFrom,
+      estimatedDeliveryTo: selected.estimatedDeliveryTo,
+    },
+  };
+};
+
 const persistOrder = async (
   userId,
-  { shippingAddress, snapshots, totalAmount, currency, paymentMethod, session }
+  {
+    shippingAddress,
+    snapshots,
+    subtotalAmount,
+    shippingAmount,
+    totalAmount,
+    currency,
+    paymentMethod,
+    delivery,
+    session,
+  }
 ) => {
   const orderNumber = await nextOrderNumber(session);
   const [order] = await Order.create(
@@ -225,6 +311,8 @@ const persistOrder = async (
         orderNumber,
         user: userId,
         items: snapshots,
+        subtotalAmount,
+        shippingAmount: shippingAmount || 0,
         totalAmount,
         currency,
         paymentStatus: "PENDING",
@@ -232,6 +320,7 @@ const persistOrder = async (
         paymentMethod: paymentMethod || "PAYSTACK",
         orderType: "NORMAL",
         shippingAddress,
+        delivery: delivery || undefined,
         inventoryReserved: false,
         orderStatusHistory: [{ status: "PLACED", at: new Date(), note: "Order created" }],
       },
@@ -244,7 +333,7 @@ const persistOrder = async (
 /**
  * Checkout from cart only (canonical flow). Does not modify inventory or clear cart.
  */
-const checkoutFromCart = async (userId, { shippingAddress } = {}) => {
+const checkoutFromCart = async (userId, { shippingAddress, deliveryOption } = {}) => {
   const addr = normalizeShippingAddress(shippingAddress);
   assertShippingComplete(addr);
 
@@ -252,14 +341,14 @@ const checkoutFromCart = async (userId, { shippingAddress } = {}) => {
   let order;
   try {
     await session.withTransaction(async () => {
-      const { snapshots, totalAmount, currency } = await buildOrderPayload(userId, {
+      const pricing = await resolveOrderPricing(userId, {
+        shippingAddress: addr,
         useCart: true,
+        deliveryOption,
       });
       order = await persistOrder(userId, {
         shippingAddress: addr,
-        snapshots,
-        totalAmount,
-        currency,
+        ...pricing,
         paymentMethod: "PAYSTACK",
         session,
       });
@@ -278,6 +367,7 @@ const createOrder = async (
   {
     items,
     shippingAddress,
+    deliveryOption,
     paymentMethod = "PAYSTACK",
     useCart = true,
   } = {}
@@ -289,15 +379,15 @@ const createOrder = async (
   let order;
   try {
     await session.withTransaction(async () => {
-      const { snapshots, totalAmount, currency } = await buildOrderPayload(userId, {
+      const pricing = await resolveOrderPricing(userId, {
+        shippingAddress: addr,
         items,
         useCart: !items?.length && useCart,
+        deliveryOption,
       });
       order = await persistOrder(userId, {
         shippingAddress: addr,
-        snapshots,
-        totalAmount,
-        currency,
+        ...pricing,
         paymentMethod,
         session,
       });
@@ -310,7 +400,26 @@ const createOrder = async (
   } finally {
     await session.endSession();
   }
+
+  if (order?.delivery?.serviceLevelCode && paymentMethod === "COD") {
+    const { createShipmentForOrder } = require("./courierGuyShipmentService");
+    createShipmentForOrder(order._id).catch((err) =>
+      console.error("[orderService] COD createShipmentForOrder failed:", err?.message || err)
+    );
+  }
+
   return order;
+};
+
+const syncOrderCourierTracking = async (orderId, { userId, isAdmin } = {}) => {
+  const order = await getOrderById(orderId, { userId, isAdmin });
+  if (!order.delivery?.shipmentId) {
+    throw new HttpError("No Courier Guy shipment linked to this order", 404);
+  }
+  const { syncOrderTracking } = require("./courierGuyShipmentService");
+  const doc = await Order.findById(orderId);
+  const result = await syncOrderTracking(doc);
+  return getOrderById(orderId, { userId, isAdmin });
 };
 
 const listMyOrders = async (userId, query = {}) => {
@@ -584,9 +693,25 @@ const dispatchOrder = async (
   { courier, trackingNumber, trackingUrl = "", note = "" },
   { actorUserId }
 ) => {
+  const existing = await Order.findOne({ _id: id, isDeleted: { $ne: true } })
+    .select("delivery tracking orderStatus")
+    .lean();
+
+  if (existing?.delivery?.waybill && !trackingNumber) {
+    return updateStatus(
+      id,
+      { status: "SHIPPED", note: note || "Dispatched via Courier Guy" },
+      { actorUserId }
+    );
+  }
+
   await adminSetTracking(
     id,
-    { courier, trackingNumber, trackingUrl },
+    {
+      courier: courier || "The Courier Guy",
+      trackingNumber,
+      trackingUrl,
+    },
     { actorUserId }
   );
 
@@ -939,10 +1064,13 @@ module.exports = {
   confirmDelivery,
   adminCancelOrder,
   attemptPaystackRefund,
+  notifyCustomerOrderStatus,
+  syncOrderCourierTracking,
   _internal: {
     nextOrderNumber,
     buildOrderPayload,
     normalizeShippingAddress,
+    assertShippingComplete,
     restockOrderItems,
     applyStockDeductionForOrder,
   },

@@ -2,6 +2,11 @@ const Joi = require("joi");
 
 const objectIdHex = Joi.string().trim().hex().length(24);
 
+const deliveryOptionSchema = Joi.object({
+  serviceLevelCode: Joi.string().trim().uppercase().required(),
+  shippingAmount: Joi.number().min(0).required(),
+});
+
 const shippingAddressSchema = Joi.object({
   fullName: Joi.string().trim().min(2).max(120).required(),
   phone: Joi.string().trim().min(5).max(20).required(),
@@ -26,6 +31,7 @@ const shippingAddressSchema = Joi.object({
 
 const checkoutOrderSchema = Joi.object({
   shippingAddress: shippingAddressSchema.required(),
+  deliveryOption: deliveryOptionSchema.optional(),
 });
 
 const createOrderSchema = Joi.object({
@@ -38,6 +44,7 @@ const createOrderSchema = Joi.object({
     )
     .optional(),
   shippingAddress: shippingAddressSchema.required(),
+  deliveryOption: deliveryOptionSchema.optional(),
   paymentMethod: Joi.string().valid("COD", "EFT", "PAYSTACK").default("PAYSTACK"),
 });
 
@@ -120,6 +127,7 @@ const adminCancelPaidSchema = Joi.object({
 });
 
 module.exports = {
+  deliveryOptionSchema,
   shippingAddressSchema,
   checkoutOrderSchema,
   createOrderSchema,

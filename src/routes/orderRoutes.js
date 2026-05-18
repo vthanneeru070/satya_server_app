@@ -17,6 +17,7 @@ const {
   adminCancelPaidOrder,
   initializePaystack,
   verifyPaystack,
+  syncCourierTracking,
 } = require("../controllers/orderController");
 const {
   checkoutOrderSchema,
@@ -203,6 +204,22 @@ router.get(
   authenticate,
   validate(orderIdParamsSchema, "params"),
   getOrderById
+);
+
+/**
+ * @swagger
+ * /orders/{id}/sync-courier-tracking:
+ *   post:
+ *     summary: Refresh Courier Guy tracking on an order
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post(
+  "/:id/sync-courier-tracking",
+  authenticate,
+  validate(orderIdParamsSchema, "params"),
+  syncCourierTracking
 );
 
 /**

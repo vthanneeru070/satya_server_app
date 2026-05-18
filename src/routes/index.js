@@ -23,6 +23,7 @@ const fcmRoutes = require("./fcmRoutes");
 const notificationRoutes = require("./notificationRoutes");
 const globalSearchRoutes = require("./globalSearchRoutes");
 const userNotificationRoutes = require("./userNotificationRoutes");
+const shippingRoutes = require("./shippingRoutes");
 
 const router = express.Router();
 
@@ -50,6 +51,7 @@ router.use("/deities", deityRoutes);
 router.use("/inventory", inventoryRoutes);
 router.use("/products", productRoutes);
 router.use("/cart", cartRoutes);
+router.use("/shipping", shippingRoutes);
 router.use("/replacements", replacementRoutes);
 // Mount request-specific routes BEFORE generic orderRoutes so paths like
 // `/orders/requests/my` are not eaten by `/orders/:id`.

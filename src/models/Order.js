@@ -104,6 +104,19 @@ const orderSchema = new mongoose.Schema(
       default: [],
     },
 
+  /** Product lines only (before shipping). */
+    subtotalAmount: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
+    shippingAmount: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
     totalAmount: {
       type: Number,
       required: true,
@@ -154,6 +167,37 @@ const orderSchema = new mongoose.Schema(
     shippingAddress: {
       type: shippingAddressSchema,
       default: undefined,
+    },
+
+    delivery: {
+      provider: {
+        type: String,
+        enum: ["THE_COURIER_GUY", "MANUAL", ""],
+        default: "",
+      },
+      serviceLevelCode: { type: String, default: "" },
+      serviceLevelName: { type: String, default: "" },
+      optionKey: { type: String, default: "" },
+      label: { type: String, default: "" },
+      shippingAmount: { type: Number, min: 0, default: 0 },
+      estimatedDeliveryFrom: { type: Date, default: null },
+      estimatedDeliveryTo: { type: Date, default: null },
+      shipmentId: { type: Number, default: null },
+      shipmentStatus: { type: String, default: "" },
+      waybill: { type: String, default: "" },
+      shipmentCreatedAt: { type: Date, default: null },
+      lastSyncedAt: { type: Date, default: null },
+      trackingEvents: {
+        type: [
+          {
+            status: String,
+            message: String,
+            location: String,
+            at: Date,
+          },
+        ],
+        default: [],
+      },
     },
 
     /**
