@@ -4,9 +4,10 @@ const options = {
   definition: {
     openapi: "3.0.0",
     info: {
-      title: "Satya Server Auth API",
+      title: "Satya Server API",
       version: "1.0.0",
-      description: "Production-grade auth and authorization backend APIs",
+      description:
+        "Satya backend APIs — auth & user profiles, inventory, pooja kits (products), orders, payments, and admin.",
     },
     servers: [
       {
@@ -36,6 +37,127 @@ const options = {
           properties: {
             success: { type: "boolean", example: false },
             message: { type: "string", example: "Error message" },
+          },
+        },
+        User: {
+          type: "object",
+          properties: {
+            _id: { type: "string" },
+            firebaseUid: { type: "string" },
+            email: { type: "string", nullable: true },
+            phone: { type: "string", nullable: true, description: "Local digits (no country code)" },
+            countryCode: { type: "string", nullable: true, example: "+27" },
+            fullName: { type: "string", nullable: true },
+            firstName: { type: "string", nullable: true },
+            lastName: { type: "string", nullable: true },
+            gender: {
+              type: "string",
+              nullable: true,
+              enum: ["male", "female", "other", "prefer_not_to_say"],
+            },
+            dateOfBirth: { type: "string", format: "date-time", nullable: true },
+            timeOfBirth: { type: "string", nullable: true, example: "14:30" },
+            placeOfBirth: { type: "string", nullable: true, example: "Hyderabad" },
+            photoUrl: { type: "string", nullable: true, description: "OAuth avatar URL" },
+            profileImageUrl: { type: "string", nullable: true, description: "S3 upload URL" },
+            imageUrl: {
+              type: "string",
+              nullable: true,
+              description: "profileImageUrl || photoUrl",
+            },
+            isRegistered: {
+              type: "boolean",
+              description:
+                "True when basic details + profile image are complete (mobile: go to home vs registration)",
+            },
+            emailVerified: { type: "boolean" },
+            provider: { type: "string", enum: ["google", "apple", "password"] },
+            role: { type: "string", enum: ["user", "admin", "superadmin"] },
+            timezone: { type: "string" },
+            preferredLanguage: { type: "string", enum: ["en", "te", "ta", "hi", "kn"] },
+            createdAt: { type: "string", format: "date-time" },
+            updatedAt: { type: "string", format: "date-time" },
+          },
+        },
+        UserProfilePayload: {
+          type: "object",
+          properties: {
+            user: { $ref: "#/components/schemas/User" },
+            isRegistered: { type: "boolean" },
+          },
+        },
+        LoginResponse: {
+          type: "object",
+          properties: {
+            user: { $ref: "#/components/schemas/User" },
+            isRegistered: {
+              type: "boolean",
+              description: "false → show basic-details screen; true → home",
+            },
+            accessToken: { type: "string" },
+            refreshToken: { type: "string" },
+          },
+        },
+        ProfileCreateMultipart: {
+          type: "object",
+          required: [
+            "fullName",
+            "gender",
+            "dateOfBirth",
+            "timeOfBirth",
+            "placeOfBirth",
+            "countryCode",
+            "phone",
+          ],
+          properties: {
+            fullName: { type: "string", example: "Venkat Thanneeru" },
+            gender: {
+              type: "string",
+              enum: ["male", "female", "other", "prefer_not_to_say"],
+            },
+            dateOfBirth: { type: "string", format: "date", example: "1990-05-15" },
+            timeOfBirth: { type: "string", example: "14:30" },
+            placeOfBirth: { type: "string", example: "Hyderabad" },
+            countryCode: { type: "string", example: "+27" },
+            phone: { type: "string", example: "821234567" },
+            firstName: { type: "string" },
+            lastName: { type: "string" },
+            timezone: { type: "string", example: "Asia/Kolkata" },
+            preferredLanguage: { type: "string", enum: ["en", "te", "ta", "hi", "kn"] },
+            image: {
+              type: "string",
+              format: "binary",
+              description: "Profile photo (required unless OAuth photoUrl exists)",
+            },
+          },
+        },
+        ProfileUpdateMultipart: {
+          type: "object",
+          properties: {
+            fullName: { type: "string" },
+            gender: {
+              type: "string",
+              enum: ["male", "female", "other", "prefer_not_to_say"],
+            },
+            dateOfBirth: { type: "string", format: "date" },
+            timeOfBirth: { type: "string", example: "14:30" },
+            placeOfBirth: { type: "string", example: "Johannesburg" },
+            countryCode: { type: "string", example: "+27" },
+            phone: { type: "string" },
+            firstName: { type: "string" },
+            lastName: { type: "string" },
+            timezone: { type: "string" },
+            preferredLanguage: { type: "string", enum: ["en", "te", "ta", "hi", "kn"] },
+            image: { type: "string", format: "binary" },
+          },
+        },
+        DeleteAccountBody: {
+          type: "object",
+          properties: {
+            refreshToken: {
+              type: "string",
+              description: "Optional — also revoke this refresh token",
+            },
           },
         },
         PoojaStep: {
@@ -348,6 +470,67 @@ const options = {
             effectivePrice: { type: "number", description: "salePrice if set, else price" },
             lowStockThreshold: { type: "number" },
             status: { type: "string", enum: ["ACTIVE", "INACTIVE"] },
+            imageUrl: { type: "string", nullable: true },
+            supplierName: { type: "string" },
+            description: { type: "string" },
+            isLowStock: { type: "boolean" },
+          },
+        },
+        InventoryCreateMultipart: {
+          type: "object",
+          required: ["name", "category", "unit", "itemQuantity", "price", "currency"],
+          properties: {
+            name: { type: "string", example: "Turmeric powder 50g" },
+            slug: { type: "string" },
+            description: { type: "string" },
+            category: { type: "string", example: "SACRED_POWDERS" },
+            unit: { type: "string", example: "grams" },
+            itemQuantity: { type: "number", example: 50 },
+            stockQuantity: { type: "integer", example: 0 },
+            price: { type: "number", example: 29.99 },
+            salePrice: { type: "number" },
+            currency: { type: "string", example: "ZAR" },
+            supplierName: { type: "string" },
+            lowStockThreshold: { type: "integer" },
+            status: { type: "string", enum: ["ACTIVE", "INACTIVE"] },
+            image: { type: "string", format: "binary" },
+          },
+        },
+        InventoryUpdateMultipart: {
+          allOf: [{ $ref: "#/components/schemas/InventoryCreateMultipart" }],
+        },
+        Product: {
+          type: "object",
+          properties: {
+            _id: { type: "string" },
+            title: { type: "string" },
+            slug: { type: "string" },
+            items: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  inventoryItem: { $ref: "#/components/schemas/InventoryItem" },
+                  quantity: { type: "number" },
+                },
+              },
+            },
+            price: { type: "number" },
+            salePrice: { type: "number", nullable: true },
+            currency: { type: "string" },
+            effectivePrice: { type: "number" },
+            stockQuantity: {
+              type: "integer",
+              readOnly: true,
+              description: "Max kits buildable from inventory",
+            },
+            inStock: { type: "boolean", readOnly: true },
+            status: {
+              type: "string",
+              enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"],
+            },
+            productStatus: { type: "string", enum: ["ACTIVE", "INACTIVE"] },
+            imageUrl: { type: "string", nullable: true },
           },
         },
         ProductCreateMultipart: {

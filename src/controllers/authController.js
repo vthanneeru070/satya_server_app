@@ -6,6 +6,8 @@ const RefreshToken = require("../models/RefreshToken");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const { generateAccessToken, generateRefreshToken } = require("../utils/jwt");
+const userProfileService = require("../services/userProfileService");
+const { isProfileComplete, attachIsRegistered } = require("../utils/userProfile");
 
 const toProviderValue = (provider = "") => {
   const normalized = String(provider || "").toLowerCase();
@@ -58,6 +60,16 @@ const parseFirebaseTokenFromHeader = (req) => {
   }
 
   return firebaseIdToken;
+};
+
+const buildAuthPayload = (user, tokens) => {
+  const userWithFlag = attachIsRegistered(user);
+  return {
+    user: userWithFlag,
+    isRegistered: userWithFlag.isRegistered,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+  };
 };
 
 const issueTokens = async (user) => {
@@ -118,6 +130,10 @@ const login = async (req, res, next) => {
         "This account is an admin. Use the admin panel login at /auth/admin-login.",
         403
       );
+    }
+
+    if (user && user.isDeleted) {
+      throw new HttpError("Account has been deleted.", 403);
     }
 
     if (!user) {
@@ -192,28 +208,18 @@ const login = async (req, res, next) => {
         hasUpdates = true;
       }
 
-      // Auto-restore soft-deleted account on successful re-login.
-      if (user.isDeleted) {
-        user.isDeleted = false;
-        hasUpdates = true;
-      }
-
       if (hasUpdates) {
         await user.save();
       }
     }
 
-    const { accessToken, refreshToken } = await issueTokens(user);
+    user.lastActiveAt = new Date();
+    userProfileService.syncRegistrationFlag(user);
+    await user.save();
 
-    return sendSuccess(
-      res,
-      {
-        user,
-        accessToken,
-        refreshToken,
-      },
-      "Login successful"
-    );
+    const tokens = await issueTokens(user);
+
+    return sendSuccess(res, buildAuthPayload(user, tokens), "Login successful");
   } catch (error) {
     if (error.code && String(error.code).startsWith("auth/")) {
       return next(new HttpError("Invalid Firebase ID token", 401));
@@ -327,11 +333,38 @@ const logout = async (req, res, next) => {
 
 const getProfile = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user.userId).select("-__v");
-    if (!user) {
-      throw new HttpError("User not found", 404);
-    }
-    return sendSuccess(res, { user }, "Profile fetched successfully");
+    const data = await userProfileService.getProfile(req.user.userId);
+    return sendSuccess(res, data, "Profile fetched successfully");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/** First-time registration (basic details + profile image). */
+const createProfile = async (req, res, next) => {
+  try {
+    const data = await userProfileService.createProfile(req.user.userId, req.body, req);
+    return sendSuccess(res, data, "Profile created successfully", 201);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/** Update profile (partial fields; optional new image). */
+const editProfile = async (req, res, next) => {
+  try {
+    const data = await userProfileService.editProfile(req.user.userId, req.body, req);
+    return sendSuccess(res, data, "Profile updated successfully");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/** Soft-delete account and revoke refresh tokens. */
+const deleteAccount = async (req, res, next) => {
+  try {
+    const result = await userProfileService.deleteAccount(req.user.userId, req.body);
+    return sendSuccess(res, result, "Account deleted successfully");
   } catch (error) {
     return next(error);
   }
@@ -343,4 +376,7 @@ module.exports = {
   refreshAccessToken,
   logout,
   getProfile,
+  createProfile,
+  editProfile,
+  deleteAccount,
 };

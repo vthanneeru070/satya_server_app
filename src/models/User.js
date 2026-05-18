@@ -31,9 +31,28 @@ const userSchema = new mongoose.Schema(
     fullName: { type: String, trim: true, default: null },
     firstName: { type: String, trim: true, default: null },
     lastName: { type: String, trim: true, default: null },
-    gender: { type: String, default: null },
+    gender: {
+      type: String,
+      enum: ["male", "female", "other", "prefer_not_to_say"],
+      default: null,
+    },
+    dateOfBirth: { type: Date, default: null },
+    /** Local time of birth, 24h `HH:mm` (e.g. `14:30`). */
+    timeOfBirth: { type: String, trim: true, default: null },
+    /** City / town of birth (e.g. `Hyderabad`). */
+    placeOfBirth: { type: String, trim: true, default: null },
+    /** Dial code including `+` (e.g. `+27`, `+91`). */
+    countryCode: { type: String, trim: true, default: null },
+    /** OAuth avatar (Google / Apple). */
     photoUrl: { type: String, default: null },
+    /** User-uploaded profile photo (S3). */
+    profileImageUrl: { type: String, default: null },
     emailVerified: { type: Boolean, default: false },
+    /**
+     * Mobile onboarding: `true` after user completes registration
+     * (basic details + profile image).
+     */
+    isRegistered: { type: Boolean, default: false, index: true },
 
     // ── Auth provider / linking ───────────────────────────────────────────
     // Users may sign in with: google, apple, password.
