@@ -539,7 +539,7 @@ const verifyPaymentByReference = async (reference, { userId, isAdmin = false } =
         contributionId: out.contribution._id,
       });
     } else {
-      await notifyOrderPlaced(out.order.user);
+      await notifyOrderPlaced(out.order.user, { order: out.order });
 
       // Best-effort invoice + email fan-out for ORDER payments. None of these
       // should fail the verify API — invoice can be regenerated, emails can be

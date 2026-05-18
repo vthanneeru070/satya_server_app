@@ -1,5 +1,6 @@
 const admin = require("../config/firebase");
 const User = require("../models/User");
+const { recordInboxNotification } = require("./userNotificationService");
 
 /**
  * Firebase error codes that mean the token is dead and should be removed:
@@ -10,6 +11,11 @@ const INVALID_TOKEN_ERRORS = new Set([
   "messaging/registration-token-not-registered",
   "messaging/invalid-argument",
 ]);
+
+const toFcmData = (data = {}) =>
+  Object.fromEntries(
+    Object.entries(data).map(([k, v]) => [k, v == null ? "" : String(v)])
+  );
 
 /**
  * Internal: send a multicast push to all of a user's tokens, log what
@@ -31,7 +37,7 @@ const dispatchPush = async (
     response = await admin.messaging().sendEachForMulticast({
       tokens,
       notification,
-      data,
+      data: toFcmData(data),
       android: {
         priority: "high",
         notification: {
@@ -93,23 +99,60 @@ const dispatchPush = async (
   };
 };
 
+const pushWithInbox = async (
+  userId,
+  { notification, data, sourceKey, logTag }
+) => {
+  await recordInboxNotification(userId, {
+    title: notification.title,
+    body: notification.body,
+    type: data.type,
+    data,
+    sourceKey,
+  });
+
+  const user = await User.findById(userId).select("fcmTokens").lean();
+  const tokens = [...new Set((user?.fcmTokens || []).filter(Boolean))];
+  return dispatchPush(userId, { tokens, notification, data, logTag });
+};
+
 /**
  * Best-effort FCM push after order payment. Does not throw — failures are logged only.
  */
 const notifyOrderPlaced = async (
   userId,
   {
+    order,
     title = "Order confirmed",
     body = "Your order has been placed successfully",
   } = {}
 ) => {
   try {
-    const user = await User.findById(userId).select("fcmTokens").lean();
-    const tokens = [...new Set((user?.fcmTokens || []).filter(Boolean))];
-    return dispatchPush(userId, {
-      tokens,
-      notification: { title, body },
-      data: { type: "ORDER_PLACED", userId: String(userId) },
+    if (!userId) return { sent: 0, failed: 0, pruned: 0 };
+
+    const orderId = order?._id;
+    const orderNumber = order?.orderNumber || "";
+    const finalBody =
+      body ||
+      (orderNumber
+        ? `Order ${orderNumber} has been placed successfully.`
+        : "Your order has been placed successfully.");
+
+    const data = {
+      type: "ORDER_PLACED",
+      userId: String(userId),
+      orderId: orderId ? String(orderId) : "",
+      orderNumber: String(orderNumber),
+    };
+
+    const sourceKey = orderId
+      ? `order:${orderId}:PLACED`
+      : `order:placed:${userId}:${Date.now()}`;
+
+    return pushWithInbox(userId, {
+      notification: { title, body: finalBody },
+      data,
+      sourceKey,
       logTag: "notifyOrderPlaced",
     });
   } catch (err) {
@@ -133,8 +176,7 @@ const notifyDonationReceived = async (
   } = {}
 ) => {
   try {
-    const user = await User.findById(userId).select("fcmTokens").lean();
-    const tokens = [...new Set((user?.fcmTokens || []).filter(Boolean))];
+    if (!userId) return { sent: 0, failed: 0, pruned: 0 };
 
     const formattedAmount =
       typeof amount === "number"
@@ -149,14 +191,20 @@ const notifyDonationReceived = async (
         ? `Your ${formattedAmount ? `${formattedAmount} ` : ""}contribution to "${donationTitle}" was received.`
         : `Your ${formattedAmount ? `${formattedAmount} ` : ""}donation was received successfully.`);
 
-    return dispatchPush(userId, {
-      tokens,
+    const data = {
+      type: "DONATION_RECEIVED",
+      userId: String(userId),
+      contributionId: contributionId ? String(contributionId) : "",
+    };
+
+    const sourceKey = contributionId
+      ? `donation:${contributionId}:RECEIVED`
+      : `donation:received:${userId}:${Date.now()}`;
+
+    return pushWithInbox(userId, {
       notification: { title, body: finalBody },
-      data: {
-        type: "DONATION_RECEIVED",
-        userId: String(userId),
-        contributionId: contributionId ? String(contributionId) : "",
-      },
+      data,
+      sourceKey,
       logTag: "notifyDonationReceived",
     });
   } catch (err) {
@@ -198,14 +246,6 @@ const STATUS_COPY = {
 /**
  * Best-effort FCM push when an order's status changes (admin or system).
  * Never throws — failures are logged.
- *
- * @param {string} userId
- * @param {object} opts
- * @param {object} opts.order        — required, must expose `_id`, `orderNumber`, `orderStatus`
- * @param {string} [opts.newStatus]  — defaults to `opts.order.orderStatus`
- * @param {string} [opts.title]      — override title
- * @param {string} [opts.body]       — override body
- * @param {string} [opts.note]       — short admin note appended to data payload
  */
 const notifyOrderStatusChanged = async (
   userId,
@@ -227,7 +267,8 @@ const notifyOrderStatusChanged = async (
       } else if (status === "DELIVERED") {
         copy = {
           title: "Replacement order delivered",
-          body: (n) => `Your replacement ${n} was marked delivered. Confirm receipt in the app.`,
+          body: (n) =>
+            `Your replacement ${n} was marked delivered. Confirm receipt in the app.`,
         };
       } else if (status === "PROCESSING") {
         copy = {
@@ -240,23 +281,25 @@ const notifyOrderStatusChanged = async (
     const finalTitle = title || copy.title;
     const finalBody =
       body ||
-      (typeof copy.body === "function" ? copy.body(order.orderNumber) : copy.body);
+      (typeof copy.body === "function"
+        ? copy.body(order.orderNumber)
+        : copy.body);
 
-    const user = await User.findById(userId).select("fcmTokens").lean();
-    const tokens = [...new Set((user?.fcmTokens || []).filter(Boolean))];
-    return dispatchPush(userId, {
-      tokens,
+    const data = {
+      type: "ORDER_STATUS_CHANGED",
+      userId: String(userId),
+      orderId: String(order._id),
+      orderNumber: String(order.orderNumber || ""),
+      orderStatus: String(status),
+      orderType: String(order.orderType || "NORMAL"),
+      replacementFor: order.replacementFor ? String(order.replacementFor) : "",
+      note: note || "",
+    };
+
+    return pushWithInbox(userId, {
       notification: { title: finalTitle, body: finalBody },
-      data: {
-        type: "ORDER_STATUS_CHANGED",
-        userId: String(userId),
-        orderId: String(order._id),
-        orderNumber: String(order.orderNumber || ""),
-        orderStatus: String(status),
-        orderType: String(order.orderType || "NORMAL"),
-        replacementFor: order.replacementFor ? String(order.replacementFor) : "",
-        note: note || "",
-      },
+      data,
+      sourceKey: `order:${order._id}:status:${status}`,
       logTag: `notifyOrderStatusChanged(${status})`,
     });
   } catch (err) {
@@ -269,8 +312,6 @@ const notifyOrderStatusChanged = async (
 
 /**
  * Best-effort FCM push when Paystack has confirmed a refund settlement.
- * Fired from `paymentService.handleRefundWebhook` on `refund.processed`.
- * Never throws — failures are logged.
  */
 const notifyRefundProcessed = async (userId, { order } = {}) => {
   try {
@@ -283,23 +324,23 @@ const notifyRefundProcessed = async (userId, { order } = {}) => {
     const currency = order?.refund?.currency || order.currency || "ZAR";
     const formatted = `${currency} ${amount.toFixed(2)}`;
 
-    const user = await User.findById(userId).select("fcmTokens").lean();
-    const tokens = [...new Set((user?.fcmTokens || []).filter(Boolean))];
-    return dispatchPush(userId, {
-      tokens,
-      notification: {
-        title: "Refund processed",
-        body: `Your ${formatted} refund for order ${order.orderNumber} is on its way back to you.`,
-      },
-      data: {
-        type: "ORDER_REFUND_PROCESSED",
-        userId: String(userId),
-        orderId: String(order._id),
-        orderNumber: String(order.orderNumber || ""),
-        refundId: String(order?.refund?.paystackRefundId || ""),
-        amount: String(amount),
-        currency,
-      },
+    const title = "Refund processed";
+    const body = `Your ${formatted} refund for order ${order.orderNumber} is on its way back to you.`;
+
+    const data = {
+      type: "ORDER_REFUND_PROCESSED",
+      userId: String(userId),
+      orderId: String(order._id),
+      orderNumber: String(order.orderNumber || ""),
+      refundId: String(order?.refund?.paystackRefundId || ""),
+      amount,
+      currency,
+    };
+
+    return pushWithInbox(userId, {
+      notification: { title, body },
+      data,
+      sourceKey: `order:${order._id}:refund:processed`,
       logTag: "notifyRefundProcessed",
     });
   } catch (err) {

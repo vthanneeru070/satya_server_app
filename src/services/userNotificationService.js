@@ -12,22 +12,68 @@ const assertInboxUser = async (userId) => {
   }
 };
 
+const isInboxRowVisible = (row) => {
+  if (row.notification) return true;
+  return Boolean(row.title && row.type);
+};
+
 const formatInboxItem = (row) => {
   const n = row.notification;
+  const data = row.data || n?.data || null;
   return {
     id: String(row._id),
-    notificationId: String(n?._id || row.notification),
-    title: n?.title || "",
-    body: n?.body || "",
-    imageUrl: n?.imageUrl || null,
-    data: n?.data || null,
-    type: (n?.data && n.data.type) || "ADMIN_BROADCAST",
+    notificationId: n?._id ? String(n._id) : null,
+    title: n?.title || row.title || "",
+    body: n?.body || row.body || "",
+    imageUrl: n?.imageUrl || row.imageUrl || null,
+    data,
+    type: row.type || data?.type || "ADMIN_BROADCAST",
     audience: n?.audience,
-    sentAt: n?.sentAt || n?.createdAt || row.createdAt,
+    sentAt: row.sentAt || n?.sentAt || n?.createdAt || row.createdAt,
     read: Boolean(row.readAt),
     readAt: row.readAt || null,
     createdAt: row.createdAt,
   };
+};
+
+/**
+ * Persist a transactional inbox item (order status, refund, etc.).
+ * Always writes even when the user has no FCM tokens.
+ */
+const recordInboxNotification = async (
+  userId,
+  { title, body, imageUrl = null, type, data = null, sourceKey }
+) => {
+  if (!userId || !sourceKey || !title || !type) return null;
+
+  try {
+    const now = new Date();
+    return UserNotification.findOneAndUpdate(
+      { user: userId, sourceKey },
+      {
+        $setOnInsert: {
+          notification: null,
+          readAt: null,
+          isDeleted: false,
+        },
+        $set: {
+          title,
+          body: body || "",
+          imageUrl,
+          type,
+          data,
+          sentAt: now,
+        },
+      },
+      { upsert: true, new: true }
+    );
+  } catch (err) {
+    console.warn(
+      `[inbox] recordInboxNotification(${sourceKey}) failed:`,
+      err?.message || err
+    );
+    return null;
+  }
 };
 
 /**
@@ -45,7 +91,13 @@ const materializeInboxForUsers = async (notificationId, userIds = []) => {
     const ops = slice.map((userId) => ({
       updateOne: {
         filter: { user: userId, notification: notificationId },
-        update: { $setOnInsert: { readAt: null, isDeleted: false } },
+        update: {
+          $setOnInsert: {
+            readAt: null,
+            isDeleted: false,
+            type: "ADMIN_BROADCAST",
+          },
+        },
         upsert: true,
       },
     }));
@@ -83,9 +135,7 @@ const listForUser = async (userId, query = {}) => {
     UserNotification.countDocuments({ user: userId, readAt: null, ...notDeleted }),
   ]);
 
-  const notifications = rows
-    .filter((r) => r.notification)
-    .map(formatInboxItem);
+  const notifications = rows.filter(isInboxRowVisible).map(formatInboxItem);
 
   return {
     notifications,
@@ -106,13 +156,15 @@ const markAsRead = async (userId, inboxId) => {
     { _id: inboxId, user: userId, ...notDeleted },
     { $set: { readAt: new Date() } },
     { new: true }
-  ).populate({
-    path: "notification",
-    match: { status: "SENT", ...notDeleted },
-    select: "title body imageUrl data audience sentAt createdAt status",
-  });
+  )
+    .populate({
+      path: "notification",
+      match: { status: "SENT", ...notDeleted },
+      select: "title body imageUrl data audience sentAt createdAt status",
+    })
+    .lean();
 
-  if (!row || !row.notification) {
+  if (!row || !isInboxRowVisible(row)) {
     throw new HttpError("Notification not found", 404);
   }
 
@@ -132,6 +184,7 @@ const markAllAsRead = async (userId) => {
 
 module.exports = {
   materializeInboxForUsers,
+  recordInboxNotification,
   listForUser,
   markAsRead,
   markAllAsRead,

@@ -88,7 +88,11 @@ const options = {
           type: "object",
           properties: {
             id: { type: "string", description: "Inbox row id" },
-            notificationId: { type: "string", description: "Broadcast notification id" },
+            notificationId: {
+              type: "string",
+              nullable: true,
+              description: "Admin broadcast id when type is ADMIN_BROADCAST",
+            },
             title: { type: "string" },
             body: { type: "string" },
             imageUrl: { type: "string", nullable: true },

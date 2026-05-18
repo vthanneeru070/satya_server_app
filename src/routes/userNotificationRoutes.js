@@ -26,8 +26,9 @@ const router = express.Router();
  *   get:
  *     summary: List notifications for the logged-in user
  *     description: |
- *       Returns push notifications this user received from admin broadcasts (`status: SENT`).
- *       Each item includes id, title, body, imageUrl, read flag, and sentAt.
+ *       Returns the user's notification inbox: admin broadcasts and transactional
+ *       messages (order placed, status updates, refunds, donations).
+ *       Each item includes id, title, body, `type`, `data`, read flag, and sentAt.
  *     tags: [User Notifications]
  *     security:
  *       - bearerAuth: []
