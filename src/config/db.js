@@ -1,9 +1,13 @@
 const mongoose = require("mongoose");
 const { mongoUri } = require("./env");
+const {
+  ensureUserNotificationIndexes,
+} = require("./userNotificationIndexes");
 
 const connectDatabase = async () => {
   try {
     await mongoose.connect(mongoUri);
+    await ensureUserNotificationIndexes();
     // Keep startup logging minimal but explicit.
     console.log("MongoDB connected successfully");
   } catch (error) {

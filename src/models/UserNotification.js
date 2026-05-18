@@ -12,11 +12,10 @@ const userNotificationSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    /** Admin broadcast; null for order / transactional inbox items. */
+    /** Admin broadcast only — omitted on order / transactional inbox items. */
     notification: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Notification",
-      default: null,
       index: true,
     },
     /** Dedupes transactional rows (e.g. order:abc:status:SHIPPED). */

@@ -52,7 +52,6 @@ const recordInboxNotification = async (
       { user: userId, sourceKey },
       {
         $setOnInsert: {
-          notification: null,
           readAt: null,
           isDeleted: false,
         },
@@ -64,8 +63,9 @@ const recordInboxNotification = async (
           data,
           sentAt: now,
         },
+        $unset: { notification: "" },
       },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: "after" }
     );
   } catch (err) {
     console.warn(
@@ -155,7 +155,7 @@ const markAsRead = async (userId, inboxId) => {
   const row = await UserNotification.findOneAndUpdate(
     { _id: inboxId, user: userId, ...notDeleted },
     { $set: { readAt: new Date() } },
-    { new: true }
+    { returnDocument: "after" }
   )
     .populate({
       path: "notification",
