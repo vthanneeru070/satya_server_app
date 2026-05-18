@@ -84,6 +84,21 @@ const options = {
             updatedAt: { type: "string", format: "date-time" },
           },
         },
+        UserInboxNotification: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "Inbox row id" },
+            notificationId: { type: "string", description: "Broadcast notification id" },
+            title: { type: "string" },
+            body: { type: "string" },
+            imageUrl: { type: "string", nullable: true },
+            type: { type: "string", example: "ADMIN_BROADCAST" },
+            read: { type: "boolean" },
+            readAt: { type: "string", format: "date-time", nullable: true },
+            sentAt: { type: "string", format: "date-time" },
+            createdAt: { type: "string", format: "date-time" },
+          },
+        },
         GlobalSearchHit: {
           type: "object",
           properties: {

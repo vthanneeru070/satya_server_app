@@ -1,6 +1,7 @@
 const admin = require("../config/firebase");
 const User = require("../models/User");
 const Notification = require("../models/Notification");
+const { materializeInboxForUsers } = require("./userNotificationService");
 
 /**
  * FCM accepts up to 500 tokens per multicast request.
@@ -13,11 +14,8 @@ const INVALID_TOKEN_ERRORS = new Set([
   "messaging/invalid-argument",
 ]);
 
-const buildAudienceFilter = (audience, userIds = []) => {
-  const base = {
-    isDeleted: { $ne: true },
-    fcmTokens: { $exists: true, $not: { $size: 0 } },
-  };
+const buildAudienceRoleFilter = (audience, userIds = []) => {
+  const base = { isDeleted: { $ne: true } };
   switch (audience) {
     case "USERS":
       return { ...base, role: "user" };
@@ -32,6 +30,12 @@ const buildAudienceFilter = (audience, userIds = []) => {
       return base;
   }
 };
+
+/** Users who should receive the push (must have at least one FCM token). */
+const buildAudienceFilter = (audience, userIds = []) => ({
+  ...buildAudienceRoleFilter(audience, userIds),
+  fcmTokens: { $exists: true, $not: { $size: 0 } },
+});
 
 const chunk = (arr, size) => {
   const out = [];
@@ -149,10 +153,16 @@ const dispatchNotification = async (notificationId) => {
   }
 
   try {
-    const filter = buildAudienceFilter(claimed.audience, claimed.userIds);
-    const users = await User.find(filter)
-      .select("fcmTokens")
-      .lean();
+    const audienceFilter = buildAudienceRoleFilter(
+      claimed.audience,
+      claimed.userIds
+    );
+    const pushFilter = buildAudienceFilter(claimed.audience, claimed.userIds);
+
+    const [inboxUsers, users] = await Promise.all([
+      User.find(audienceFilter).select("_id").lean(),
+      User.find(pushFilter).select("_id fcmTokens").lean(),
+    ]);
 
     const allTokens = [];
     users.forEach((u) =>
@@ -163,9 +173,13 @@ const dispatchNotification = async (notificationId) => {
     if (!uniqueTokens.length) {
       claimed.status = "SENT";
       claimed.sentAt = new Date();
-      claimed.targetedUserCount = users.length;
+      claimed.targetedUserCount = inboxUsers.length;
       claimed.targetedTokenCount = 0;
       await claimed.save();
+      await materializeInboxForUsers(
+        claimed._id,
+        inboxUsers.map((u) => u._id)
+      );
       console.warn(
         `[fcm] ${logTag}: 0 tokens — marking SENT (no recipients to push).`
       );
@@ -215,12 +229,17 @@ const dispatchNotification = async (notificationId) => {
 
     claimed.status = "SENT";
     claimed.sentAt = new Date();
-    claimed.targetedUserCount = users.length;
+    claimed.targetedUserCount = inboxUsers.length;
     claimed.targetedTokenCount = uniqueTokens.length;
     claimed.successCount = totalSent;
     claimed.failureCount = totalFailed;
     claimed.prunedTokenCount = pruned;
     await claimed.save();
+
+    await materializeInboxForUsers(
+      claimed._id,
+      inboxUsers.map((u) => u._id)
+    );
 
     console.log(
       `[fcm] ${logTag}: users=${users.length} tokens=${uniqueTokens.length} sent=${totalSent} failed=${totalFailed} pruned=${pruned}`
