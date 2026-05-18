@@ -153,9 +153,11 @@ const editProfile = async (userId, body, req) => {
 };
 
 const getProfile = async (userId) => {
-  const user = await User.findById(userId).select("-__v");
+  const user = await User.findById(userId).select("-__v").lean();
   assertEndUser(user);
-  return formatProfileResponse(user);
+  const payload = attachIsRegistered(user);
+  payload.favoriteDeityIds = (user.favoriteDeities || []).map(String);
+  return { user: payload, isRegistered: payload.isRegistered };
 };
 
 const deleteAccount = async (userId, { refreshToken } = {}) => {

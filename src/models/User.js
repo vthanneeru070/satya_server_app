@@ -108,6 +108,16 @@ const userSchema = new mongoose.Schema(
       enum: ["en", "te", "ta", "hi", "kn"],
       default: "en",
     },
+    /** Deities the user marked as favourite (mobile app). */
+    favoriteDeities: {
+      type: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Deity",
+        },
+      ],
+      default: [],
+    },
     streakCount: {
       type: Number,
       default: 0,

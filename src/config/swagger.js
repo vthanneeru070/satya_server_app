@@ -75,8 +75,30 @@ const options = {
             role: { type: "string", enum: ["user", "admin", "superadmin"] },
             timezone: { type: "string" },
             preferredLanguage: { type: "string", enum: ["en", "te", "ta", "hi", "kn"] },
+            favoriteDeities: {
+              type: "array",
+              items: { type: "string" },
+              description: "Favourite deity ObjectIds (on profile; use GET /auth/favorite-deities for full objects)",
+            },
             createdAt: { type: "string", format: "date-time" },
             updatedAt: { type: "string", format: "date-time" },
+          },
+        },
+        DeitySummary: {
+          type: "object",
+          properties: {
+            _id: { type: "string" },
+            name: { type: "string" },
+            alternate_names: { type: "array", items: { type: "string" } },
+            description: { type: "string" },
+            roles: { type: "array", items: { type: "string" } },
+            media: {
+              type: "object",
+              properties: {
+                images: { type: "array", items: { type: "string" } },
+              },
+            },
+            status: { type: "string", enum: ["APPROVED"] },
           },
         },
         UserProfilePayload: {
