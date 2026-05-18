@@ -7,7 +7,15 @@ const ReplacementRequest = require("../models/ReplacementRequest");
 const inventoryService = require("./inventoryService");
 const HttpError = require("../utils/httpError");
 const orderEmailService = require("./orderEmailService");
-const { notifyOrderStatusChanged } = require("./fcmOrderNotifyService");
+const {
+  notifyOrderStatusChanged,
+  ORDER_INBOX_TYPE_BY_STATUS,
+} = require("./fcmOrderNotifyService");
+
+/** Status changes that create a separate row in GET /user/notifications. */
+const CUSTOMER_INBOX_NOTIFY_STATUSES = new Set([
+  ...Object.keys(ORDER_INBOX_TYPE_BY_STATUS),
+]);
 const paystackService = require("./paystackService");
 
 const ORDER_STATUS_TRANSITIONS = {
@@ -21,6 +29,50 @@ const ORDER_STATUS_TRANSITIONS = {
 };
 
 const TERMINAL_ORDER_STATUSES = new Set(["FULFILLED", "CANCELLED"]);
+
+const canTransitionOrderStatus = (fromStatus, toStatus, order) => {
+  if (
+    toStatus === "SHIPPED" &&
+    fromStatus === "PLACED" &&
+    order?.tracking?.trackingNumber?.trim()
+  ) {
+    return true;
+  }
+  return (ORDER_STATUS_TRANSITIONS[fromStatus] || new Set()).has(toStatus);
+};
+
+const loadOrderForCustomerNotify = (orderId) =>
+  Order.findById(orderId)
+    .select("user orderNumber orderStatus orderType replacementFor")
+    .lean();
+
+const notifyCustomerOrderStatus = (
+  orderId,
+  { newStatus, note = "", title, body } = {}
+) => {
+  loadOrderForCustomerNotify(orderId)
+    .then((order) => {
+      if (!order?.user) {
+        console.warn(
+          `[orderService] notifyCustomerOrderStatus: order ${orderId} has no user`
+        );
+        return null;
+      }
+      return notifyOrderStatusChanged(order.user, {
+        order,
+        newStatus,
+        note,
+        title,
+        body,
+      });
+    })
+    .catch((err) =>
+      console.error(
+        "[orderService] notifyCustomerOrderStatus failed:",
+        err?.message || err
+      )
+    );
+};
 
 const effectivePriceOf = (product) =>
   product.salePrice && product.salePrice > 0 ? product.salePrice : product.price;
@@ -359,7 +411,11 @@ const appendHistory = (order, status, note, actorUserId) => {
 const refundStateHistorySuffix = (order) =>
   `paymentStatus: ${order.paymentStatus ?? "?"} | refund.status: ${order.refund?.status ?? "NONE"}`;
 
-const updateStatus = async (id, { status, note = "" }, { actorUserId }) => {
+const updateStatus = async (
+  id,
+  { status, note = "", skipNotify = false },
+  { actorUserId }
+) => {
   const session = await mongoose.startSession();
   let updated;
   let didShip = false;
@@ -375,8 +431,7 @@ const updateStatus = async (id, { status, note = "" }, { actorUserId }) => {
           400
         );
       }
-      const allowed = ORDER_STATUS_TRANSITIONS[order.orderStatus] || new Set();
-      if (!allowed.has(status)) {
+      if (!canTransitionOrderStatus(order.orderStatus, status, order)) {
         throw new HttpError(`Cannot transition order from ${order.orderStatus} to ${status}`, 400);
       }
 
@@ -473,16 +528,9 @@ const updateStatus = async (id, { status, note = "" }, { actorUserId }) => {
           )
         );
     }
-    notifyOrderStatusChanged(updated.user, {
-      order: updated,
-      newStatus: status,
-      note,
-    }).catch((err) =>
-      console.error(
-        "[orderService] notifyOrderStatusChanged failed:",
-        err?.message || err
-      )
-    );
+    if (!skipNotify && CUSTOMER_INBOX_NOTIFY_STATUSES.has(status)) {
+      notifyCustomerOrderStatus(updated._id, { newStatus: status, note });
+    }
   }
 
   return updated;
@@ -541,6 +589,25 @@ const dispatchOrder = async (
     { courier, trackingNumber, trackingUrl },
     { actorUserId }
   );
+
+  const current = await Order.findOne({ _id: id, isDeleted: { $ne: true } })
+    .select("orderStatus")
+    .lean();
+  if (!current) throw new HttpError("Order not found", 404);
+
+  // Paid orders often stay PLACED until dispatch; advance to PROCESSING first.
+  if (current.orderStatus === "PLACED") {
+    await updateStatus(
+      id,
+      {
+        status: "PROCESSING",
+        note: note || "Preparing for dispatch",
+        skipNotify: true,
+      },
+      { actorUserId }
+    );
+  }
+
   return updateStatus(id, { status: "SHIPPED", note }, { actorUserId });
 };
 
@@ -587,6 +654,14 @@ const confirmDelivery = async (id, userId, { satisfied, feedback = "" } = {}) =>
     );
   }
   await order.save();
+
+  if (satisfied) {
+    notifyCustomerOrderStatus(order._id, {
+      newStatus: "FULFILLED",
+      note: "Customer confirmed receipt",
+    });
+  }
+
   return order;
 };
 
@@ -794,19 +869,13 @@ const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
         )
       );
 
-    notifyOrderStatusChanged(order.user, {
-      order,
+    notifyCustomerOrderStatus(order._id, {
       newStatus: "CANCELLED",
       note: reason || "Cancelled by admin",
       body: reason
         ? `Order ${order.orderNumber} was cancelled: ${reason}`
         : undefined,
-    }).catch((err) =>
-      console.error(
-        "[orderService] notifyOrderStatusChanged (admin cancel) failed:",
-        err?.message || err
-      )
-    );
+    });
   }
 
   return order;

@@ -1,6 +1,15 @@
 const admin = require("../config/firebase");
+const mongoose = require("mongoose");
 const User = require("../models/User");
 const { recordInboxNotification } = require("./userNotificationService");
+
+/** Normalize Order.user (ObjectId, string, or populated doc) for lookups. */
+const resolveUserId = (userId) => {
+  if (!userId) return null;
+  if (typeof userId === "object" && userId._id) return userId._id;
+  if (mongoose.Types.ObjectId.isValid(userId)) return userId;
+  return null;
+};
 
 /**
  * Firebase error codes that mean the token is dead and should be removed:
@@ -103,7 +112,13 @@ const pushWithInbox = async (
   userId,
   { notification, data, sourceKey, logTag }
 ) => {
-  await recordInboxNotification(userId, {
+  const uid = resolveUserId(userId);
+  if (!uid) {
+    console.warn(`[fcm] ${logTag}: missing or invalid userId — skipping push/inbox`);
+    return { sent: 0, failed: 0, pruned: 0 };
+  }
+
+  await recordInboxNotification(uid, {
     title: notification.title,
     body: notification.body,
     type: data.type,
@@ -111,9 +126,9 @@ const pushWithInbox = async (
     sourceKey,
   });
 
-  const user = await User.findById(userId).select("fcmTokens").lean();
+  const user = await User.findById(uid).select("fcmTokens").lean();
   const tokens = [...new Set((user?.fcmTokens || []).filter(Boolean))];
-  return dispatchPush(userId, { tokens, notification, data, logTag });
+  return dispatchPush(uid, { tokens, notification, data, logTag });
 };
 
 /**
@@ -123,7 +138,7 @@ const notifyOrderPlaced = async (
   userId,
   {
     order,
-    title = "Order confirmed",
+    title = "Order placed",
     body = "Your order has been placed successfully",
   } = {}
 ) => {
@@ -216,6 +231,28 @@ const notifyDonationReceived = async (
 };
 
 /**
+ * Inbox + FCM `data.type` for each milestone (used by GET /user/notifications).
+ */
+const ORDER_INBOX_TYPE_BY_STATUS = {
+  SHIPPED: "ORDER_SHIPPED",
+  DELIVERED: "ORDER_DELIVERED",
+  PROCESSING: "ORDER_PROCESSING",
+  FULFILLED: "ORDER_FULFILLED",
+  CANCELLED: "ORDER_CANCELLED",
+};
+
+const resolveOrderInboxType = (status, orderType = "NORMAL") => {
+  if (orderType === "REPLACEMENT") {
+    if (status === "SHIPPED") return "REPLACEMENT_ORDER_SHIPPED";
+    if (status === "DELIVERED") return "REPLACEMENT_ORDER_DELIVERED";
+    if (status === "PROCESSING") return "REPLACEMENT_ORDER_PROCESSING";
+    if (status === "FULFILLED") return "REPLACEMENT_ORDER_FULFILLED";
+    if (status === "CANCELLED") return "REPLACEMENT_ORDER_CANCELLED";
+  }
+  return ORDER_INBOX_TYPE_BY_STATUS[status] || `ORDER_${status}`;
+};
+
+/**
  * Default copy per orderStatus transition. Admins can override by passing
  * { title, body } when calling `notifyOrderStatusChanged`.
  */
@@ -285,13 +322,16 @@ const notifyOrderStatusChanged = async (
         ? copy.body(order.orderNumber)
         : copy.body);
 
+    const orderType = String(order.orderType || "NORMAL");
+    const inboxType = resolveOrderInboxType(status, orderType);
+
     const data = {
-      type: "ORDER_STATUS_CHANGED",
-      userId: String(userId),
+      type: inboxType,
+      userId: String(resolveUserId(userId) || userId),
       orderId: String(order._id),
       orderNumber: String(order.orderNumber || ""),
       orderStatus: String(status),
-      orderType: String(order.orderType || "NORMAL"),
+      orderType,
       replacementFor: order.replacementFor ? String(order.replacementFor) : "",
       note: note || "",
     };
@@ -299,8 +339,8 @@ const notifyOrderStatusChanged = async (
     return pushWithInbox(userId, {
       notification: { title: finalTitle, body: finalBody },
       data,
-      sourceKey: `order:${order._id}:status:${status}`,
-      logTag: `notifyOrderStatusChanged(${status})`,
+      sourceKey: `order:${order._id}:${inboxType}`,
+      logTag: `notifyOrderStatusChanged(${inboxType})`,
     });
   } catch (err) {
     console.warn(
@@ -353,4 +393,5 @@ module.exports = {
   notifyDonationReceived,
   notifyOrderStatusChanged,
   notifyRefundProcessed,
+  ORDER_INBOX_TYPE_BY_STATUS,
 };

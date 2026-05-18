@@ -26,8 +26,9 @@ const router = express.Router();
  *   get:
  *     summary: List notifications for the logged-in user
  *     description: |
- *       Returns the user's notification inbox: admin broadcasts and transactional
- *       messages (order placed, status updates, refunds, donations).
+ *       Returns the user's notification inbox: admin broadcasts and order milestones.
+ *       Order `type` values include `ORDER_PLACED`, `ORDER_SHIPPED`, `ORDER_DELIVERED`,
+ *       plus `ORDER_CANCELLED`, `ORDER_FULFILLED`, `ORDER_REFUND_PROCESSED`, etc.
  *       Each item includes id, title, body, `type`, `data`, read flag, and sentAt.
  *     tags: [User Notifications]
  *     security:

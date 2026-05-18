@@ -238,6 +238,7 @@ router.post(
  *     description: |
  *       Allowed transitions:
  *       - PLACED → PROCESSING | CANCELLED
+ *       - PLACED → SHIPPED (only if tracking is already set on the order)
  *       - PROCESSING → SHIPPED | CANCELLED
  *       - SHIPPED → DELIVERED
  *       - DELIVERED / CANCELLED are terminal.

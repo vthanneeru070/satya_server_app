@@ -96,7 +96,12 @@ const options = {
             title: { type: "string" },
             body: { type: "string" },
             imageUrl: { type: "string", nullable: true },
-            type: { type: "string", example: "ADMIN_BROADCAST" },
+            type: {
+              type: "string",
+              example: "ORDER_SHIPPED",
+              description:
+                "e.g. ADMIN_BROADCAST, ORDER_PLACED, ORDER_SHIPPED, ORDER_DELIVERED, ORDER_CANCELLED",
+            },
             read: { type: "boolean" },
             readAt: { type: "string", format: "date-time", nullable: true },
             sentAt: { type: "string", format: "date-time" },
