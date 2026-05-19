@@ -110,6 +110,29 @@ const safeSend = async (params) => {
   }
 };
 
+const resolveTrackingUrl = (order) => {
+  const tracking = order?.tracking || {};
+  const explicit = toTrimmedOrNull(tracking.trackingUrl);
+  if (explicit) return explicit;
+
+  const waybill =
+    toTrimmedOrNull(tracking.trackingNumber) ||
+    toTrimmedOrNull(order?.delivery?.waybill);
+  if (!waybill) return null;
+
+  const base = (
+    process.env.TCG_TRACKING_PUBLIC_BASE_URL ||
+    "https://www.thecourierguy.co.za/track"
+  ).replace(/\/$/, "");
+  return `${base}?waybill=${encodeURIComponent(waybill)}`;
+};
+
+const toTrimmedOrNull = (value) => {
+  if (value === undefined || value === null) return null;
+  const normalized = String(value).trim();
+  return normalized || null;
+};
+
 /**
  * Email to the buyer once their order is paid (BRS: "System sends user email").
  * Best-effort — never throws.
@@ -194,10 +217,12 @@ const sendTrackingShared = async (order) => {
   if (!to) return { delivered: false, reason: "no-recipient-email" };
 
   const tracking = order.tracking || {};
+  const trackingUrl = resolveTrackingUrl(order);
   const subject = `Your ${appName()} order ${order.orderNumber} is on its way`;
-  const trackingLine = tracking.trackingUrl
-    ? `<a href="${escapeHtml(tracking.trackingUrl)}" style="color:#4f46e5;">${escapeHtml(tracking.trackingNumber || "Track shipment")}</a>`
-    : escapeHtml(tracking.trackingNumber || "—");
+  const trackingNumberLine = escapeHtml(tracking.trackingNumber || "—");
+  const trackingUrlLine = trackingUrl
+    ? `<a href="${escapeHtml(trackingUrl)}" style="color:#4f46e5;word-break:break-all;">${escapeHtml(trackingUrl)}</a>`
+    : "—";
 
   const body = `
     <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">Hi <strong>${escapeHtml(user.fullName || "there")}</strong>,</p>
@@ -206,7 +231,8 @@ const sendTrackingShared = async (order) => {
     </p>
     <table width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;font-size:14px;">
       <tr><td style="padding:6px 0;color:#6b7280;width:140px;">Courier</td><td><strong>${escapeHtml(tracking.courier || "—")}</strong></td></tr>
-      <tr><td style="padding:6px 0;color:#6b7280;">Tracking number</td><td>${trackingLine}</td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280;">Tracking number</td><td>${trackingNumberLine}</td></tr>
+      <tr><td style="padding:6px 0;color:#6b7280;">Tracking URL</td><td>${trackingUrlLine}</td></tr>
     </table>
     <p style="margin:24px 0 0;font-size:13px;color:#6b7280;line-height:1.6;">
       You'll receive another email once it's delivered so you can confirm receipt.
@@ -216,7 +242,10 @@ const sendTrackingShared = async (order) => {
     to,
     subject,
     html: cardShell({ accent: "#2563eb", banner: "Your order is on its way", title: subject, body }),
-    text: `Your order ${order.orderNumber} shipped via ${tracking.courier || "courier"}. Tracking: ${tracking.trackingNumber || "—"} ${tracking.trackingUrl || ""}`,
+    text:
+      `Your order ${order.orderNumber} shipped via ${tracking.courier || "courier"}. ` +
+      `Tracking number: ${tracking.trackingNumber || "—"}.` +
+      (trackingUrl ? ` Track here: ${trackingUrl}` : ""),
   });
 };
 
