@@ -7,7 +7,11 @@ const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const { generateAccessToken, generateRefreshToken } = require("../utils/jwt");
 const userProfileService = require("../services/userProfileService");
-const { isProfileComplete, attachIsRegistered } = require("../utils/userProfile");
+const {
+  isProfileComplete,
+  attachIsRegistered,
+  normalizeZodiacSign,
+} = require("../utils/userProfile");
 
 const toProviderValue = (provider = "") => {
   const normalized = String(provider || "").toLowerCase();
@@ -113,6 +117,8 @@ const login = async (req, res, next) => {
       firstName: toTrimmedOrNull(requestedUser.firstName),
       lastName: toTrimmedOrNull(requestedUser.lastName),
       gender: toTrimmedOrNull(requestedUser.gender),
+      sunSign: normalizeZodiacSign(requestedUser.sunSign),
+      moonSign: normalizeZodiacSign(requestedUser.moonSign),
       photoUrl: toTrimmedOrNull(requestedUser.photoUrl),
       emailVerified: requestedUser.emailVerified ?? decodedToken.email_verified ?? false,
     };
@@ -145,6 +151,8 @@ const login = async (req, res, next) => {
         firstName: profile.firstName,
         lastName: profile.lastName,
         gender: profile.gender,
+        sunSign: profile.sunSign,
+        moonSign: profile.moonSign,
         photoUrl: profile.photoUrl,
         emailVerified: profile.emailVerified,
         provider,
@@ -195,6 +203,16 @@ const login = async (req, res, next) => {
 
       if (profile.gender && user.gender !== profile.gender) {
         user.gender = profile.gender;
+        hasUpdates = true;
+      }
+
+      if (profile.sunSign && user.sunSign !== profile.sunSign) {
+        user.sunSign = profile.sunSign;
+        hasUpdates = true;
+      }
+
+      if (profile.moonSign && user.moonSign !== profile.moonSign) {
+        user.moonSign = profile.moonSign;
         hasUpdates = true;
       }
 
@@ -360,7 +378,7 @@ const editProfile = async (req, res, next) => {
   }
 };
 
-/** Soft-delete account and revoke refresh tokens. */
+/** Soft-delete account (requires comment) and revoke refresh tokens. */
 const deleteAccount = async (req, res, next) => {
   try {
     const result = await userProfileService.deleteAccount(req.user.userId, req.body);

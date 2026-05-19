@@ -177,6 +177,8 @@ const restoreUser = async (req, res, next) => {
     }
 
     targetUser.isDeleted = false;
+    targetUser.accountDeletionComment = null;
+    targetUser.accountDeletedAt = null;
     await targetUser.save();
 
     await AdminLog.create({

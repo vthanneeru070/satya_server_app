@@ -1,5 +1,5 @@
 const Joi = require("joi");
-const { GENDER_VALUES } = require("../utils/userProfile");
+const { GENDER_VALUES, ZODIAC_SIGN_VALUES } = require("../utils/userProfile");
 
 const refreshTokenSchema = Joi.object({
   refreshToken: Joi.string().required(),
@@ -17,6 +17,8 @@ const profileFields = {
     .trim()
     .pattern(/^([01]?\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/),
   placeOfBirth: Joi.string().trim().min(2).max(120),
+  sunSign: Joi.string().trim().lowercase().valid(...ZODIAC_SIGN_VALUES).allow(null, ""),
+  moonSign: Joi.string().trim().lowercase().valid(...ZODIAC_SIGN_VALUES).allow(null, ""),
   countryCode: Joi.string().trim().pattern(/^\+?\d{1,4}$/),
   phone: Joi.string().trim().pattern(/^\d{6,15}$/),
   firstName: Joi.string().trim().max(60).allow("", null),
@@ -31,6 +33,8 @@ const createProfileSchema = Joi.object({
   dateOfBirth: profileFields.dateOfBirth.required(),
   timeOfBirth: profileFields.timeOfBirth.required(),
   placeOfBirth: profileFields.placeOfBirth.required(),
+  sunSign: profileFields.sunSign,
+  moonSign: profileFields.moonSign,
   countryCode: profileFields.countryCode.required(),
   phone: profileFields.phone.required(),
   firstName: profileFields.firstName,
@@ -45,6 +49,8 @@ const updateProfileSchema = Joi.object({
   dateOfBirth: profileFields.dateOfBirth,
   timeOfBirth: profileFields.timeOfBirth,
   placeOfBirth: profileFields.placeOfBirth,
+  sunSign: profileFields.sunSign,
+  moonSign: profileFields.moonSign,
   countryCode: profileFields.countryCode,
   phone: profileFields.phone,
   firstName: profileFields.firstName,
@@ -54,6 +60,11 @@ const updateProfileSchema = Joi.object({
 });
 
 const deleteAccountSchema = Joi.object({
+  comment: Joi.string().trim().min(5).max(500).required().messages({
+    "any.required": "A comment is required to delete your account",
+    "string.min": "Comment must be at least 5 characters",
+    "string.max": "Comment must be at most 500 characters",
+  }),
   refreshToken: Joi.string().optional(),
 });
 

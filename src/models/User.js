@@ -41,6 +41,44 @@ const userSchema = new mongoose.Schema(
     timeOfBirth: { type: String, trim: true, default: null },
     /** City / town of birth (e.g. `Hyderabad`). */
     placeOfBirth: { type: String, trim: true, default: null },
+    /** Western zodiac sun sign (e.g. `leo`). */
+    sunSign: {
+      type: String,
+      enum: [
+        "aries",
+        "taurus",
+        "gemini",
+        "cancer",
+        "leo",
+        "virgo",
+        "libra",
+        "scorpio",
+        "sagittarius",
+        "capricorn",
+        "aquarius",
+        "pisces",
+      ],
+      default: null,
+    },
+    /** Moon sign / rashi-style sign stored as the same zodiac enum. */
+    moonSign: {
+      type: String,
+      enum: [
+        "aries",
+        "taurus",
+        "gemini",
+        "cancer",
+        "leo",
+        "virgo",
+        "libra",
+        "scorpio",
+        "sagittarius",
+        "capricorn",
+        "aquarius",
+        "pisces",
+      ],
+      default: null,
+    },
     /** Dial code including `+` (e.g. `+27`, `+91`). */
     countryCode: { type: String, trim: true, default: null },
     /** OAuth avatar (Google / Apple). */
@@ -131,6 +169,17 @@ const userSchema = new mongoose.Schema(
     isDeleted: {
       type: Boolean,
       default: false,
+    },
+    /** Reason provided by the user when they delete their own account. */
+    accountDeletionComment: {
+      type: String,
+      trim: true,
+      default: null,
+      maxlength: 500,
+    },
+    accountDeletedAt: {
+      type: Date,
+      default: null,
     },
   },
   { timestamps: true }

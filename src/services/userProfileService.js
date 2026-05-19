@@ -10,6 +10,7 @@ const {
   normalizeTimeOfBirth,
   parseDateOfBirth,
   normalizePlaceOfBirth,
+  normalizeZodiacSign,
   isProfileComplete,
   attachIsRegistered,
 } = require("../utils/userProfile");
@@ -74,6 +75,20 @@ const applyProfileFields = (user, body, { requireAll = false } = {}) => {
     const placeOfBirth = normalizePlaceOfBirth(body.placeOfBirth);
     if (!placeOfBirth) errors.push("Invalid placeOfBirth");
     else user.placeOfBirth = placeOfBirth;
+  }
+
+  if (body.sunSign !== undefined) {
+    const sunSign = normalizeZodiacSign(body.sunSign);
+    if (body.sunSign !== null && body.sunSign !== "" && !sunSign) {
+      errors.push("Invalid sunSign");
+    } else user.sunSign = sunSign;
+  }
+
+  if (body.moonSign !== undefined) {
+    const moonSign = normalizeZodiacSign(body.moonSign);
+    if (body.moonSign !== null && body.moonSign !== "" && !moonSign) {
+      errors.push("Invalid moonSign");
+    } else user.moonSign = moonSign;
   }
 
   if (body.countryCode !== undefined || requireAll) {
@@ -160,8 +175,16 @@ const getProfile = async (userId) => {
   return { user: payload, isRegistered: payload.isRegistered };
 };
 
-const deleteAccount = async (userId, { refreshToken } = {}) => {
+const deleteAccount = async (userId, { refreshToken, comment } = {}) => {
   const user = await loadUser(userId);
+
+  const deletionComment = toTrimmedOrNull(comment);
+  if (!deletionComment || deletionComment.length < 5) {
+    throw new HttpError(
+      "A comment is required to delete your account (5–500 characters).",
+      400
+    );
+  }
 
   if (user.profileImageUrl) {
     await deleteFile(user.profileImageUrl).catch(() => {});
@@ -169,6 +192,8 @@ const deleteAccount = async (userId, { refreshToken } = {}) => {
 
   user.isDeleted = true;
   user.isRegistered = false;
+  user.accountDeletionComment = deletionComment;
+  user.accountDeletedAt = new Date();
   user.fcmTokens = [];
   user.profileImageUrl = null;
   user.lastActiveAt = new Date();

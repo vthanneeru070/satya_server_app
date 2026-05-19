@@ -66,6 +66,8 @@ const profileUpload = upload.fields([{ name: "image", maxCount: 1 }]);
  *                 properties:
  *                   email: { type: string }
  *                   fullName: { type: string }
+ *                   sunSign: { type: string, example: leo }
+ *                   moonSign: { type: string, example: cancer }
  *                   photoUrl: { type: string }
  *     responses:
  *       200:
@@ -255,12 +257,15 @@ router.patch(
  *   delete:
  *     summary: Delete account (soft delete)
  *     description: |
- *       Sets `isDeleted`, clears FCM tokens, removes profile image from S3, revokes refresh tokens.
+ *       Requires a `comment` (5–500 chars) explaining why the user is leaving.
+ *       Sets `isDeleted`, stores `accountDeletionComment`, clears FCM tokens,
+ *       removes profile image from S3, and revokes refresh tokens.
  *       Deleted users cannot log in again.
  *     tags: [Auth]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
+ *       required: true
  *       content:
  *         application/json:
  *           schema:

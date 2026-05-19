@@ -1,5 +1,20 @@
 const GENDER_VALUES = ["male", "female", "other", "prefer_not_to_say"];
 
+const ZODIAC_SIGN_VALUES = [
+  "aries",
+  "taurus",
+  "gemini",
+  "cancer",
+  "leo",
+  "virgo",
+  "libra",
+  "scorpio",
+  "sagittarius",
+  "capricorn",
+  "aquarius",
+  "pisces",
+];
+
 const toTrimmedOrNull = (value) => {
   if (value === undefined || value === null) return null;
   const normalized = String(value).trim();
@@ -53,6 +68,42 @@ const normalizePlaceOfBirth = (value) => {
   return raw;
 };
 
+const normalizeZodiacSign = (value) => {
+  const raw = toTrimmedOrNull(value);
+  if (!raw) return null;
+  const lower = raw.toLowerCase().replace(/\s+/g, "_");
+  const aliases = {
+    aries: "aries",
+    taurus: "taurus",
+    gemini: "gemini",
+    cancer: "cancer",
+    leo: "leo",
+    virgo: "virgo",
+    libra: "libra",
+    scorpio: "scorpio",
+    sagittarius: "sagittarius",
+    saggitarius: "sagittarius",
+    capricorn: "capricorn",
+    aquarius: "aquarius",
+    pisces: "pisces",
+    mesh: "aries",
+    mesha: "aries",
+    vrishabha: "taurus",
+    mithuna: "gemini",
+    karka: "cancer",
+    simha: "leo",
+    kanya: "virgo",
+    tula: "libra",
+    vrischika: "scorpio",
+    dhanu: "sagittarius",
+    makara: "capricorn",
+    kumbha: "aquarius",
+    meena: "pisces",
+  };
+  if (ZODIAC_SIGN_VALUES.includes(lower)) return lower;
+  return aliases[lower] || null;
+};
+
 const hasProfileImage = (user) =>
   Boolean(toTrimmedOrNull(user?.profileImageUrl) || toTrimmedOrNull(user?.photoUrl));
 
@@ -83,6 +134,7 @@ const attachIsRegistered = (userDoc) => {
 
 module.exports = {
   GENDER_VALUES,
+  ZODIAC_SIGN_VALUES,
   toTrimmedOrNull,
   normalizeGender,
   normalizeCountryCode,
@@ -90,6 +142,7 @@ module.exports = {
   normalizeTimeOfBirth,
   parseDateOfBirth,
   normalizePlaceOfBirth,
+  normalizeZodiacSign,
   hasProfileImage,
   isProfileComplete,
   attachIsRegistered,
