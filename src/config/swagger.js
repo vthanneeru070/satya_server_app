@@ -290,8 +290,6 @@ const options = {
             "fullName",
             "gender",
             "dateOfBirth",
-            "timeOfBirth",
-            "placeOfBirth",
             "countryCode",
             "phone",
           ],

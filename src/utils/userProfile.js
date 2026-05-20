@@ -114,8 +114,6 @@ const isProfileComplete = (user) => {
     toTrimmedOrNull(user.fullName) &&
       normalizeGender(user.gender) &&
       user.dateOfBirth &&
-      normalizeTimeOfBirth(user.timeOfBirth) &&
-      normalizePlaceOfBirth(user.placeOfBirth) &&
       normalizeCountryCode(user.countryCode) &&
       normalizePhone(user.phone) &&
       hasProfileImage(user)
