@@ -179,7 +179,7 @@ router.get(
 router.get(
   "/all",
   authenticate,
-  ,
+  authorizeRoles("admin"),
   validate(allDonationsQuerySchema, "query"),
   getAllDonations
 );
