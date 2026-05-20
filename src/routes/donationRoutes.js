@@ -264,7 +264,7 @@ router.get(
 router.get(
   "/contributions/all",
   authenticate,
-  authorizeSuperAdmin,
+  authorizeRoles("admin"),
   validate(listContributionsQuerySchema, "query"),
   adminListDonationContributions
 );
