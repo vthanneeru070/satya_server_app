@@ -712,9 +712,6 @@ const handleRefundWebhook = async (event) => {
   return { ignored: true, reason: `unhandled refund event: ${event.event}` };
 };
 
-/**
- * Webhook handler — signature verified by route. Re-verifies success with Paystack API.
- */
 const handlePaystackWebhook = async (event) => {
   if (!event || typeof event !== "object") return { ignored: true };
 
@@ -755,9 +752,49 @@ const handlePaystackWebhook = async (event) => {
   }
 };
 
+const listAllPayments = async (query = {}) => {
+  const page = Number(query.page) || 1;
+  const limit = Math.min(Number(query.limit) || 20, 100);
+  const skip = (page - 1) * limit;
+
+  const filter = { isDeleted: { $ne: true } };
+
+  const search = String(query.search || query.reference || "").trim();
+  if (search) {
+    filter.reference = { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
+  }
+  if (query.status) filter.status = query.status;
+  if (query.paymentFor) filter.paymentFor = query.paymentFor;
+  if (query.user) filter.user = query.user;
+  if (query.order) filter.order = query.order;
+
+  const [payments, total] = await Promise.all([
+    Payment.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate("user", "fullName email phone role")
+      .populate("order", "orderNumber orderStatus paymentStatus totalAmount currency")
+      .populate("donationContribution", "contributionNumber paymentStatus amount currency donation")
+      .lean(),
+    Payment.countDocuments(filter),
+  ]);
+
+  return {
+    payments,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    },
+  };
+};
+
 module.exports = {
   initializePayment,
   initializeDonationPayment,
   verifyPaymentByReference,
   handlePaystackWebhook,
+  listAllPayments,
 };

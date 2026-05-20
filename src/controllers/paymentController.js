@@ -59,8 +59,18 @@ const paystackWebhook = async (req, res) => {
   }
 };
 
+const listAllPayments = async (req, res, next) => {
+  try {
+    const data = await paymentService.listAllPayments(req.query);
+    return sendSuccess(res, data, "Payments fetched successfully");
+  } catch (error) {
+    return next(error);
+  }
+};
+
 module.exports = {
   initializePayment,
   verifyPayment,
   paystackWebhook,
+  listAllPayments,
 };
