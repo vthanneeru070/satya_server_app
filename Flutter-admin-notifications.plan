@@ -1,0 +1,468 @@
+# Flutter admin web — system notifications (orders, donations, refunds) — Cursor prompt
+
+Implements **real-time operational alerts** for the CMS (Flutter Web admin panel), backed by:
+
+- Backend: `docs/ADMIN_NOTIFICATIONS.md`, `GET/POST /api/v1/admin/notifications`, `POST /api/v1/fcm/register`
+- Existing broadcast UI: `CmsNotificationsContent` + `GET /notifications` (manual push send/history) — **do not merge** with this feature.
+
+Copy everything below the rule into Cursor inside **`Satya_devotte_app`**. Match existing patterns: **GetX**, **Dio** + `ApiClient`, **CMS shell** hash routes, **FcmBootstrap** (extend for web in Phase 2).
+
+---
+
+## What you are building
+
+| Feature | API | UI |
+|---------|-----|-----|
+| **System alerts** (new order, donation paid, refund request) | `/admin/notifications` | Inbox + header bell badge |
+| **Broadcast push** (admin composes message) | `/notifications/send` | Existing **Notifications** tab — leave as-is |
+
+When a customer **pays** for an order or donation, every admin/superadmin with registered FCM tokens gets a push; history is stored server-side (not device-local).
+
+---
+
+## Backend contract (locked — do not change server)
+
+Base: `${API_BASE_URL}/api/v1`  
+Auth: `Authorization: Bearer <Firebase ID token>`  
+Role: `admin` or `superadmin` only.
+
+### FCM token (after CMS login)
+
+```http
+POST /fcm/register
+{ "token": "<fcm_token>", "platform": "web", "deviceId": "web-<uuid>" }
+
+DELETE /fcm/unregister
+{ "token": "<fcm_token>" }
+
+GET /fcm/me
+→ { "count": 2, "devices": [...], "role": "admin" }
+```
+
+Register on login + `onTokenRefresh`. Unregister on logout (before clearing session). Multiple browser tabs = multiple tokens (expected).
+
+### Admin inbox
+
+| Method | Path |
+|--------|------|
+| `GET` | `/admin/notifications?page&limit&unreadOnly&type` |
+| `GET` | `/admin/notifications/unread-count` |
+| `GET` | `/admin/notifications/:id` |
+| `POST` | `/admin/notifications/:id/read` |
+| `POST` | `/admin/notifications/read-all` |
+
+### List response
+
+```json
+{
+  "success": true,
+  "data": {
+    "notifications": [
+      {
+        "id": "674a1b2c3d4e5f6789012345",
+        "type": "NEW_ORDER",
+        "title": "New order",
+        "body": "Order SATYA-ORD-10042 — ZAR 299.00 from Jane",
+        "data": {
+          "type": "NEW_ORDER",
+          "orderId": "674a...",
+          "orderNumber": "SATYA-ORD-10042",
+          "totalAmount": "299",
+          "currency": "ZAR",
+          "paystackReference": "T123"
+        },
+        "read": false,
+        "createdAt": "2026-05-19T10:30:00.000Z"
+      }
+    ],
+    "unreadCount": 3,
+    "pagination": { "page": 1, "limit": 20, "total": 3, "totalPages": 1 }
+  }
+}
+```
+
+### Notification `type` values (FCM `data.type` matches)
+
+| `type` | When fired | Navigate on tap |
+|--------|------------|-----------------|
+| `NEW_ORDER` | Order payment verified | Pooja Kit order detail |
+| `PAYMENT_SUCCESS` | Donation payment verified (`data.paymentFor` = `DONATION`) | All Donations / contributions |
+| `REFUND_REQUEST` | User opens refund request | Pooja Kit refunds |
+| `REPLACEMENT_REQUEST` | User submits replacement | Pooja Kit refunds (or replacements if separate) |
+
+### FCM payload example (`NEW_ORDER`)
+
+```json
+{
+  "notification": { "title": "New order", "body": "Order SATYA-ORD-10042 — ZAR 299.00" },
+  "data": {
+    "type": "NEW_ORDER",
+    "orderId": "674a1b2c3d4e5f6789012345",
+    "orderNumber": "SATYA-ORD-10042",
+    "userId": "674b...",
+    "totalAmount": "299",
+    "currency": "ZAR"
+  }
+}
+```
+
+### Curl (sanity check)
+
+```bash
+BASE="https://satya-server-app-2.onrender.com/api/v1"
+TOKEN="<ADMIN_FIREBASE_JWT>"
+
+curl -s "$BASE/admin/notifications/unread-count" -H "Authorization: Bearer $TOKEN"
+curl -s "$BASE/admin/notifications?unreadOnly=true" -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+## Current Flutter gaps (read before coding)
+
+1. **`FcmBootstrap.registerWithBackend()` skips web** (`kIsWeb` early return). Phase 1 uses **polling only**; Phase 2 enables web FCM (VAPID + service worker).
+2. **Header bell** in `cms_shell_page.dart` is static (no badge, no tap).
+3. **Notifications tab** = broadcast send/history only — keep it; add **Activity** (or wire bell → inbox).
+
+---
+
+## Recommended UX (CMS web)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  CMS Shell                                    [🔔 3]   │
+├──────────┬──────────────────────────────────────────────┤
+│ Sidebar  │  Activity inbox (or dropdown from bell)    │
+│ …        │  • New order — SATYA-ORD-10042             │
+│ Activity │  • Payment received — donation             │
+│ Notif.*  │  • Refund request — REQ-1005               │
+└──────────┴──────────────────────────────────────────────┘
+* "Notifications" = existing broadcast send/history tab
+```
+
+**Option A (recommended):** New sidebar item **Activity** with unread badge.  
+**Option B:** Bell opens `endDrawer` / overlay list; "View all" → full Activity page.
+
+Implement **Option A + functional bell** (bell opens same inbox or scrolls to Activity tab).
+
+---
+
+## Cursor prompt (paste into Flutter repo)
+
+Implement **Admin System Notifications** for the CMS web app (`role: admin | superadmin`).
+
+### Phase 1 — Inbox + polling (ship first)
+
+Server is source of truth. No local Hive cache for operational alerts.
+
+#### 1. API layer
+
+**`lib/core/network/api_endpoints.dart`** — add:
+
+```dart
+static const String adminNotifications = '/admin/notifications';
+static String adminNotificationRead(String id) => '/admin/notifications/$id/read';
+static const String adminNotificationsReadAll = '/admin/notifications/read-all';
+static const String adminNotificationsUnreadCount = '/admin/notifications/unread-count';
+```
+
+**`lib/features/admin_notifications/data/models/admin_notification_item.dart`**
+
+```dart
+class AdminNotificationItem {
+  final String id;
+  final String type; // NEW_ORDER | PAYMENT_SUCCESS | REFUND_REQUEST | REPLACEMENT_REQUEST
+  final String title;
+  final String body;
+  final Map<String, dynamic>? data;
+  final bool read;
+  final DateTime createdAt;
+
+  String? get orderId => data?['orderId'] as String?;
+  String? get orderNumber => data?['orderNumber'] as String?;
+  String? get contributionId => data?['contributionId'] as String?;
+  String? get contributionNumber => data?['contributionNumber'] as String?;
+  String? get requestId => data?['requestId'] as String?;
+  String? get requestNumber => data?['requestNumber'] as String?;
+
+  factory AdminNotificationItem.fromJson(Map<String, dynamic> json);
+}
+```
+
+**`lib/features/admin_notifications/data/admin_notifications_api.dart`**
+
+- `list({ page, limit, unreadOnly, type })`
+- `unreadCount()`
+- `getById(id)`
+- `markRead(id)`
+- `markAllRead()`
+
+Parse `response.data['data']` per backend shape. Map `DioException` → `AdminNotificationsException` (`status`, `message` from `response.data['message']`).
+
+**`lib/features/admin_notifications/data/admin_notifications_repository.dart`**
+
+Thin wrapper over API; return typed models + pagination tuple.
+
+#### 2. Controller — `CmsAdminNotificationsController` (GetX)
+
+Register in `initial_binding.dart` (lazy, fenix):
+
+```dart
+Get.lazyPut<CmsAdminNotificationsController>(
+  () => CmsAdminNotificationsController(Get.find<AdminNotificationsRepository>()),
+  fenix: true,
+);
+```
+
+State:
+
+- `notifications` — `RxList<AdminNotificationItem>`
+- `unreadCount` — `RxInt`
+- `page`, `totalPages`, `isLoading`, `isLoadingMore`, `error`
+- `filterType` — `RxnString` (`null` | `NEW_ORDER` | …)
+- `unreadOnly` — `RxBool`
+
+Methods:
+
+- `loadFirstPage()` / `loadNextPage()`
+- `refreshUnreadCount()` → `GET unread-count`
+- `setFilter(...)` → reload page 1
+- `markReadAndOpen(AdminNotificationItem item)` — POST read, decrement badge, navigate
+- `markAllRead()`
+
+**Polling:** while `CmsShellPage` mounted, `Timer.periodic(60s)` → `refreshUnreadCount()`. Also call on tab focus and `AppLifecycleState.resumed`.
+
+#### 3. UI — `CmsAdminNotificationsContent`
+
+Path: `lib/features/admin_notifications/presentation/contents/cms_admin_notifications_content.dart`
+
+Match styling of `cms_notifications_content.dart` (navy `0xFF1A2A4A`, cards, `intl` relative times).
+
+- **Header:** title **Activity**, **Mark all read**, refresh icon.
+- **Filter chips:** All | Unread | Orders | Donations | Refunds  
+  - Orders → `type=NEW_ORDER`  
+  - Donations → `type=PAYMENT_SUCCESS`  
+  - Refunds → `type=REFUND_REQUEST` (include `REPLACEMENT_REQUEST` in same chip or separate)
+- **List:** `RefreshIndicator`, infinite scroll, unread dot, type icon.
+- **Empty / error** states.
+- **Tap row:** `markReadAndOpen`.
+
+**Detail sheet** (`AdminNotificationDetailSheet`): full title/body/time, copy `orderNumber` / `contributionNumber` / `paystackReference`, primary CTA **View**.
+
+#### 4. Navigation / deep links
+
+**`app_routes.dart`**
+
+```dart
+static const String cmsActivity = '/cms/activity';
+```
+
+**`cms_route_paths.dart`**
+
+```dart
+static bool isActivitySection(String route) =>
+    route.trim() == AppRoutes.cmsActivity;
+```
+
+**`cms_shell_page.dart`**
+
+- Add `_NavIds.activity` (pick unused index, e.g. `17`).
+- Sidebar: **Activity** with `Icons.notifications_active_outlined`, badge `Obx(() => ctrl.unreadCount)`.
+- `_buildContent` → `CmsAdminNotificationsContent()`.
+- Route map: `AppRoutes.cmsActivity` ↔ index.
+
+**`markReadAndOpen` routing:**
+
+```dart
+void openFromNotification(AdminNotificationItem n) {
+  switch (n.type) {
+    case 'NEW_ORDER':
+      final id = n.orderId;
+      if (id != null && id.isNotEmpty) {
+        CmsShellNavigation.selectTab(poojaKitOrdersIndex);
+        updateCmsHashRoute(AppRoutes.cmsPoojaKitOrderPath(id));
+      }
+      break;
+    case 'PAYMENT_SUCCESS':
+      CmsShellNavigation.selectTab(donationsAllIndex);
+      updateCmsHashRoute(AppRoutes.cmsDonationsAll);
+      break;
+    case 'REFUND_REQUEST':
+    case 'REPLACEMENT_REQUEST':
+      CmsShellNavigation.selectTab(poojaKitRefundsIndex);
+      updateCmsHashRoute(AppRoutes.cmsPoojaKitRefunds);
+      break;
+  }
+}
+```
+
+Reuse existing order-detail drill-down in `cms_pooja_kit_orders_content.dart` (same as hash `.../orders/:orderId`).
+
+#### 5. Header bell (`cms_shell_page.dart`)
+
+Replace static bell `Container` with:
+
+```dart
+Obx(() {
+  final count = Get.isRegistered<CmsAdminNotificationsController>()
+      ? Get.find<CmsAdminNotificationsController>().unreadCount.value
+      : 0;
+  return InkWell(
+    onTap: () => /* open Activity tab or endDrawer */,
+    child: Badge(
+      isLabelVisible: count > 0,
+      label: Text('$count'),
+      child: Icon(Icons.notifications_outlined, ...),
+    ),
+  );
+});
+```
+
+On CMS shell `initState`: `Get.find<CmsAdminNotificationsController>().refreshUnreadCount()`.
+
+#### 6. Auth lifecycle
+
+In `auth_controller.dart` after successful **admin** login (same place as `FcmBootstrap.registerWithBackend()`):
+
+```dart
+if (role is admin || superadmin) {
+  unawaited(Get.find<FcmBootstrap>().registerWithBackend());
+  if (Get.isRegistered<CmsAdminNotificationsController>()) {
+    unawaited(Get.find<CmsAdminNotificationsController>().refreshUnreadCount());
+  }
+}
+```
+
+Logout: existing `unregisterFromBackend()` — unchanged.
+
+---
+
+### Phase 2 — Web FCM push (optional, after Phase 1)
+
+Today `FcmBootstrap` no-ops on web. To get **browser tray notifications**:
+
+1. Firebase Console → Cloud Messaging → **Web Push certificates** → generate **VAPID key pair**.
+2. Add to Flutter web config / env: `FIREBASE_VAPID_KEY`.
+3. Add `web/firebase-messaging-sw.js` (Firebase template) + register in `index.html`.
+4. Update `FcmBootstrap.registerWithBackend()`:
+
+```dart
+if (kIsWeb) {
+  final token = await FirebaseMessaging.instance.getToken(
+    vapidKey: const String.fromEnvironment('FIREBASE_VAPID_KEY'),
+  );
+  // POST register with platform: 'web'
+  return;
+}
+```
+
+5. Extend FCM router (wherever `RemoteMessage` is handled) for admin session:
+
+```dart
+void handleAdminOperationalMessage(RemoteMessage m, {required bool fromTap}) {
+  final type = m.data['type'] ?? '';
+  if (!isAdminRole) return;
+  if (!fromTap) {
+    Get.find<CmsAdminNotificationsController>().refreshUnreadCount();
+    Get.find<CmsAdminNotificationsController>().loadFirstPage();
+    // foreground: flutter_local_notifications banner — do NOT navigate
+    return;
+  }
+  // fromTap: openFromNotification(parsed from m.data)
+}
+```
+
+| `data.type` | Tap navigates to |
+|-------------|------------------|
+| `NEW_ORDER` | Order detail (`orderId`) |
+| `PAYMENT_SUCCESS` | `cmsDonationsAll` |
+| `REFUND_REQUEST` | `cmsPoojaKitRefunds` |
+| `REPLACEMENT_REQUEST` | `cmsPoojaKitRefunds` |
+
+**Do not** route these types to user mobile inbox handlers when `role` is admin.
+
+---
+
+## Module layout (final)
+
+```
+lib/features/admin_notifications/
+  data/
+    models/admin_notification_item.dart
+    admin_notifications_api.dart
+    admin_notifications_repository.dart
+    admin_notifications_exception.dart
+  presentation/
+    controllers/cms_admin_notifications_controller.dart
+    contents/cms_admin_notifications_content.dart
+    widgets/admin_notification_tile.dart
+    widgets/admin_notification_detail_sheet.dart
+lib/core/notifications/
+  admin_notification_router.dart   // Phase 2 FCM tap routing
+```
+
+---
+
+## Do NOT
+
+- Do not use `GET /notifications` for the operational inbox (that is broadcast history).
+- Do not store operational alerts in Hive/local-only cache.
+- Do not duplicate `ApiClient` or auth interceptors.
+- Do not navigate on foreground `onMessage` — only on tap / notification click.
+- Do not edit backend files from the Flutter repo.
+- Do not remove or break `CmsNotificationsContent` (broadcast tab).
+
+---
+
+## Acceptance criteria
+
+### Phase 1
+
+1. Admin logs into CMS → within 60s bell shows correct `unreadCount` from API.
+2. Pay test order → new row `NEW_ORDER` in Activity list.
+3. Pay test donation → row `PAYMENT_SUCCESS`.
+4. Tap order alert → marked read, navigates to `/cms/pooja-kit/orders/<orderId>`.
+5. Tap donation alert → navigates to `/cms/donations/all`.
+6. **Mark all read** → badge `0`, all rows show read.
+7. Filter chips call correct query params.
+8. Pagination loads page 2 when applicable.
+9. `flutter analyze` clean; light/dark OK.
+
+### Phase 2 (if implemented)
+
+10. Admin on Chrome receives tray notification when order paid (permission granted).
+11. Tap tray → opens correct CMS route.
+12. `POST /fcm/register` with `platform: web` increases `GET /fcm/me` count.
+
+---
+
+## How to test
+
+- [ ] Backend deployed with `/admin/notifications` routes.
+- [ ] Admin JWT → `GET .../unread-count` returns JSON.
+- [ ] Complete Paystack order as user → admin Activity shows `NEW_ORDER`.
+- [ ] Complete donation → shows `PAYMENT_SUCCESS`.
+- [ ] Create refund request as user → shows `REFUND_REQUEST`.
+- [ ] Bell badge matches `unreadCount`.
+- [ ] Mark one / mark all read updates badge.
+- [ ] Deep link to order detail works from Activity row.
+- [ ] Broadcast **Notifications** tab still sends push via `POST /notifications/send`.
+
+---
+
+## Related docs
+
+- Backend: `docs/ADMIN_NOTIFICATIONS.md`
+- Broadcast pushes: `Flutter-notifications.plan`
+- FCM bootstrap: `Flutter-fcm.plan`
+- Orders admin: `Flutter-admin-orders&refund&payments.plan`
+
+---
+
+## Final step
+
+Run `flutter analyze` and `dart format .`. Add a one-line note in CMS README: **Activity** = system alerts; **Notifications** = manual broadcast.
+
+---
+
+End of plan.

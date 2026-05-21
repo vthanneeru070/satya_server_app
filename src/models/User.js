@@ -133,8 +133,28 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: "Asia/Kolkata",
     },
+    /** Legacy flat list — kept in sync with `fcmDevices` for push multicast. */
     fcmTokens: {
       type: [String],
+      default: [],
+    },
+    /**
+     * Registered FCM devices (mobile + Flutter web admin tabs).
+     * Multiple entries per user are expected (phone + laptop + browser tabs).
+     */
+    fcmDevices: {
+      type: [
+        {
+          token: { type: String, required: true, trim: true },
+          platform: {
+            type: String,
+            enum: ["android", "ios", "web", null],
+            default: null,
+          },
+          deviceId: { type: String, trim: true, default: null },
+          updatedAt: { type: Date, default: Date.now },
+        },
+      ],
       default: [],
     },
     notificationPreferences: {

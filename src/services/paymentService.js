@@ -17,6 +17,7 @@ const {
 } = require("./fcmOrderNotifyService");
 const invoiceService = require("./invoiceService");
 const orderEmailService = require("./orderEmailService");
+const adminNotificationService = require("./adminNotificationService");
 
 const appendOrderHistory = (order, status, note = "") => {
   order.orderStatusHistory = order.orderStatusHistory || [];
@@ -538,6 +539,14 @@ const verifyPaymentByReference = async (reference, { userId, isAdmin = false } =
         currency: out.contribution.currency,
         contributionId: out.contribution._id,
       });
+      await adminNotificationService
+        .notifyPaymentSuccessForDonation(out.contribution)
+        .catch((err) =>
+          console.error(
+            "[paymentService] admin PAYMENT_SUCCESS notification failed:",
+            err?.message || err
+          )
+        );
     } else {
       await notifyOrderPlaced(out.order.user, { order: out.order });
 
@@ -578,6 +587,12 @@ const verifyPaymentByReference = async (reference, { userId, isAdmin = false } =
             err?.message || err
           )
         );
+      await adminNotificationService.notifyNewOrder(out.order).catch((err) =>
+        console.error(
+          "[paymentService] admin NEW_ORDER notification failed:",
+          err?.message || err
+        )
+      );
     }
   }
 

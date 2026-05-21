@@ -1,66 +1,40 @@
-const User = require("../models/User");
-const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
+const fcmTokenService = require("../services/fcmTokenService");
 
 /**
- * Register an FCM device token for the authenticated user.
- * Uses $addToSet to dedupe at the DB layer regardless of concurrent calls.
+ * Register FCM token (mobile user or Flutter web admin).
+ * Supports multiple devices/tabs per account via fcmDevices + fcmTokens.
  */
 const registerToken = async (req, res, next) => {
   try {
-    const { token } = req.body;
-    const userId = req.user.userId;
-
-    const result = await User.updateOne(
-      { _id: userId, isDeleted: { $ne: true } },
-      { $addToSet: { fcmTokens: token } }
-    );
-
-    if (!result.matchedCount) throw new HttpError("User not found", 404);
-
-    return sendSuccess(res, { registered: true }, "FCM token registered");
+    const { token, deviceId, platform } = req.body;
+    const data = await fcmTokenService.registerDeviceToken(req.user.userId, {
+      token,
+      deviceId,
+      platform,
+    });
+    return sendSuccess(res, data, "FCM token registered");
   } catch (error) {
     return next(error);
   }
 };
 
-/**
- * Unregister a single FCM token for the authenticated user (e.g. on logout
- * or when Firebase rotates the device token).
- */
 const unregisterToken = async (req, res, next) => {
   try {
     const { token } = req.body;
-    const userId = req.user.userId;
-
-    const result = await User.updateOne(
-      { _id: userId, isDeleted: { $ne: true } },
-      { $pull: { fcmTokens: token } }
-    );
-
-    if (!result.matchedCount) throw new HttpError("User not found", 404);
-
-    return sendSuccess(res, { unregistered: true }, "FCM token removed");
+    const data = await fcmTokenService.unregisterDeviceToken(req.user.userId, {
+      token,
+    });
+    return sendSuccess(res, data, "FCM token removed");
   } catch (error) {
     return next(error);
   }
 };
 
-/**
- * Returns the count of FCM tokens registered for the authenticated user.
- * Useful from the Flutter client to confirm registration succeeded.
- */
 const getMyTokenStatus = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user.userId)
-      .select("fcmTokens")
-      .lean();
-    if (!user) throw new HttpError("User not found", 404);
-    return sendSuccess(
-      res,
-      { count: (user.fcmTokens || []).length },
-      "FCM token status"
-    );
+    const data = await fcmTokenService.getTokenStatus(req.user.userId);
+    return sendSuccess(res, data, "FCM token status");
   } catch (error) {
     return next(error);
   }
