@@ -25,6 +25,53 @@ const appendOrderHistory = (order, status, note = "") => {
   order.orderStatusHistory.push({ status, at: new Date(), note });
 };
 
+/** Infer ORDER vs DONATION when legacy Payment rows lack paymentFor. */
+const resolvePaymentKind = (payment) => {
+  if (payment?.paymentFor === "DONATION" || payment?.donationContribution) {
+    return "DONATION";
+  }
+  return "ORDER";
+};
+
+/**
+ * User push (first time) + admin inbox/FCM whenever a contribution is PAID.
+ * Admin notify is idempotent (sourceKey); FCM only fires on first insert.
+ */
+const fanOutDonationPaymentNotifications = async (
+  contributionId,
+  { notifyUser = false, contribution: contributionHint } = {}
+) => {
+  if (!contributionId) return;
+
+  const contribution =
+    contributionHint?.paymentStatus === "PAID"
+      ? contributionHint
+      : await DonationContribution.findById(contributionId).populate(
+          "donation",
+          "title"
+        );
+
+  if (!contribution || contribution.paymentStatus !== "PAID") return;
+
+  if (notifyUser) {
+    await notifyDonationReceived(contribution.user, {
+      amount: contribution.amount,
+      currency: contribution.currency,
+      contributionId: contribution._id,
+      donationTitle: contribution.donation?.title,
+    });
+  }
+
+  await adminNotificationService
+    .notifyPaymentSuccessForDonation(contribution)
+    .catch((err) =>
+      console.error(
+        "[paymentService] admin PAYMENT_SUCCESS notification failed:",
+        err?.message || err
+      )
+    );
+};
+
 const nextDonationContributionNumber = async (session) => {
   // Pipeline update + upsert: starts at 10001 on first call, increments thereafter.
   // Mongoose 9+ requires `updatePipeline: true` to accept an aggregation pipeline.
@@ -491,7 +538,7 @@ const verifyPaymentByReference = async (reference, { userId, isAdmin = false } =
       if (!payment) {
         throw new HttpError("No payment record matches this reference", 404);
       }
-      kind = payment.paymentFor;
+      kind = resolvePaymentKind(payment);
 
       if (payment.paymentFor === "DONATION") {
         const r = await settleDonationInTransaction({
@@ -533,22 +580,14 @@ const verifyPaymentByReference = async (reference, { userId, isAdmin = false } =
     await session.endSession();
   }
 
-  if (shouldNotify) {
-    if (kind === "DONATION") {
-      await notifyDonationReceived(out.contribution.user, {
-        amount: out.contribution.amount,
-        currency: out.contribution.currency,
-        contributionId: out.contribution._id,
-      });
-      await adminNotificationService
-        .notifyPaymentSuccessForDonation(out.contribution)
-        .catch((err) =>
-          console.error(
-            "[paymentService] admin PAYMENT_SUCCESS notification failed:",
-            err?.message || err
-          )
-        );
-    } else {
+  // Donation: always ensure admin alert when verify returns success + PAID
+  // (covers webhook-after-app race where shouldNotify is false on the second call).
+  if (kind === "DONATION" && out?.status === "success" && out?.contribution?._id) {
+    await fanOutDonationPaymentNotifications(out.contribution._id, {
+      notifyUser: shouldNotify,
+      contribution: out.contribution,
+    });
+  } else if (shouldNotify) {
       await notifyOrderPlaced(out.order.user, { order: out.order });
 
       await createShipmentForOrder(out.order._id);
@@ -596,7 +635,6 @@ const verifyPaymentByReference = async (reference, { userId, isAdmin = false } =
           err?.message || err
         )
       );
-    }
   }
 
   return out;

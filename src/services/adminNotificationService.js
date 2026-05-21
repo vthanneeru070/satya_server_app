@@ -146,7 +146,13 @@ class AdminNotificationService {
     }
 
     let notification = null;
+    let isNew = false;
     try {
+      const existing = await AdminNotification.findOne({ sourceKey })
+        .select("_id")
+        .lean();
+      isNew = !existing;
+
       notification = await AdminNotification.findOneAndUpdate(
         { sourceKey },
         {
@@ -164,16 +170,19 @@ class AdminNotificationService {
       console.warn(`[adminNotification] persist(${sourceKey}):`, err?.message || err);
     }
 
-    const push = await this.pushToAllAdmins(
-      {
-        title,
-        body: body || "",
-        data: { ...data, type },
-      },
-      logTag
-    );
+    // Only multicast FCM when this event is new — avoids duplicate pushes on re-verify.
+    const push = isNew
+      ? await this.pushToAllAdmins(
+          {
+            title,
+            body: body || "",
+            data: { ...data, type },
+          },
+          logTag
+        )
+      : { sent: 0, failed: 0, skipped: true };
 
-    return { notification, push };
+    return { notification, push, isNew };
   }
 
   // ── Typed helpers (order / payment / refund) ─────────────────────────────
