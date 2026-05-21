@@ -24,6 +24,16 @@ const appendOrderHistory = (order, status, note = "") => {
   order.orderStatusHistory.push({ status, at: new Date(), note });
 };
 
+/** Resolve ORDER vs DONATION even when legacy rows omit paymentFor. */
+const resolvePaymentKind = (payment) => {
+  if (!payment) return null;
+  const explicit = String(payment.paymentFor || "").toUpperCase();
+  if (explicit === "DONATION" || explicit === "ORDER") return explicit;
+  if (payment.donationContribution) return "DONATION";
+  if (payment.order) return "ORDER";
+  return "ORDER";
+};
+
 const nextDonationContributionNumber = async (session) => {
   // Pipeline update + upsert: starts at 10001 on first call, increments thereafter.
   // Mongoose 9+ requires `updatePipeline: true` to accept an aggregation pipeline.
@@ -490,9 +500,9 @@ const verifyPaymentByReference = async (reference, { userId, isAdmin = false } =
       if (!payment) {
         throw new HttpError("No payment record matches this reference", 404);
       }
-      kind = payment.paymentFor;
+      kind = resolvePaymentKind(payment);
 
-      if (payment.paymentFor === "DONATION") {
+      if (kind === "DONATION") {
         const r = await settleDonationInTransaction({
           payment,
           paystackData,
@@ -532,21 +542,38 @@ const verifyPaymentByReference = async (reference, { userId, isAdmin = false } =
     await session.endSession();
   }
 
-  if (shouldNotify) {
-    if (kind === "DONATION") {
+  const paymentKind = kind || (out?.contribution ? "DONATION" : "ORDER");
+  const donationPaid =
+    out?.contribution &&
+    out.contribution.paymentStatus === "PAID" &&
+    out.status === "success";
+
+  if (donationPaid) {
+    if (shouldNotify) {
       await notifyDonationReceived(out.contribution.user, {
         amount: out.contribution.amount,
         currency: out.contribution.currency,
         contributionId: out.contribution._id,
       });
-      await adminNotificationService
-        .notifyPaymentSuccessForDonation(out.contribution)
-        .catch((err) =>
-          console.error(
-            "[paymentService] admin PAYMENT_SUCCESS notification failed:",
-            err?.message || err
-          )
-        );
+    }
+    const contribution =
+      (await DonationContribution.findById(out.contribution._id)
+        .populate("donation", "title")
+        .lean()) || out.contribution;
+    await adminNotificationService
+      .notifyPaymentSuccessForDonation(contribution, { pushFcm: shouldNotify })
+      .catch((err) =>
+        console.error(
+          "[paymentService] admin PAYMENT_SUCCESS notification failed:",
+          err?.message || err
+        )
+      );
+  } else if (shouldNotify) {
+    if (paymentKind === "DONATION") {
+      console.warn(
+        "[paymentService] donation verify succeeded but contribution is not PAID — skipping admin notify",
+        { reference, status: out?.status }
+      );
     } else {
       await notifyOrderPlaced(out.order.user, { order: out.order });
 

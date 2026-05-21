@@ -69,7 +69,9 @@ Call again on `onTokenRefresh`. On logout: `DELETE /api/v1/fcm/unregister` with 
 | `type` | When | FCM `data` keys |
 |--------|------|-----------------|
 | `NEW_ORDER` | Order payment verified (Paystack) | `orderId`, `orderNumber`, `totalAmount`, `currency`, … |
-| `PAYMENT_SUCCESS` | Donation payment verified | `paymentFor: DONATION`, `contributionId`, `donationTitle`, … |
+| `PAYMENT_SUCCESS` | Donation payment verified (any successful verify while contribution is `PAID`) | `paymentFor: DONATION`, `contributionId`, `donationTitle`, `notificationId`, … |
+
+Donation admin alerts run on **every** successful verify when the contribution is `PAID` (not only the first settlement). FCM is sent on first settlement; if the inbox row was never created, a later verify still sends FCM.
 | `REFUND_REQUEST` | User creates refund order request | `requestId`, `orderId`, `orderNumber`, … |
 | `REPLACEMENT_REQUEST` | User submits replacement | `requestId`, `orderId`, … |
 

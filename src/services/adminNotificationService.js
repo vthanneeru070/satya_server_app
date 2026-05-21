@@ -45,10 +45,21 @@ class AdminNotificationService {
     const admins = await User.find({
       role: { $in: ADMIN_ROLES },
       isDeleted: { $ne: true },
-      fcmTokens: { $exists: true, $not: { $size: 0 } },
-    }).select("fcmTokens");
+      $or: [
+        { fcmTokens: { $exists: true, $not: { $size: 0 } } },
+        { "fcmDevices.0": { $exists: true } },
+      ],
+    }).select("fcmTokens fcmDevices");
 
-    return [...new Set(admins.flatMap((u) => u.fcmTokens || []).filter(Boolean))];
+    const tokens = [];
+    for (const u of admins) {
+      if (Array.isArray(u.fcmTokens) && u.fcmTokens.length) {
+        tokens.push(...u.fcmTokens);
+      } else if (Array.isArray(u.fcmDevices)) {
+        tokens.push(...u.fcmDevices.map((d) => d.token).filter(Boolean));
+      }
+    }
+    return [...new Set(tokens.filter(Boolean))];
   }
 
   /** Remove tokens Firebase reports as invalid. */
@@ -86,6 +97,9 @@ class AdminNotificationService {
           tokens: batch,
           notification: { title, body },
           data: toFcmData(data),
+          webpush: {
+            notification: { title, body },
+          },
           android: {
             priority: "high",
             notification: {
@@ -140,10 +154,16 @@ class AdminNotificationService {
     body,
     data,
     logTag = "adminNotification",
+    /** When false, FCM is sent only if this sourceKey had no row yet (recovery path). */
+    pushFcm = true,
   }) {
     if (!type || !sourceKey || !title) {
-      return { notification: null, push: { sent: 0, failed: 0 } };
+      return { notification: null, push: { sent: 0, failed: 0 }, isNew: false };
     }
+
+    const existed = await AdminNotification.findOne({ sourceKey, isDeleted: { $ne: true } })
+      .select("_id")
+      .lean();
 
     let notification = null;
     try {
@@ -164,16 +184,31 @@ class AdminNotificationService {
       console.warn(`[adminNotification] persist(${sourceKey}):`, err?.message || err);
     }
 
-    const push = await this.pushToAllAdmins(
-      {
-        title,
-        body: body || "",
-        data: { ...data, type },
-      },
-      logTag
-    );
+    const isNew = !existed;
+    const shouldPush = pushFcm || isNew;
+    let push = { sent: 0, failed: 0, deadTokens: [] };
 
-    return { notification, push };
+    if (shouldPush && notification) {
+      push = await this.pushToAllAdmins(
+        {
+          title,
+          body: body || "",
+          data: {
+            ...data,
+            type,
+            notificationId: String(notification._id),
+          },
+        },
+        logTag
+      );
+      if (push.sent === 0) {
+        console.warn(
+          `[adminNotification] ${logTag}: FCM not delivered (tokens=${(await this.collectAdminTokens()).length}, isNew=${isNew}, pushFcm=${pushFcm})`
+        );
+      }
+    }
+
+    return { notification, push, isNew };
   }
 
   // ── Typed helpers (order / payment / refund) ─────────────────────────────
@@ -219,7 +254,7 @@ class AdminNotificationService {
     });
   }
 
-  async notifyPaymentSuccessForDonation(contribution) {
+  async notifyPaymentSuccessForDonation(contribution, { pushFcm = true } = {}) {
     if (!contribution?._id) return null;
 
     let donationTitle = "";
@@ -257,6 +292,7 @@ class AdminNotificationService {
       body,
       data,
       logTag: "notifyPaymentSuccessDonation",
+      pushFcm,
     });
   }
 
