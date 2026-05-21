@@ -171,7 +171,7 @@ router.get(
  *       403:
  *         description: Forbidden (super admin required)
  */
-router.get("/all", authenticate, authorizeSuperAdmin, validate(allPoojasQuerySchema, "query"), getAllPoojas);
+router.get("/all", authenticate, authorizeRoles("admin"), validate(allPoojasQuerySchema, "query"), getAllPoojas);
 
 /**
  * @swagger
