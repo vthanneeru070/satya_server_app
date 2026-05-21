@@ -347,7 +347,7 @@ const options = {
             image: {
               type: "string",
               format: "binary",
-              description: "Profile photo (required unless OAuth photoUrl exists)",
+              description: "Optional profile photo upload",
             },
           },
         },

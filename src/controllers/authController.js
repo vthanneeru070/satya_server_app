@@ -353,7 +353,7 @@ const getProfile = async (req, res, next) => {
   }
 };
 
-/** First-time registration (basic details + profile image). */
+/** First-time registration (required profile fields; optional image). */
 const createProfile = async (req, res, next) => {
   try {
     const data = await userProfileService.createProfile(req.user.userId, req.body, req);

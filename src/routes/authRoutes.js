@@ -187,7 +187,8 @@ router.get("/profile", authenticate, getProfile);
  *     summary: Create profile (first-time registration)
  *     description: |
  *       Multipart form after Firebase login when `isRegistered` is false.
- *       Required fields + profile `image` (unless OAuth `photoUrl` already set).
+ *       Required: fullName, gender, dateOfBirth, countryCode, phone.
+ *       Optional: image, timeOfBirth, placeOfBirth, sunSign, moonSign, firstName, lastName, timezone, preferredLanguage.
  *     tags: [Auth]
  *     security:
  *       - bearerAuth: []

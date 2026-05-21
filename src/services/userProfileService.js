@@ -142,7 +142,7 @@ const createProfile = async (userId, body, req) => {
   }
 
   applyProfileFields(user, body, { requireAll: true });
-  await applyProfileImage(user, req, { required: true });
+  await applyProfileImage(user, req, { required: false });
 
   user.lastActiveAt = new Date();
   markProfileRegistered(user);
