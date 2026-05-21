@@ -185,7 +185,7 @@ router.get(
 router.get(
   "/all",
   authenticate,
-  authorizeSuperAdmin,
+  authorizeRoles("admin"),
   validate(allFestivalsQuerySchema, "query"),
   getAllFestivals
 );
