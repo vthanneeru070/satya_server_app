@@ -22,7 +22,7 @@ app.use(
   })
 );
 app.use(requestLogger);
-app.use(rateLimiter);
+// app.use(rateLimiter);
 
 // IMPORTANT: payment webhooks MUST receive the raw body so HMAC signatures can
 // be verified bit-for-bit against what Paystack sent. Mount BEFORE express.json().
