@@ -14,6 +14,9 @@ const errorHandler = require("./middleware/errorHandler");
 
 const app = express();
 
+// Render / reverse proxies: use X-Forwarded-For so rate limits are per client, not shared.
+// app.set("trust proxy", 1);
+
 app.use(helmet());
 app.use(
   cors({
@@ -22,7 +25,7 @@ app.use(
   })
 );
 app.use(requestLogger);
-app.use(rateLimiter);
+// app.use(rateLimiter);
 
 // IMPORTANT: payment webhooks MUST receive the raw body so HMAC signatures can
 // be verified bit-for-bit against what Paystack sent. Mount BEFORE express.json().

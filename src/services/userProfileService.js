@@ -11,7 +11,6 @@ const {
   parseDateOfBirth,
   normalizePlaceOfBirth,
   normalizeZodiacSign,
-  isProfileComplete,
   attachIsRegistered,
 } = require("../utils/userProfile");
 
@@ -34,9 +33,9 @@ const loadUser = async (userId) => {
   return user;
 };
 
-const syncRegistrationFlag = (user) => {
-  user.isRegistered = isProfileComplete(user);
-  return user.isRegistered;
+const markProfileRegistered = (user) => {
+  user.isRegistered = true;
+  return true;
 };
 
 const formatProfileResponse = (user) => {
@@ -136,7 +135,7 @@ const applyProfileImage = async (user, req, { required = false } = {}) => {
 const createProfile = async (userId, body, req) => {
   const user = await loadUser(userId);
 
-  if (user.isRegistered || isProfileComplete(user)) {
+  if (user.isRegistered) {
     throw new HttpError("Profile already registered. Use PATCH /auth/profile to edit.", 409);
   }
 
@@ -144,7 +143,7 @@ const createProfile = async (userId, body, req) => {
   await applyProfileImage(user, req, { required: true });
 
   user.lastActiveAt = new Date();
-  syncRegistrationFlag(user);
+  markProfileRegistered(user);
   await user.save();
 
   return formatProfileResponse(user);
@@ -161,7 +160,6 @@ const editProfile = async (userId, body, req) => {
   await applyProfileImage(user, req, { required: false });
 
   user.lastActiveAt = new Date();
-  syncRegistrationFlag(user);
   await user.save();
 
   return formatProfileResponse(user);
@@ -212,8 +210,7 @@ module.exports = {
   editProfile,
   getProfile,
   deleteAccount,
-  syncRegistrationFlag,
+  markProfileRegistered,
   formatProfileResponse,
   attachIsRegistered,
-  isProfileComplete,
 };

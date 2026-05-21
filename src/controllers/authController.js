@@ -7,11 +7,7 @@ const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const { generateAccessToken, generateRefreshToken } = require("../utils/jwt");
 const userProfileService = require("../services/userProfileService");
-const {
-  isProfileComplete,
-  attachIsRegistered,
-  normalizeZodiacSign,
-} = require("../utils/userProfile");
+const { attachIsRegistered, normalizeZodiacSign } = require("../utils/userProfile");
 
 const toProviderValue = (provider = "") => {
   const normalized = String(provider || "").toLowerCase();
@@ -232,7 +228,6 @@ const login = async (req, res, next) => {
     }
 
     user.lastActiveAt = new Date();
-    userProfileService.syncRegistrationFlag(user);
     await user.save();
 
     const tokens = await issueTokens(user);

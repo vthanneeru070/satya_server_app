@@ -122,12 +122,12 @@ const isProfileComplete = (user) => {
   );
 };
 
+/** API responses use the persisted flag; only POST /auth/profile sets it to true. */
 const attachIsRegistered = (userDoc) => {
   const plain = userDoc?.toObject ? userDoc.toObject({ virtuals: true }) : { ...userDoc };
-  const registered = isProfileComplete(plain);
   return {
     ...plain,
-    isRegistered: registered,
+    isRegistered: Boolean(plain.isRegistered),
     imageUrl: toTrimmedOrNull(plain.profileImageUrl) || toTrimmedOrNull(plain.photoUrl) || null,
   };
 };
