@@ -1,3 +1,10 @@
+/**
+ * Firebase Admin SDK — used for FCM multicast (admin + user pushes).
+ *
+ * Service account setup (see docs/ADMIN_NOTIFICATIONS.md):
+ *   FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY
+ * Private key in .env must use literal \n between PEM lines.
+ */
 const admin = require("firebase-admin");
 const {
   firebaseProjectId,

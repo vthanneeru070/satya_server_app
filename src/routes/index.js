@@ -24,6 +24,7 @@ const notificationRoutes = require("./notificationRoutes");
 const globalSearchRoutes = require("./globalSearchRoutes");
 const userNotificationRoutes = require("./userNotificationRoutes");
 const shippingRoutes = require("./shippingRoutes");
+const adminNotificationRoutes = require("./adminNotificationRoutes");
 
 const router = express.Router();
 
@@ -33,6 +34,7 @@ router.use("/auth", authRoutes);
 // admin & superadmin — register `/admin/replacements` before `/admin` so paths
 // are not swallowed by the generic admin router.
 router.use("/admin/replacements", replacementAdminRoutes);
+router.use("/admin/notifications", adminNotificationRoutes);
 router.use("/admin", adminRoutes);
 router.use("/superadmin", superAdminRoutes);
 

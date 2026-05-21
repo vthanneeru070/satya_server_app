@@ -6,6 +6,7 @@ const HttpError = require("../utils/httpError");
 const orderService = require("./orderService");
 const orderEmailService = require("./orderEmailService");
 const fcmReplacementNotifyService = require("./fcmReplacementNotifyService");
+const adminNotificationService = require("./adminNotificationService");
 
 const notDeleted = { isDeleted: { $ne: true } };
 
@@ -148,7 +149,7 @@ const createRequest = async (userId, { orderId, reason = "", images = [] } = {})
     console.error("[replacementService] sendReplacementNewRequestAdminAlert:", err?.message || err)
   );
   fcmReplacementNotifyService.notifyUserReplacementSubmitted(userId, populated).catch(() => {});
-  fcmReplacementNotifyService.notifyAdminsNewReplacementRequest(populated).catch(() => {});
+  adminNotificationService.notifyReplacementRequest(populated).catch(() => {});
 
   return populated;
 };

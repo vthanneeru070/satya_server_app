@@ -5,6 +5,7 @@ const Counter = require("../models/Counter");
 const HttpError = require("../utils/httpError");
 const orderService = require("./orderService");
 const orderEmailService = require("./orderEmailService");
+const adminNotificationService = require("./adminNotificationService");
 
 const REQUEST_PREFIX = process.env.REQUEST_NUMBER_PREFIX || "REQ";
 
@@ -136,7 +137,21 @@ const createRequest = async (
     await session.endSession();
   }
 
-  return OrderRequest.findById(request._id).populate("order", "orderNumber orderStatus paymentStatus totalAmount currency");
+  const populated = await OrderRequest.findById(request._id).populate(
+    "order",
+    "orderNumber orderStatus paymentStatus totalAmount currency"
+  );
+
+  if (type === "REFUND") {
+    adminNotificationService.notifyRefundRequest(populated).catch((err) =>
+      console.error(
+        "[orderRequestService] admin REFUND_REQUEST notification failed:",
+        err?.message || err
+      )
+    );
+  }
+
+  return populated;
 };
 
 const listMyRequests = async (userId, q = {}) => {
