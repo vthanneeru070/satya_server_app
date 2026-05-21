@@ -64,16 +64,18 @@ const applyProfileFields = (user, body, { requireAll = false } = {}) => {
     else user.dateOfBirth = dateOfBirth;
   }
 
-  if (body.timeOfBirth !== undefined || requireAll) {
+  if (body.timeOfBirth !== undefined) {
     const timeOfBirth = normalizeTimeOfBirth(body.timeOfBirth);
-    if (!timeOfBirth) errors.push("Invalid timeOfBirth (use HH:mm)");
-    else user.timeOfBirth = timeOfBirth;
+    if (body.timeOfBirth !== null && body.timeOfBirth !== "" && !timeOfBirth) {
+      errors.push("Invalid timeOfBirth (use HH:mm)");
+    } else user.timeOfBirth = timeOfBirth;
   }
 
-  if (body.placeOfBirth !== undefined || requireAll) {
+  if (body.placeOfBirth !== undefined) {
     const placeOfBirth = normalizePlaceOfBirth(body.placeOfBirth);
-    if (!placeOfBirth) errors.push("Invalid placeOfBirth");
-    else user.placeOfBirth = placeOfBirth;
+    if (body.placeOfBirth !== null && body.placeOfBirth !== "" && !placeOfBirth) {
+      errors.push("Invalid placeOfBirth");
+    } else user.placeOfBirth = placeOfBirth;
   }
 
   if (body.sunSign !== undefined) {

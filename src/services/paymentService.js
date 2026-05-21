@@ -712,9 +712,6 @@ const handleRefundWebhook = async (event) => {
   return { ignored: true, reason: `unhandled refund event: ${event.event}` };
 };
 
-/**
- * Webhook handler — signature verified by route. Re-verifies success with Paystack API.
- */
 const handlePaystackWebhook = async (event) => {
   if (!event || typeof event !== "object") return { ignored: true };
 
