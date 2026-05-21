@@ -45,10 +45,21 @@ class AdminNotificationService {
     const admins = await User.find({
       role: { $in: ADMIN_ROLES },
       isDeleted: { $ne: true },
-      fcmTokens: { $exists: true, $not: { $size: 0 } },
-    }).select("fcmTokens");
+      $or: [
+        { fcmTokens: { $exists: true, $not: { $size: 0 } } },
+        { "fcmDevices.0": { $exists: true } },
+      ],
+    }).select("fcmTokens fcmDevices");
 
-    return [...new Set(admins.flatMap((u) => u.fcmTokens || []).filter(Boolean))];
+    return [
+      ...new Set(
+        admins.flatMap((u) => {
+          const fromDevices = (u.fcmDevices || []).map((d) => d.token).filter(Boolean);
+          const fromLegacy = u.fcmTokens || [];
+          return [...fromDevices, ...fromLegacy];
+        })
+      ),
+    ];
   }
 
   /** Remove tokens Firebase reports as invalid. */
@@ -86,6 +97,14 @@ class AdminNotificationService {
           tokens: batch,
           notification: { title, body },
           data: toFcmData(data),
+          webpush: {
+            headers: { Urgency: "high" },
+            notification: {
+              title,
+              body: body || "",
+              icon: "/icons/Icon-192.png",
+            },
+          },
           android: {
             priority: "high",
             notification: {
@@ -146,7 +165,13 @@ class AdminNotificationService {
     }
 
     let notification = null;
+    let isNew = false;
     try {
+      const existing = await AdminNotification.findOne({ sourceKey })
+        .select("_id")
+        .lean();
+      isNew = !existing;
+
       notification = await AdminNotification.findOneAndUpdate(
         { sourceKey },
         {
@@ -164,16 +189,40 @@ class AdminNotificationService {
       console.warn(`[adminNotification] persist(${sourceKey}):`, err?.message || err);
     }
 
-    const push = await this.pushToAllAdmins(
-      {
-        title,
-        body: body || "",
-        data: { ...data, type },
-      },
-      logTag
-    );
+    let push = { sent: 0, failed: 0, deadTokens: [], skipped: true };
+    if (isNew && notification?._id) {
+      push = await this.pushToAllAdmins(
+        {
+          title,
+          body: body || "",
+          data: {
+            ...data,
+            type,
+            notificationId: String(notification._id),
+          },
+        },
+        logTag
+      );
+    } else if (!isNew) {
+      console.log(`[adminNotification] ${logTag}: ${sourceKey} already recorded — FCM skipped`);
+    }
 
-    return { notification, push };
+    return { notification, push, isNew };
+  }
+
+  /**
+   * Idempotent admin alert for a PAID donation (inbox row + FCM on first record only).
+   */
+  async ensurePaymentSuccessForDonation(contribution) {
+    if (!contribution?._id) return null;
+
+    const sourceKey = `donation:${contribution._id}:${ADMIN_NOTIFICATION_TYPES.PAYMENT_SUCCESS}`;
+    const exists = await AdminNotification.exists({ sourceKey, ...notDeleted });
+    if (exists) {
+      return { skipped: true, reason: "already recorded", sourceKey };
+    }
+
+    return this.notifyPaymentSuccessForDonation(contribution);
   }
 
   // ── Typed helpers (order / payment / refund) ─────────────────────────────

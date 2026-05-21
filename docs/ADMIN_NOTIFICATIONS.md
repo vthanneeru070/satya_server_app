@@ -69,7 +69,7 @@ Call again on `onTokenRefresh`. On logout: `DELETE /api/v1/fcm/unregister` with 
 | `type` | When | FCM `data` keys |
 |--------|------|-----------------|
 | `NEW_ORDER` | Order payment verified (Paystack) | `orderId`, `orderNumber`, `totalAmount`, `currency`, … |
-| `PAYMENT_SUCCESS` | Donation payment verified | `paymentFor: DONATION`, `contributionId`, `donationTitle`, … |
+| `PAYMENT_SUCCESS` | Donation payment verified (any verify/webhook path when contribution is `PAID`) | `paymentFor: DONATION`, `contributionId`, `donationTitle`, `notificationId`, … |
 | `REFUND_REQUEST` | User creates refund order request | `requestId`, `orderId`, `orderNumber`, … |
 | `REPLACEMENT_REQUEST` | User submits replacement | `requestId`, `orderId`, … |
 
