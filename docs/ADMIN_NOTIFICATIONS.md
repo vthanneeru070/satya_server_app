@@ -83,6 +83,7 @@ Call again on `onTokenRefresh`. On logout: `DELETE /api/v1/fcm/unregister` with 
   },
   "data": {
     "type": "NEW_ORDER",
+    "notificationId": "674a1b2c3d4e5f6789012345",
     "orderId": "674a1b2c3d4e5f6789012345",
     "orderNumber": "SATYA-ORD-10042",
     "userId": "674b...",

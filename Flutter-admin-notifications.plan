@@ -5,7 +5,22 @@ Implements **real-time operational alerts** for the CMS (Flutter Web admin panel
 - Backend: `docs/ADMIN_NOTIFICATIONS.md`, `GET/POST /api/v1/admin/notifications`, `POST /api/v1/fcm/register`
 - Existing broadcast UI: `CmsNotificationsContent` + `GET /notifications` (manual push send/history) — **do not merge** with this feature.
 
-Copy everything below the rule into Cursor inside **`Satya_devotte_app`**. Match existing patterns: **GetX**, **Dio** + `ApiClient`, **CMS shell** hash routes, **FcmBootstrap** (extend for web in Phase 2).
+Copy everything below the rule into Cursor inside **`Satya_devotte_app`** when extending or debugging. Match existing patterns: **GetX**, **Dio** + `ApiClient`, **CMS shell** hash routes, **FcmBootstrap** (web + mobile).
+
+---
+
+## Implementation status (Satya_devotte_app)
+
+| Area | Status | Key files |
+|------|--------|-----------|
+| Activity inbox + API | Done | `features/admin_notifications/`, `CmsAdminNotificationsController`, `cms_admin_notifications_content.dart` |
+| CMS bell + badge + polling | Done | `cms_shell_page.dart` |
+| Web FCM register | Done | `fcm_bootstrap.dart` (`_registerWeb`, `platform: web`) |
+| Web FCM routing | Done | `admin_notification_router.dart`, `push_router.dart`, `notification_service.dart` |
+| VAPID | Required at build | `--dart-define=FIREBASE_VAPID_KEY=...` in `app_env.dart` |
+| Service worker | Required | `web/firebase-messaging-sw.js` |
+
+Backend must be deployed with `POST /fcm/register`, `GET /admin/notifications`, and payment verify hooks (see `docs/ADMIN_NOTIFICATIONS.md`). FCM `data` includes `notificationId` for mark-read on tap.
 
 ---
 
@@ -118,11 +133,21 @@ curl -s "$BASE/admin/notifications?unreadOnly=true" -H "Authorization: Bearer $T
 
 ---
 
-## Current Flutter gaps (read before coding)
+## Web FCM checklist (admin CMS)
 
-1. **`FcmBootstrap.registerWithBackend()` skips web** (`kIsWeb` early return). Phase 1 uses **polling only**; Phase 2 enables web FCM (VAPID + service worker).
-2. **Header bell** in `cms_shell_page.dart` is static (no badge, no tap).
-3. **Notifications tab** = broadcast send/history only — keep it; add **Activity** (or wire bell → inbox).
+1. Firebase Console → Cloud Messaging → **Web Push certificates** → copy VAPID public key.
+2. Run / build web with:
+   ```bash
+   flutter run -d chrome --dart-define=FIREBASE_VAPID_KEY=<your_vapid_public_key>
+   ```
+3. Confirm `web/firebase-messaging-sw.js` exists and matches your Firebase project.
+4. Log in as admin → browser allows notifications → console: `[FCM] web token registered`.
+5. `GET /api/v1/fcm/me` → `count` ≥ 1, `devices` includes `platform: web`.
+6. Trigger test order/donation payment → tray notification + Activity row + badge increment.
+
+**Foreground:** inbox refreshes; no auto-navigation (by design). **Tap:** `AdminNotificationRouter` → mark read + deep link.
+
+**Still separate:** sidebar **Notifications** tab = manual broadcast (`POST /notifications/send`), not Activity.
 
 ---
 
@@ -337,40 +362,14 @@ Logout: existing `unregisterFromBackend()` — unchanged.
 
 ---
 
-### Phase 2 — Web FCM push (optional, after Phase 1)
+### Phase 2 — Web FCM push — **implemented**
 
-Today `FcmBootstrap` no-ops on web. To get **browser tray notifications**:
+Implemented in:
 
-1. Firebase Console → Cloud Messaging → **Web Push certificates** → generate **VAPID key pair**.
-2. Add to Flutter web config / env: `FIREBASE_VAPID_KEY`.
-3. Add `web/firebase-messaging-sw.js` (Firebase template) + register in `index.html`.
-4. Update `FcmBootstrap.registerWithBackend()`:
-
-```dart
-if (kIsWeb) {
-  final token = await FirebaseMessaging.instance.getToken(
-    vapidKey: const String.fromEnvironment('FIREBASE_VAPID_KEY'),
-  );
-  // POST register with platform: 'web'
-  return;
-}
-```
-
-5. Extend FCM router (wherever `RemoteMessage` is handled) for admin session:
-
-```dart
-void handleAdminOperationalMessage(RemoteMessage m, {required bool fromTap}) {
-  final type = m.data['type'] ?? '';
-  if (!isAdminRole) return;
-  if (!fromTap) {
-    Get.find<CmsAdminNotificationsController>().refreshUnreadCount();
-    Get.find<CmsAdminNotificationsController>().loadFirstPage();
-    // foreground: flutter_local_notifications banner — do NOT navigate
-    return;
-  }
-  // fromTap: openFromNotification(parsed from m.data)
-}
-```
+- `lib/core/notifications/fcm_bootstrap.dart` — `_registerWeb()`, `getToken(vapidKey:)`, `platform: web`
+- `lib/core/notifications/admin_notification_router.dart` — foreground refresh + tap deep links
+- `lib/core/notifications/push_router.dart` — delegates operational types to admin router
+- `lib/core/services/notification_service.dart` — web FCM init path
 
 | `data.type` | Tap navigates to |
 |-------------|------------------|
@@ -379,7 +378,9 @@ void handleAdminOperationalMessage(RemoteMessage m, {required bool fromTap}) {
 | `REFUND_REQUEST` | `cmsPoojaKitRefunds` |
 | `REPLACEMENT_REQUEST` | `cmsPoojaKitRefunds` |
 
-**Do not** route these types to user mobile inbox handlers when `role` is admin.
+Use `data.notificationId` (Mongo inbox id) when present so `POST /admin/notifications/:id/read` succeeds on tap.
+
+**Do not** route these types to the user mobile inbox when `AuthController.isAdmin` is true.
 
 ---
 
@@ -428,10 +429,10 @@ lib/core/notifications/
 8. Pagination loads page 2 when applicable.
 9. `flutter analyze` clean; light/dark OK.
 
-### Phase 2 (if implemented)
+### Phase 2 (web FCM)
 
-10. Admin on Chrome receives tray notification when order paid (permission granted).
-11. Tap tray → opens correct CMS route.
+10. Admin on Chrome receives tray notification when order/donation paid (permission + VAPID).
+11. Tap tray → opens correct CMS route; mark-read uses `data.notificationId`.
 12. `POST /fcm/register` with `platform: web` increases `GET /fcm/me` count.
 
 ---
@@ -447,6 +448,8 @@ lib/core/notifications/
 - [ ] Mark one / mark all read updates badge.
 - [ ] Deep link to order detail works from Activity row.
 - [ ] Broadcast **Notifications** tab still sends push via `POST /notifications/send`.
+- [ ] Web: `FIREBASE_VAPID_KEY` set; `[FCM] web token registered` in console after admin login.
+- [ ] Web: tray push on new order/donation; tap opens Activity deep link.
 
 ---
 

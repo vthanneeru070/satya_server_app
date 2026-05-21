@@ -171,12 +171,19 @@ class AdminNotificationService {
     }
 
     // Only multicast FCM when this event is new — avoids duplicate pushes on re-verify.
+    const fcmData = {
+      ...data,
+      type,
+      ...(notification?._id
+        ? { notificationId: String(notification._id) }
+        : {}),
+    };
     const push = isNew
       ? await this.pushToAllAdmins(
           {
             title,
             body: body || "",
-            data: { ...data, type },
+            data: fcmData,
           },
           logTag
         )
