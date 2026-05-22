@@ -4,6 +4,7 @@ const superAdminMiddleware = require("../middleware/superAdminMiddleware");
 const validate = require("../middleware/validate");
 const {
   createDedicatedAdmin,
+  deleteDedicatedAdmin,
   resendPasswordResetLink,
   setAdminPanelAccess,
   listAdmins,
@@ -123,6 +124,38 @@ router.get(
  *       200: { description: Password reset link generated }
  *       404: { description: Admin not found }
  */
+/**
+ * @swagger
+ * /superadmin/admins/{id}:
+ *   delete:
+ *     summary: Permanently delete a dedicated admin (Firebase + MongoDB)
+ *     description: |
+ *       Superadmin only. Hard-deletes a user with `role=admin` from MongoDB and
+ *       removes their Firebase Auth account. Cannot delete superadmins or yourself.
+ *       Revokes all refresh tokens for that admin.
+ *     tags: [SuperAdmin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Admin deleted }
+ *       400: { description: Cannot delete superadmin or self }
+ *       403: { description: Superadmin required }
+ *       404: { description: Admin not found }
+ *       502: { description: Firebase deletion failed }
+ */
+router.delete(
+  "/admins/:id",
+  authenticate,
+  superAdminMiddleware,
+  validate(adminIdParamsSchema, "params"),
+  deleteDedicatedAdmin
+);
+
 router.post(
   "/admins/:id/password-reset-link",
   authenticate,

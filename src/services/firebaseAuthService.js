@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const admin = require("../config/firebase");
+const HttpError = require("../utils/httpError");
 
 /**
  * Generates a strong temporary password used only at Firebase user creation.
@@ -30,14 +31,30 @@ const createFirebaseUser = async ({ email, password, displayName, phoneNumber })
 };
 
 /**
- * Permanently delete a Firebase Auth user. Used for rollback when Mongo write fails.
+ * Permanently delete a Firebase Auth user.
+ * @param {string} uid
+ * @param {{ strict?: boolean }} opts — when true, throws on failure (admin delete); when false, best-effort rollback.
  */
-const deleteFirebaseUser = async (uid) => {
-  if (!uid) return;
+const deleteFirebaseUser = async (uid, { strict = false } = {}) => {
+  if (!uid) {
+    if (strict) {
+      throw new HttpError("User has no Firebase UID", 400);
+    }
+    return;
+  }
   try {
     await admin.auth().deleteUser(uid);
   } catch (err) {
-    // Log but don't rethrow — best-effort cleanup.
+    const code = err?.code || err?.errorInfo?.code;
+    if (code === "auth/user-not-found") {
+      return;
+    }
+    if (strict) {
+      throw new HttpError(
+        err?.message || "Failed to delete Firebase Auth user",
+        502
+      );
+    }
     console.error(`[firebaseAuthService] Failed to rollback Firebase user ${uid}:`, err.message);
   }
 };
