@@ -13,6 +13,8 @@ const {
   normalizeZodiacSign,
   attachIsRegistered,
 } = require("../utils/userProfile");
+const { buildStreakView } = require("./userStreakService");
+const { getValidTimeZone } = require("../utils/timezone");
 
 const getUploadedImage = (req) => {
   if (req.file) return req.file;
@@ -172,7 +174,9 @@ const getProfile = async (userId) => {
   assertEndUser(user);
   const payload = attachIsRegistered(user);
   payload.favoriteDeityIds = (user.favoriteDeities || []).map(String);
-  return { user: payload, isRegistered: payload.isRegistered };
+  const timeZone = getValidTimeZone(user.timezone || "Asia/Kolkata");
+  const streak = buildStreakView(user, timeZone);
+  return { user: payload, isRegistered: payload.isRegistered, streak };
 };
 
 const deleteAccount = async (userId, { refreshToken, comment } = {}) => {

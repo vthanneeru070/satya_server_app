@@ -40,6 +40,20 @@ const getDdMmYyyyInTimeZone = (date, timeZone) => {
   return `${String(day).padStart(2, "0")}-${String(month).padStart(2, "0")}-${year}`;
 };
 
+/** `YYYY-MM-DD` in the given IANA timezone (for daily streak keys). */
+const getIsoDateKeyInTimeZone = (date, timeZone) => {
+  const { day, month, year } = getDatePartsInTimeZone(date, timeZone);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+};
+
+/** Previous calendar day key relative to `isoDateKey` in `timeZone`. */
+const getPreviousIsoDateKey = (isoDateKey, timeZone) => {
+  const [year, month, day] = String(isoDateKey).split("-").map(Number);
+  const noonUtc = zonedDateTimeToUtc({ year, month, day, hour: 12, minute: 0, second: 0 }, timeZone);
+  const prev = new Date(noonUtc.getTime() - 24 * 60 * 60 * 1000);
+  return getIsoDateKeyInTimeZone(prev, timeZone);
+};
+
 const getTimeZoneOffsetMs = (date, timeZone) => {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -101,6 +115,8 @@ module.exports = {
   getValidTimeZone,
   extractTimeZoneFromRequest,
   getDdMmYyyyInTimeZone,
+  getIsoDateKeyInTimeZone,
+  getPreviousIsoDateKey,
   getTodayUtcRangeForTimeZone,
   getMonthUtcRangeForTimeZone,
 };

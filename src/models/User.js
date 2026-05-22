@@ -176,9 +176,17 @@ const userSchema = new mongoose.Schema(
       ],
       default: [],
     },
+    /** Consecutive calendar days the user opened the app (in `timezone`). */
     streakCount: {
       type: Number,
       default: 0,
+      min: 0,
+    },
+    /** Last calendar day (`YYYY-MM-DD`) counted toward `streakCount`. */
+    streakLastDateKey: {
+      type: String,
+      default: null,
+      trim: true,
     },
     lastSyncAt: {
       type: Date,

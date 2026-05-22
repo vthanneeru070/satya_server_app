@@ -8,6 +8,7 @@ const { sendSuccess } = require("../utils/response");
 const { generateAccessToken, generateRefreshToken } = require("../utils/jwt");
 const userProfileService = require("../services/userProfileService");
 const { attachIsRegistered, normalizeZodiacSign } = require("../utils/userProfile");
+const userStreakService = require("../services/userStreakService");
 
 const toProviderValue = (provider = "") => {
   const normalized = String(provider || "").toLowerCase();
@@ -62,11 +63,12 @@ const parseFirebaseTokenFromHeader = (req) => {
   return firebaseIdToken;
 };
 
-const buildAuthPayload = (user, tokens) => {
+const buildAuthPayload = (user, tokens, streak = null) => {
   const userWithFlag = attachIsRegistered(user);
   return {
     user: userWithFlag,
     isRegistered: userWithFlag.isRegistered,
+    streak,
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
   };
@@ -230,9 +232,10 @@ const login = async (req, res, next) => {
     user.lastActiveAt = new Date();
     await user.save();
 
+    const streak = await userStreakService.recordDailyAppOpen(user._id);
     const tokens = await issueTokens(user);
 
-    return sendSuccess(res, buildAuthPayload(user, tokens), "Login successful");
+    return sendSuccess(res, buildAuthPayload(user, tokens, streak), "Login successful");
   } catch (error) {
     if (error.code && String(error.code).startsWith("auth/")) {
       return next(new HttpError("Invalid Firebase ID token", 401));
