@@ -45,19 +45,22 @@ const ensureNoOpenRequest = async (orderId, type) => {
 
 const assertCanCreate = (order, type) => {
   if (type === "CANCELLATION") {
+    if (["PLACED", "PROCESSING"].includes(order.orderStatus)) {
+      throw new HttpError(
+        "Cancel this order immediately with POST /api/v1/orders/{orderId}/cancel (refund starts automatically if already paid).",
+        400
+      );
+    }
     if (["SHIPPED", "DELIVERED", "FULFILLED", "CANCELLED"].includes(order.orderStatus)) {
       throw new HttpError(
         `Order is ${order.orderStatus}; it has already been dispatched and can no longer be cancelled.`,
         400
       );
     }
-    if (order.paymentStatus !== "PAID") {
-      throw new HttpError(
-        "Use the cancel endpoint for unpaid orders. Cancellation requests are for paid orders only.",
-        400
-      );
-    }
-    return;
+    throw new HttpError(
+      "Cancellation requests are not available for this order state. Contact support if you need help.",
+      400
+    );
   }
 
   if (type === "REFUND") {

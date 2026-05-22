@@ -761,32 +761,57 @@ const syncReplacementOrderCancelled = async (replacementOrder, { reason = "" } =
   }
 };
 
-const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
-  // 1) Quick guard — make sure the order is cancellable before any side-effect.
-  const preCheck = await Order.findOne({ _id: id, isDeleted: { $ne: true } }).lean();
+/**
+ * Cancel before shipment. User: PLACED/PROCESSING only + auto Paystack refund if PAID.
+ * Admin: any status except SHIPPED/DELIVERED/FULFILLED/CANCELLED.
+ */
+const executeOrderCancellation = async (
+  id,
+  { userId = null, actorUserId, reason = "", mode = "admin" } = {}
+) => {
+  const filter = { _id: id, isDeleted: { $ne: true } };
+  if (userId) filter.user = userId;
+
+  const preCheck = await Order.findOne(filter).lean();
   if (!preCheck) throw new HttpError("Order not found", 404);
-  if (["SHIPPED", "DELIVERED", "FULFILLED", "CANCELLED"].includes(preCheck.orderStatus)) {
+
+  if (mode === "user") {
+    if (!["PLACED", "PROCESSING"].includes(preCheck.orderStatus)) {
+      throw new HttpError(
+        `You can only cancel before the order ships (current status: ${preCheck.orderStatus}).`,
+        400
+      );
+    }
+  } else if (["SHIPPED", "DELIVERED", "FULFILLED", "CANCELLED"].includes(preCheck.orderStatus)) {
     throw new HttpError(
       `Order is ${preCheck.orderStatus}; cancel is no longer possible.`,
       400
     );
   }
 
-  const isReplacementShipment = preCheck.orderType === "REPLACEMENT";
+  if (["REFUND_INITIATED", "REFUNDED"].includes(preCheck.paymentStatus)) {
+    throw new HttpError(
+      preCheck.paymentStatus === "REFUNDED"
+        ? "This order has already been refunded."
+        : "A refund is already in progress for this order.",
+      400
+    );
+  }
 
-  // 2) If the order was PAID, try Paystack refund FIRST (outside any DB txn —
-  //    network calls don't belong inside Mongo transactions).
-  // Replacement orders are marked PAID but share the original charge — never refund here.
+  const isReplacementShipment = preCheck.orderType === "REPLACEMENT";
   const wasPaid = preCheck.paymentStatus === "PAID" && !isReplacementShipment;
   let refundOutcome = null;
   if (wasPaid) {
-    const tmp = { paystackReference: preCheck.paystackReference, totalAmount: preCheck.totalAmount, currency: preCheck.currency, refund: preCheck.refund || {} };
+    const tmp = {
+      paystackReference: preCheck.paystackReference,
+      totalAmount: preCheck.totalAmount,
+      currency: preCheck.currency,
+      refund: preCheck.refund || {},
+    };
     refundOutcome = await attemptPaystackRefund(tmp, { reason });
-    // copy the refund block back; we'll re-apply on the live doc below.
     preCheck.refund = tmp.refund;
   }
 
-  // 3) Commit the cancel + (conditionally) the refund flip in a single txn.
   const session = await mongoose.startSession();
   let order;
   let didRefund = false;
@@ -795,11 +820,17 @@ const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
   let refundError = null;
   try {
     await session.withTransaction(async () => {
-      order = await Order.findOne({ _id: id, isDeleted: { $ne: true } }).session(session);
+      order = await Order.findOne(filter).session(session);
       if (!order) throw new HttpError("Order not found", 404);
 
-      // Re-check status under transaction (race-safety).
-      if (["SHIPPED", "DELIVERED", "FULFILLED", "CANCELLED"].includes(order.orderStatus)) {
+      if (mode === "user") {
+        if (!["PLACED", "PROCESSING"].includes(order.orderStatus)) {
+          throw new HttpError(
+            `You can only cancel before the order ships (current status: ${order.orderStatus}).`,
+            400
+          );
+        }
+      } else if (["SHIPPED", "DELIVERED", "FULFILLED", "CANCELLED"].includes(order.orderStatus)) {
         throw new HttpError(
           `Order is ${order.orderStatus}; cancel is no longer possible.`,
           400
@@ -810,7 +841,6 @@ const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
       order.inventoryReserved = false;
 
       if (wasPaid && refundOutcome) {
-        // Persist the refund block we computed before the txn.
         order.refund = preCheck.refund;
         if (refundOutcome.outcome === "REFUNDED") {
           order.paymentStatus = "REFUNDED";
@@ -823,10 +853,13 @@ const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
           refundFailed = true;
           refundError = refundOutcome.error;
         }
+      } else if (!wasPaid) {
+        order.paymentStatus = "FAILED";
       }
 
       order.orderStatus = "CANCELLED";
-      const baseNote = reason || "Cancelled by admin";
+      const defaultNote = mode === "user" ? "Cancelled by user" : "Cancelled by admin";
+      const baseNote = reason || defaultNote;
       const replacementNote = isReplacementShipment
         ? `${baseNote} | Replacement shipment cancelled — no Paystack refund (no separate charge)`
         : baseNote;
@@ -848,7 +881,6 @@ const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
     await session.endSession();
   }
 
-  // 4) Post-commit best-effort fan-out: cancellation email + FCM push.
   if (order) {
     if (order.orderType === "REPLACEMENT") {
       syncReplacementOrderCancelled(order, { reason }).catch(() => {});
@@ -861,51 +893,41 @@ const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) => {
         refundPending,
         refundFailed,
         refundError,
+        byUser: mode === "user",
       })
       .catch((err) =>
         console.error(
-          "[orderService] sendOrderCancelledByAdmin failed:",
+          "[orderService] order cancellation email failed:",
           err?.message || err
         )
       );
 
+    const cancelNote = reason || (mode === "user" ? "Cancelled by you" : "Cancelled by admin");
     notifyCustomerOrderStatus(order._id, {
       newStatus: "CANCELLED",
-      note: reason || "Cancelled by admin",
-      body: reason
-        ? `Order ${order.orderNumber} was cancelled: ${reason}`
-        : undefined,
+      note: cancelNote,
+      body:
+        mode === "user"
+          ? `Order ${order.orderNumber} was cancelled.`
+          : reason
+            ? `Order ${order.orderNumber} was cancelled: ${reason}`
+            : undefined,
     });
   }
 
   return order;
 };
 
-const cancelMyOrder = async (id, userId) => {
-  const session = await mongoose.startSession();
-  let order;
-  try {
-    await session.withTransaction(async () => {
-      order = await Order.findOne({ _id: id, user: userId }).session(session);
-      if (!order) throw new HttpError("Order not found", 404);
-      if (order.orderStatus !== "PLACED" || order.paymentStatus !== "PENDING") {
-        throw new HttpError(
-          "You can only cancel an unpaid order while it is still PLACED.",
-          400
-        );
-      }
-      await restockOrderItems(order, session);
-      order.inventoryReserved = false;
-      order.orderStatus = "CANCELLED";
-      order.paymentStatus = "FAILED";
-      appendHistory(order, "CANCELLED", "Cancelled by user", userId);
-      await order.save({ session });
-    });
-  } finally {
-    await session.endSession();
-  }
-  return order;
-};
+const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) =>
+  executeOrderCancellation(id, { actorUserId, reason, mode: "admin" });
+
+const cancelMyOrder = async (id, userId, { reason = "" } = {}) =>
+  executeOrderCancellation(id, {
+    userId,
+    actorUserId: userId,
+    reason,
+    mode: "user",
+  });
 
 const updatePayment = async (
   id,

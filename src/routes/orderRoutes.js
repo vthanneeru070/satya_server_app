@@ -209,7 +209,11 @@ router.get(
  * @swagger
  * /orders/{id}/cancel:
  *   post:
- *     summary: Cancel my order (only allowed while PENDING)
+ *     summary: Cancel my order before shipment (no admin approval)
+ *     description: |
+ *       Allowed only while `orderStatus` is **PLACED** or **PROCESSING** (not shipped).
+ *       If `paymentStatus` is **PAID**, a full Paystack refund is initiated automatically
+ *       (`REFUND_INITIATED` or `REFUNDED`). Unpaid orders are cancelled without a refund.
  *     tags: [Orders]
  *     security:
  *       - bearerAuth: []
@@ -219,8 +223,8 @@ router.get(
  *         required: true
  *         schema: { type: string }
  *     responses:
- *       200: { description: Order cancelled }
- *       400: { description: Order is no longer PENDING }
+ *       200: { description: Order cancelled (refund started if paid) }
+ *       400: { description: Order already shipped or refund in progress }
  *       404: { description: Order not found }
  */
 router.post(

@@ -24,7 +24,8 @@ const router = express.Router();
  * @swagger
  * tags:
  *   name: Order Requests
- *   description: Customer-initiated cancel / refund requests on paid orders (replacements use `/replacements`)
+ *   description: |
+ *     Post-delivery **REFUND** requests. Pre-shipment cancel uses `POST /orders/{id}/cancel` (immediate).
  */
 
 /**
@@ -198,10 +199,11 @@ router.post(
  * @swagger
  * /orders/{id}/requests:
  *   post:
- *     summary: Open a CANCELLATION or REFUND request on an order
+ *     summary: Open a REFUND request on an order (post-delivery)
  *     description: |
- *       Post-delivery refunds / cancellations. For **replacement shipments** use
- *       `POST /replacements/request` (delivered paid orders only).
+ *       Pre-shipment cancel: `POST /orders/{id}/cancel` (immediate, auto-refund if paid).
+ *       **CANCELLATION** type is deprecated for PLACED/PROCESSING — use cancel endpoint.
+ *       Replacements: `POST /replacements/request`.
  *     tags: [Order Requests]
  *     security:
  *       - bearerAuth: []

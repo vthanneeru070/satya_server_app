@@ -348,6 +348,7 @@ const sendOrderCancelledByAdmin = async (
     refundPending = false,
     refundFailed = false,
     refundError = "",
+    byUser = false,
   } = {}
 ) => {
   if (!order) return { delivered: false, reason: "no-order" };
@@ -358,7 +359,7 @@ const sendOrderCancelledByAdmin = async (
   const subject = `Your ${appName()} order ${order.orderNumber} has been cancelled`;
   const reasonBlock = reason
     ? `<p style="margin:0 0 14px;font-size:14px;line-height:1.6;color:#374151;background:#f3f4f6;padding:12px 14px;border-radius:8px;">
-         <strong>Reason from admin:</strong> ${escapeHtml(reason)}
+         <strong>${byUser ? "Your note:" : "Reason from admin:"}</strong> ${escapeHtml(reason)}
        </p>`
     : "";
 
@@ -393,7 +394,7 @@ const sendOrderCancelledByAdmin = async (
     <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">
       We're writing to let you know that your order
       <strong>${escapeHtml(order.orderNumber)}</strong>
-      has been <strong>cancelled</strong> by our team.
+      has been <strong>cancelled</strong>${byUser ? " as you requested" : " by our team"}.
     </p>
     ${reasonBlock}
     ${renderItemsTable(order.items, order.currency)}
@@ -413,7 +414,7 @@ const sendOrderCancelledByAdmin = async (
       body,
     }),
     text:
-      `Your ${appName()} order ${order.orderNumber} has been cancelled by admin.` +
+      `Your ${appName()} order ${order.orderNumber} has been cancelled${byUser ? "" : " by admin"}.` +
       (reason ? ` Reason: ${reason}.` : "") +
       (refunded
         ? " Your payment has been refunded via Paystack."
