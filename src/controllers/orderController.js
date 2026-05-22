@@ -138,6 +138,23 @@ const adminCancelPaidOrder = async (req, res, next) => {
   }
 };
 
+const adminInitiateRefund = async (req, res, next) => {
+  try {
+    const result = await orderService.adminInitiateRefund(req.params.id, req.body, {
+      actorUserId: req.user.userId,
+    });
+    const msg =
+      result.refund.outcome === "REFUNDED"
+        ? "Refund processed successfully"
+        : result.refund.outcome === "PENDING"
+          ? "Refund initiated — awaiting Paystack confirmation"
+          : "Refund failed — see order.refund.lastError";
+    return sendSuccess(res, result, msg);
+  } catch (error) {
+    return next(error);
+  }
+};
+
 /** @deprecated Use POST /api/v1/payments/initialize with body { orderId } */
 const initializePaystack = async (req, res, next) => {
   try {
@@ -186,6 +203,7 @@ module.exports = {
   dispatchOrder,
   confirmDelivery,
   adminCancelPaidOrder,
+  adminInitiateRefund,
   initializePaystack,
   verifyPaystack,
 };

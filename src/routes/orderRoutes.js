@@ -15,6 +15,7 @@ const {
   dispatchOrder,
   confirmDelivery,
   adminCancelPaidOrder,
+  adminInitiateRefund,
   initializePaystack,
   verifyPaystack,
 } = require("../controllers/orderController");
@@ -609,6 +610,48 @@ router.post(
   validate(orderIdParamsSchema, "params"),
   validate(adminCancelPaidSchema),
   adminCancelPaidOrder
+);
+
+/**
+ * @swagger
+ * /orders/{id}/refund:
+ *   post:
+ *     summary: Admin initiate Paystack refund (no user request)
+ *     description: |
+ *       Full refund for a **PAID** order (or retry when `REFUND_FAILED`).
+ *       Does not change `orderStatus`. For cancel + refund before ship, use
+ *       `POST /orders/{id}/cancel-paid`. User-driven refunds can still use
+ *       `POST /orders/requests/{requestId}/approve`.
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason: { type: string, maxLength: 2000 }
+ *               adminNote: { type: string, maxLength: 2000 }
+ *     responses:
+ *       200: { description: Refund initiated or completed }
+ *       400: { description: Invalid payment state / replacement order }
+ *       403: { description: Admin role required }
+ *       404: { description: Order not found }
+ */
+router.post(
+  "/:id/refund",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(orderIdParamsSchema, "params"),
+  validate(adminInitiateRefundSchema),
+  adminInitiateRefund
 );
 
 module.exports = router;

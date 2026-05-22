@@ -9,6 +9,7 @@ const HttpError = require("../utils/httpError");
 const orderEmailService = require("./orderEmailService");
 const {
   notifyOrderStatusChanged,
+  notifyRefundProcessed,
   ORDER_INBOX_TYPE_BY_STATUS,
 } = require("./fcmOrderNotifyService");
 
@@ -692,9 +693,7 @@ const attemptPaystackRefund = async (order, { reason = "" } = {}) => {
       reference: order.paystackReference,
       amountInMajor: order.totalAmount,
       currency: order.currency,
-      merchantNote: reason
-        ? `Admin cancel — ${reason}`.slice(0, 300)
-        : "Admin cancel",
+      merchantNote: reason ? String(reason).slice(0, 300) : "Admin refund",
     });
 
     const paystackStatus = String(refundData?.status || "").toLowerCase();
@@ -808,7 +807,10 @@ const executeOrderCancellation = async (
       currency: preCheck.currency,
       refund: preCheck.refund || {},
     };
-    refundOutcome = await attemptPaystackRefund(tmp, { reason });
+    const cancelRefundNote = reason
+      ? `Admin cancel — ${String(reason).trim()}`.slice(0, 300)
+      : "Admin cancel";
+    refundOutcome = await attemptPaystackRefund(tmp, { reason: cancelRefundNote });
     preCheck.refund = tmp.refund;
   }
 
@@ -921,6 +923,87 @@ const executeOrderCancellation = async (
   return order;
 };
 
+/**
+ * Admin-initiated full Paystack refund (no user OrderRequest required).
+ * Order stays at its current orderStatus; only payment/refund fields change.
+ */
+const adminInitiateRefund = async (
+  id,
+  { reason = "", adminNote = "" } = {},
+  { actorUserId } = {}
+) => {
+  const order = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
+  if (!order) throw new HttpError("Order not found", 404);
+
+  if (order.orderType === "REPLACEMENT") {
+    throw new HttpError(
+      "Replacement orders share the original charge. Refund the original order instead.",
+      400
+    );
+  }
+  if (order.paymentStatus === "REFUND_INITIATED") {
+    throw new HttpError("A refund is already in progress for this order.", 400);
+  }
+  if (order.paymentStatus === "REFUNDED") {
+    throw new HttpError("Order is already refunded.", 400);
+  }
+  if (order.paymentStatus !== "PAID" && order.paymentStatus !== "REFUND_FAILED") {
+    throw new HttpError(
+      `Refund is only allowed for paid orders (current paymentStatus: ${order.paymentStatus}).`,
+      400
+    );
+  }
+
+  const parts = [
+    adminNote ? String(adminNote).trim() : "",
+    reason ? String(reason).trim() : "",
+  ].filter(Boolean);
+  const refundReason = parts.length
+    ? `Admin refund — ${parts.join(" — ")}`.slice(0, 300)
+    : "Admin-initiated refund";
+
+  const refundOutcome = await attemptPaystackRefund(order, { reason: refundReason });
+
+  if (refundOutcome.outcome === "REFUNDED") {
+    order.paymentStatus = "REFUNDED";
+  } else if (refundOutcome.outcome === "PENDING") {
+    order.paymentStatus = "REFUND_INITIATED";
+  } else {
+    order.paymentStatus = "REFUND_FAILED";
+  }
+
+  const refundNoteBase =
+    refundOutcome.outcome === "REFUNDED"
+      ? `Admin refund processed (paystack ${order.refund?.paystackRefundId || "no-id"})`
+      : refundOutcome.outcome === "PENDING"
+        ? "Admin refund initiated, awaiting Paystack confirmation"
+        : `Admin refund FAILED via Paystack: ${refundOutcome.error || "unknown"} — settle manually`;
+
+  appendHistory(
+    order,
+    order.orderStatus,
+    `${refundNoteBase} | ${refundStateHistorySuffix(order)}`,
+    actorUserId
+  );
+  await order.save();
+
+  if (refundOutcome.outcome === "REFUNDED") {
+    orderEmailService.sendRefundProcessed(order).catch((err) =>
+      console.error("[orderService] sendRefundProcessed failed:", err?.message || err)
+    );
+    notifyRefundProcessed(order.user, { order }).catch(() => {});
+  }
+
+  return {
+    order,
+    refund: {
+      outcome: refundOutcome.outcome,
+      error: refundOutcome.error || null,
+      paystackRefundId: order.refund?.paystackRefundId || null,
+    },
+  };
+};
+
 const adminCancelOrder = async (id, { reason = "" } = {}, { actorUserId }) =>
   executeOrderCancellation(id, { actorUserId, reason, mode: "admin" });
 
@@ -963,6 +1046,7 @@ module.exports = {
   dispatchOrder,
   confirmDelivery,
   adminCancelOrder,
+  adminInitiateRefund,
   attemptPaystackRefund,
   _internal: {
     nextOrderNumber,
