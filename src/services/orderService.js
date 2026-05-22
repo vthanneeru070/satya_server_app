@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Order = require("../models/Order");
+const User = require("../models/User");
 const Cart = require("../models/Cart");
 const Product = require("../models/Product");
 const Counter = require("../models/Counter");
@@ -412,6 +413,27 @@ const appendHistory = (order, status, note, actorUserId) => {
 const refundStateHistorySuffix = (order) =>
   `paymentStatus: ${order.paymentStatus ?? "?"} | refund.status: ${order.refund?.status ?? "NONE"}`;
 
+const buildRefundedBy = async (adminUserId) => {
+  if (!adminUserId) return null;
+  const admin = await User.findById(adminUserId).select("fullName email").lean();
+  if (!admin) return null;
+  return {
+    adminId: admin._id,
+    fullName: admin.fullName || "",
+    email: admin.email || "",
+  };
+};
+
+const mergeRefundAudit = (order, { reason = "", adminNote = "", refundedBy = null } = {}) => {
+  const prev = order.refund || {};
+  order.refund = {
+    ...prev,
+    reason: String(reason ?? prev.reason ?? "").trim().slice(0, 2000),
+    adminNote: String(adminNote ?? prev.adminNote ?? "").trim().slice(0, 2000),
+    refundedBy: refundedBy !== undefined ? refundedBy : prev.refundedBy ?? null,
+  };
+};
+
 const updateStatus = async (
   id,
   { status, note = "", skipNotify = false },
@@ -680,8 +702,12 @@ const confirmDelivery = async (id, userId, { satisfied, feedback = "" } = {}) =>
  *   { outcome: "PENDING"  } — Paystack accepted the refund; awaiting webhook.
  *   { outcome: "FAILED", error } — Paystack rejected; admin must retry / settle manually.
  */
-const attemptPaystackRefund = async (order, { reason = "" } = {}) => {
+const attemptPaystackRefund = async (
+  order,
+  { reason = "", refundAudit = null } = {}
+) => {
   if (!order.paystackReference) {
+    if (refundAudit) mergeRefundAudit(order, refundAudit);
     return {
       outcome: "FAILED",
       error:
@@ -709,6 +735,7 @@ const attemptPaystackRefund = async (order, { reason = "" } = {}) => {
       processedAt: isTerminalSuccess ? new Date() : null,
       lastError: "",
     };
+    if (refundAudit) mergeRefundAudit(order, refundAudit);
     return { outcome: isTerminalSuccess ? "REFUNDED" : "PENDING" };
   } catch (err) {
     const message = err?.message || String(err);
@@ -718,6 +745,7 @@ const attemptPaystackRefund = async (order, { reason = "" } = {}) => {
       attemptedAt: new Date(),
       lastError: message.slice(0, 500),
     };
+    if (refundAudit) mergeRefundAudit(order, refundAudit);
     return { outcome: "FAILED", error: message };
   }
 };
@@ -799,6 +827,7 @@ const executeOrderCancellation = async (
 
   const isReplacementShipment = preCheck.orderType === "REPLACEMENT";
   const wasPaid = preCheck.paymentStatus === "PAID" && !isReplacementShipment;
+  const trimmedCancelReason = String(reason || "").trim().slice(0, 2000);
   let refundOutcome = null;
   if (wasPaid) {
     const tmp = {
@@ -807,10 +836,23 @@ const executeOrderCancellation = async (
       currency: preCheck.currency,
       refund: preCheck.refund || {},
     };
-    const cancelRefundNote = reason
-      ? `Admin cancel — ${String(reason).trim()}`.slice(0, 300)
-      : "Admin cancel";
-    refundOutcome = await attemptPaystackRefund(tmp, { reason: cancelRefundNote });
+    const cancelRefundNote =
+      mode === "user"
+        ? trimmedCancelReason
+          ? `User cancel — ${trimmedCancelReason}`.slice(0, 300)
+          : "User cancel"
+        : trimmedCancelReason
+          ? `Admin cancel — ${trimmedCancelReason}`.slice(0, 300)
+          : "Admin cancel";
+    const refundedBy = mode === "admin" ? await buildRefundedBy(actorUserId) : null;
+    refundOutcome = await attemptPaystackRefund(tmp, {
+      reason: cancelRefundNote,
+      refundAudit: {
+        reason: trimmedCancelReason,
+        adminNote: "",
+        refundedBy,
+      },
+    });
     preCheck.refund = tmp.refund;
   }
 
@@ -954,15 +996,22 @@ const adminInitiateRefund = async (
     );
   }
 
-  const parts = [
-    adminNote ? String(adminNote).trim() : "",
-    reason ? String(reason).trim() : "",
-  ].filter(Boolean);
-  const refundReason = parts.length
+  const trimmedReason = String(reason || "").trim().slice(0, 2000);
+  const trimmedAdminNote = String(adminNote || "").trim().slice(0, 2000);
+  const refundedBy = await buildRefundedBy(actorUserId);
+  const parts = [trimmedAdminNote, trimmedReason].filter(Boolean);
+  const paystackNote = parts.length
     ? `Admin refund — ${parts.join(" — ")}`.slice(0, 300)
     : "Admin-initiated refund";
 
-  const refundOutcome = await attemptPaystackRefund(order, { reason: refundReason });
+  const refundOutcome = await attemptPaystackRefund(order, {
+    reason: paystackNote,
+    refundAudit: {
+      reason: trimmedReason,
+      adminNote: trimmedAdminNote,
+      refundedBy,
+    },
+  });
 
   if (refundOutcome.outcome === "REFUNDED") {
     order.paymentStatus = "REFUNDED";

@@ -1016,6 +1016,14 @@ const options = {
             canceledAt: { type: "string", format: "date-time" },
           },
         },
+        OrderRefundedBy: {
+          type: "object",
+          properties: {
+            adminId: { type: "string" },
+            fullName: { type: "string" },
+            email: { type: "string" },
+          },
+        },
         OrderRefund: {
           type: "object",
           description:
@@ -1032,6 +1040,9 @@ const options = {
             attemptedAt: { type: "string", format: "date-time", nullable: true },
             processedAt: { type: "string", format: "date-time", nullable: true },
             lastError: { type: "string" },
+            reason: { type: "string", maxLength: 2000 },
+            adminNote: { type: "string", maxLength: 2000 },
+            refundedBy: { $ref: "#/components/schemas/OrderRefundedBy" },
           },
         },
         Order: {

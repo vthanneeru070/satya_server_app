@@ -83,6 +83,20 @@ const orderHistorySchema = new mongoose.Schema(
   { _id: true }
 );
 
+/** Admin who initiated a Paystack refund (direct refund or cancel-with-refund). */
+const refundedBySchema = new mongoose.Schema(
+  {
+    adminId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    fullName: { type: String, default: "", trim: true },
+    email: { type: String, default: "", trim: true },
+  },
+  { _id: false }
+);
+
 /** Set when orderStatus becomes CANCELLED (user or admin). */
 const cancelOrderSchema = new mongoose.Schema(
   {
@@ -320,6 +334,25 @@ const orderSchema = new mongoose.Schema(
       lastError: {
         type: String,
         default: "",
+      },
+
+      reason: {
+        type: String,
+        default: "",
+        trim: true,
+        maxlength: 2000,
+      },
+
+      adminNote: {
+        type: String,
+        default: "",
+        trim: true,
+        maxlength: 2000,
+      },
+
+      refundedBy: {
+        type: refundedBySchema,
+        default: null,
       },
     },
 
