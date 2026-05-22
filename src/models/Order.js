@@ -83,6 +83,28 @@ const orderHistorySchema = new mongoose.Schema(
   { _id: true }
 );
 
+/** Set when orderStatus becomes CANCELLED (user or admin). */
+const cancelOrderSchema = new mongoose.Schema(
+  {
+    canceledBy: {
+      type: String,
+      enum: ["user", "admin"],
+      required: true,
+    },
+    cancelReason: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 2000,
+    },
+    canceledAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { _id: false }
+);
+
 const orderSchema = new mongoose.Schema(
   {
     orderNumber: {
@@ -299,6 +321,12 @@ const orderSchema = new mongoose.Schema(
         type: String,
         default: "",
       },
+    },
+
+    /** Populated when the order is cancelled (see executeOrderCancellation). */
+    cancelOrder: {
+      type: cancelOrderSchema,
+      default: null,
     },
 
     /**

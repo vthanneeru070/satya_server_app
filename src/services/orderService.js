@@ -858,8 +858,14 @@ const executeOrderCancellation = async (
       }
 
       order.orderStatus = "CANCELLED";
+      const trimmedReason = String(reason || "").trim().slice(0, 2000);
+      order.cancelOrder = {
+        canceledBy: mode === "user" ? "user" : "admin",
+        cancelReason: trimmedReason,
+        canceledAt: new Date(),
+      };
       const defaultNote = mode === "user" ? "Cancelled by user" : "Cancelled by admin";
-      const baseNote = reason || defaultNote;
+      const baseNote = trimmedReason || defaultNote;
       const replacementNote = isReplacementShipment
         ? `${baseNote} | Replacement shipment cancelled — no Paystack refund (no separate charge)`
         : baseNote;

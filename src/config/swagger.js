@@ -1007,6 +1007,15 @@ const options = {
             feedback: { type: "string" },
           },
         },
+        OrderCancelOrder: {
+          type: "object",
+          description: "Present when orderStatus is CANCELLED.",
+          properties: {
+            canceledBy: { type: "string", enum: ["user", "admin"] },
+            cancelReason: { type: "string", maxLength: 2000 },
+            canceledAt: { type: "string", format: "date-time" },
+          },
+        },
         OrderRefund: {
           type: "object",
           description:
@@ -1085,6 +1094,7 @@ const options = {
             invoice: { $ref: "#/components/schemas/OrderInvoice" },
             fulfillment: { $ref: "#/components/schemas/OrderFulfillment" },
             refund: { $ref: "#/components/schemas/OrderRefund" },
+            cancelOrder: { $ref: "#/components/schemas/OrderCancelOrder" },
             orderType: {
               type: "string",
               enum: ["NORMAL", "REPLACEMENT"],
