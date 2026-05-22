@@ -66,7 +66,9 @@ const updateOrderStatus = async (req, res, next) => {
 
 const cancelMyOrder = async (req, res, next) => {
   try {
-    const order = await orderService.cancelMyOrder(req.params.id, req.user.userId);
+    const order = await orderService.cancelMyOrder(req.params.id, req.user.userId, {
+      reason: req.body.reason,
+    });
     return sendSuccess(res, { order }, "Order cancelled");
   } catch (error) {
     return next(error);

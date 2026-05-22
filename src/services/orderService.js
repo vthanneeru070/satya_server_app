@@ -906,12 +906,9 @@ const executeOrderCancellation = async (
     notifyCustomerOrderStatus(order._id, {
       newStatus: "CANCELLED",
       note: cancelNote,
-      body:
-        mode === "user"
-          ? `Order ${order.orderNumber} was cancelled.`
-          : reason
-            ? `Order ${order.orderNumber} was cancelled: ${reason}`
-            : undefined,
+      body: reason
+        ? `Order ${order.orderNumber} was cancelled: ${reason}`
+        : `Order ${order.orderNumber} was cancelled.`,
     });
   }
 
@@ -925,7 +922,7 @@ const cancelMyOrder = async (id, userId, { reason = "" } = {}) =>
   executeOrderCancellation(id, {
     userId,
     actorUserId: userId,
-    reason,
+    reason: String(reason || "").trim().slice(0, 2000),
     mode: "user",
   });
 

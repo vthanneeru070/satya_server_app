@@ -32,6 +32,7 @@ const {
   dispatchOrderSchema,
   confirmDeliverySchema,
   adminCancelPaidSchema,
+  cancelMyOrderSchema,
 } = require("../validations/orderValidation");
 
 const router = express.Router();
@@ -222,6 +223,19 @@ router.get(
  *         name: id
  *         required: true
  *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 minLength: 5
+ *                 maxLength: 2000
+ *                 example: Ordered by mistake
  *     responses:
  *       200: { description: Order cancelled (refund started if paid) }
  *       400: { description: Order already shipped or refund in progress }
@@ -231,6 +245,7 @@ router.post(
   "/:id/cancel",
   authenticate,
   validate(orderIdParamsSchema, "params"),
+  validate(cancelMyOrderSchema),
   cancelMyOrder
 );
 
