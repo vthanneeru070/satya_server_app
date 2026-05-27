@@ -1,5 +1,9 @@
 const User = require("../models/User");
 const RefreshToken = require("../models/RefreshToken");
+const Order = require("../models/Order");
+const Cart = require("../models/Cart");
+const UserNotification = require("../models/UserNotification");
+const UserPoojaSession = require("../models/UserPoojaSession");
 const HttpError = require("../utils/httpError");
 const { uploadFile, deleteFile } = require("./s3Service");
 const {
@@ -15,6 +19,7 @@ const {
 } = require("../utils/userProfile");
 const { buildStreakView } = require("./userStreakService");
 const { getValidTimeZone } = require("../utils/timezone");
+const { deleteFirebaseUser } = require("./firebaseAuthService");
 
 const getUploadedImage = (req) => {
   if (req.file) return req.file;
@@ -194,12 +199,50 @@ const deleteAccount = async (userId, { refreshToken, comment } = {}) => {
     await deleteFile(user.profileImageUrl).catch(() => {});
   }
 
+  // GDPR-style anonymization:
+  // - Keep `User` doc for referential integrity (orders/payments reference `user` by ObjectId).
+  // - Remove/redact identity + profile fields.
+  // - Retain financial/legal records (orders/payments/requests), but redact personal shipping info from orders.
   user.isDeleted = true;
   user.isRegistered = false;
   user.accountDeletionComment = deletionComment;
   user.accountDeletedAt = new Date();
+
+  // Identity / profile fields
+  user.email = null;
+  user.phone = null;
+  user.fullName = null;
+  user.firstName = null;
+  user.lastName = null;
+  user.gender = null;
+  user.dateOfBirth = null;
+  user.timeOfBirth = null;
+  user.placeOfBirth = null;
+  user.sunSign = null;
+  user.moonSign = null;
+  user.countryCode = null;
+  user.photoUrl = null;
+  user.emailVerified = false;
+  user.linkedProviders = [];
+  user.favoriteDeities = [];
+  user.notificationPreferences = {};
+
+  // Behavioral profile (associated with the user account)
+  user.streakCount = 0;
+  user.streakLastDateKey = null;
+  user.lastSyncAt = null;
+
+  // Push / device tokens
   user.fcmTokens = [];
+  user.fcmDevices = [];
+
+  // Media
   user.profileImageUrl = null;
+
+  // Keep timezone defaulted after deletion (reduces profile data retention).
+  user.timezone = "Asia/Kolkata";
+  user.preferredLanguage = "en";
+
   user.lastActiveAt = new Date();
   await user.save();
 
@@ -207,6 +250,40 @@ const deleteAccount = async (userId, { refreshToken, comment } = {}) => {
     await RefreshToken.deleteOne({ token: refreshToken, userId: user._id });
   }
   await RefreshToken.deleteMany({ userId: user._id });
+
+  // Retained transaction/legal records:
+  // - Keep order/payment documents (financial audit trail),
+  //   but redact shipping PII from orders.
+  await Promise.all([
+    Order.updateMany(
+      { user: user._id, "shippingAddress.addressLine1": { $exists: true } },
+      {
+        $set: {
+          "shippingAddress.fullName": "REDACTED",
+          "shippingAddress.phone": "REDACTED",
+          "shippingAddress.addressLine1": "REDACTED",
+          "shippingAddress.addressLine2": "REDACTED",
+          "shippingAddress.city": "REDACTED",
+          "shippingAddress.state": "REDACTED",
+          "shippingAddress.postalCode": "REDACTED",
+          "shippingAddress.country": "REDACTED",
+        },
+      }
+    ),
+    Cart.updateMany({ user: user._id }, { $set: { isDeleted: true } }),
+    UserNotification.updateMany(
+      { user: user._id },
+      { $set: { isDeleted: true, title: null, body: null, imageUrl: null, data: null } }
+    ),
+    UserPoojaSession.updateMany(
+      { user: user._id },
+      { $set: { isDeleted: true } }
+    ),
+  ]);
+
+  // Best-effort removal from Firebase Auth to reduce stored personal data.
+  // If this fails, we still keep the Mongo user anonymized and marked as deleted.
+  await deleteFirebaseUser(user.firebaseUid).catch(() => {});
 
   return { id: user._id.toString(), deleted: true };
 };

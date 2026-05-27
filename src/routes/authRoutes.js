@@ -259,9 +259,10 @@ router.patch(
  *     summary: Delete account (soft delete)
  *     description: |
  *       Requires a `comment` (5–500 chars) explaining why the user is leaving.
- *       Sets `isDeleted`, stores `accountDeletionComment`, clears FCM tokens,
- *       removes profile image from S3, and revokes refresh tokens.
- *       Deleted users cannot log in again.
+ *       Sets `isDeleted`, stores `accountDeletionComment`, clears push/device tokens,
+ *       removes profile image, and anonymizes identity/profile fields.
+ *       Retains transaction/legal records (orders/payments/requests) but redacts personal shipping data on retained orders.
+ *       Also revokes refresh tokens.
  *     tags: [Auth]
  *     security:
  *       - bearerAuth: []
