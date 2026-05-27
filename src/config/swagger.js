@@ -286,13 +286,7 @@ const options = {
         },
         ProfileCreateMultipart: {
           type: "object",
-          required: [
-            "fullName",
-            "gender",
-            "dateOfBirth",
-            "countryCode",
-            "phone",
-          ],
+          required: ["fullName", "gender", "countryCode"],
           properties: {
             fullName: { type: "string", example: "Venkat Thanneeru" },
             gender: {

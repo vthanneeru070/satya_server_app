@@ -65,10 +65,11 @@ const applyProfileFields = (user, body, { requireAll = false } = {}) => {
     else user.gender = gender;
   }
 
-  if (body.dateOfBirth !== undefined || requireAll) {
+  if (body.dateOfBirth !== undefined) {
     const dateOfBirth = parseDateOfBirth(body.dateOfBirth);
-    if (!dateOfBirth) errors.push("Invalid dateOfBirth");
-    else user.dateOfBirth = dateOfBirth;
+    if (body.dateOfBirth !== null && body.dateOfBirth !== "" && !dateOfBirth) {
+      errors.push("Invalid dateOfBirth");
+    } else user.dateOfBirth = dateOfBirth;
   }
 
   if (body.timeOfBirth !== undefined) {
@@ -105,10 +106,11 @@ const applyProfileFields = (user, body, { requireAll = false } = {}) => {
     else user.countryCode = countryCode;
   }
 
-  if (body.phone !== undefined || requireAll) {
+  if (body.phone !== undefined) {
     const phone = normalizePhone(body.phone);
-    if (!phone) errors.push("Invalid phone number");
-    else user.phone = phone;
+    if (body.phone !== null && body.phone !== "" && !phone) {
+      errors.push("Invalid phone number");
+    } else user.phone = phone;
   }
 
   if (body.firstName !== undefined) user.firstName = toTrimmedOrNull(body.firstName);
