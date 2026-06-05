@@ -4,7 +4,7 @@ const DonationContribution = require("../models/DonationContribution");
 
 const initiateDonation = async (req, res, next) => {
   try {
-    const data = await paymentService.initializeDonationPayment(req.params.id, {
+    const data = await paymentService.initializeDonationPayment({
       userId: req.user.userId,
       amount: req.body.amount,
       currency: req.body.currency,

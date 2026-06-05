@@ -1,7 +1,13 @@
+const PDFDocument = require("pdfkit");
 const Counter = require("../models/Counter");
+const Product = require("../models/Product");
 const { uploadFile } = require("./s3Service");
 
 const INVOICE_PREFIX = process.env.INVOICE_NUMBER_PREFIX || "INV";
+
+const PAGE_LEFT = 40;
+const PAGE_RIGHT = 555;
+const PAGE_BOTTOM = 760;
 
 /**
  * Next sequential invoice number. Uses the shared `Counter` collection with a
@@ -17,135 +23,277 @@ const nextInvoiceNumber = async () => {
   return `${INVOICE_PREFIX}-${doc.seq}`;
 };
 
-const escapeHtml = (value) => {
-  if (value === null || value === undefined) return "";
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-};
+const formatZar = (amount) => `R${Number(amount || 0).toFixed(2)}`;
 
-const formatMoney = (amount, currency = "ZAR") => {
-  const safe = Number(amount || 0);
-  return `${escapeHtml(currency)} ${safe.toFixed(2)}`;
-};
-
-const formatDate = (date) => {
+const formatInvoiceDate = (date) => {
   if (!date) return "";
   const d = date instanceof Date ? date : new Date(date);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toISOString().slice(0, 10);
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
 };
 
-const formatAddress = (addr) => {
-  if (!addr) return "—";
-  const parts = [
+const mapPaymentMethod = (method) => {
+  switch (method) {
+    case "PAYSTACK":
+      return "Pay now using";
+    case "COD":
+      return "Cash On Delivery";
+    case "EFT":
+      return "EFT";
+    default:
+      return method || "—";
+  }
+};
+
+const mapOrderStatus = (status) => {
+  switch (status) {
+    case "FULFILLED":
+    case "DELIVERED":
+      return "Complete";
+    case "CANCELLED":
+      return "Cancelled";
+    case "PLACED":
+      return "Pending";
+    case "PROCESSING":
+      return "Processing";
+    case "SHIPPED":
+      return "Shipped";
+    case "OUT_FOR_DELIVERY":
+      return "Out For Delivery";
+    default:
+      return status || "—";
+  }
+};
+
+const formatInvoiceAddressLines = (addr) => {
+  if (!addr) return ["—"];
+  return [
     addr.fullName,
-    addr.phone,
+    addr.addressLine2,
     addr.addressLine1,
-    [addr.city, addr.state].filter(Boolean).join(", "),
-    addr.postalCode,
+    [addr.city, addr.postalCode].filter(Boolean).join(" "),
+    addr.state,
     addr.country,
   ].filter((piece) => piece && String(piece).trim().length > 0);
-  return parts.map(escapeHtml).join("<br/>");
 };
 
-const buildInvoiceHtml = ({ order, invoiceNumber, appName }) => {
-  const items = (order.items || [])
-    .map(
-      (line) => `
-        <tr>
-          <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.title)}</td>
-          <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;">${escapeHtml(line.quantity)}</td>
-          <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right;">${formatMoney(line.price, order.currency)}</td>
-          <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right;">${formatMoney(line.lineTotal, order.currency)}</td>
-        </tr>`
-    )
-    .join("");
+const toProductModel = (slug) => {
+  if (!slug) return "—";
+  const compact = String(slug).replace(/-/g, "").toUpperCase();
+  return compact.length > 15 ? compact.slice(0, 15) : compact;
+};
 
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<title>Invoice ${escapeHtml(invoiceNumber)}</title>
-</head>
-<body style="margin:0;padding:0;background:#f5f6fa;font-family:Helvetica,Arial,sans-serif;color:#1f2937;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f5f6fa;padding:24px 0;">
-    <tr><td align="center">
-      <table role="presentation" width="640" cellspacing="0" cellpadding="0" border="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.06);">
+const loadProductModels = async (items = []) => {
+  const ids = items.map((line) => line.product).filter(Boolean);
+  if (!ids.length) return new Map();
 
-        <tr>
-          <td style="background:linear-gradient(135deg,#7c3aed,#4f46e5);padding:24px 28px;color:#fff;">
-            <div style="font-size:13px;letter-spacing:1.5px;opacity:0.85;">${escapeHtml(appName)} INVOICE</div>
-            <div style="font-size:22px;font-weight:600;margin-top:6px;">Invoice ${escapeHtml(invoiceNumber)}</div>
-            <div style="font-size:13px;opacity:0.85;margin-top:4px;">Order ${escapeHtml(order.orderNumber)} · ${escapeHtml(formatDate(order.createdAt))}</div>
-          </td>
-        </tr>
+  const products = await Product.find({ _id: { $in: ids } })
+    .select("slug")
+    .lean();
+  return new Map(
+    products.map((product) => [
+      String(product._id),
+      toProductModel(product.slug),
+    ])
+  );
+};
 
-        <tr><td style="padding:24px 28px;">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
-            <tr>
-              <td style="vertical-align:top;width:50%;padding-right:12px;">
-                <div style="font-size:12px;text-transform:uppercase;color:#6b7280;letter-spacing:1px;margin-bottom:6px;">Billed to</div>
-                <div style="font-size:14px;line-height:1.5;">${formatAddress(order.shippingAddress)}</div>
-              </td>
-              <td style="vertical-align:top;width:50%;padding-left:12px;">
-                <div style="font-size:12px;text-transform:uppercase;color:#6b7280;letter-spacing:1px;margin-bottom:6px;">Payment</div>
-                <div style="font-size:14px;line-height:1.5;">
-                  Status: <strong>${escapeHtml(order.paymentStatus)}</strong><br/>
-                  Method: ${escapeHtml(order.paymentMethod)}<br/>
-                  Reference: ${escapeHtml(order.paystackReference || order.orderNumber)}
-                </div>
-              </td>
-            </tr>
-          </table>
+const TABLE_COLUMNS = [
+  { key: "product", label: "Product", x: PAGE_LEFT, width: 175, align: "left" },
+  { key: "model", label: "Model", x: 215, width: 65, align: "left" },
+  { key: "quantity", label: "Quantity", x: 280, width: 55, align: "center" },
+  { key: "price", label: "Price", x: 335, width: 75, align: "right" },
+  { key: "total", label: "Total", x: 410, width: 75, align: "right" },
+];
 
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top:24px;border-collapse:collapse;">
-            <thead>
-              <tr style="background:#f3f4f6;">
-                <th align="left" style="padding:10px 12px;font-size:12px;letter-spacing:1px;color:#374151;text-transform:uppercase;border-bottom:1px solid #e5e7eb;">Item</th>
-                <th align="center" style="padding:10px 12px;font-size:12px;letter-spacing:1px;color:#374151;text-transform:uppercase;border-bottom:1px solid #e5e7eb;">Qty</th>
-                <th align="right" style="padding:10px 12px;font-size:12px;letter-spacing:1px;color:#374151;text-transform:uppercase;border-bottom:1px solid #e5e7eb;">Unit</th>
-                <th align="right" style="padding:10px 12px;font-size:12px;letter-spacing:1px;color:#374151;text-transform:uppercase;border-bottom:1px solid #e5e7eb;">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${items || `<tr><td colspan="4" style="padding:16px 12px;color:#6b7280;">No line items.</td></tr>`}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td colspan="3" align="right" style="padding:14px 12px;font-size:14px;color:#111827;font-weight:600;border-top:2px solid #111827;">Total</td>
-                <td align="right" style="padding:14px 12px;font-size:16px;color:#111827;font-weight:700;border-top:2px solid #111827;">${formatMoney(order.totalAmount, order.currency)}</td>
-              </tr>
-            </tfoot>
-          </table>
+const drawTableHeader = (doc) => {
+  const y = doc.y;
+  doc.font("Helvetica-Bold").fontSize(9);
+  TABLE_COLUMNS.forEach((col) => {
+    doc.text(col.label, col.x, y, { width: col.width, align: col.align });
+  });
+  doc
+    .moveTo(PAGE_LEFT, y + 13)
+    .lineTo(PAGE_RIGHT, y + 13)
+    .strokeColor("#000000")
+    .lineWidth(0.5)
+    .stroke();
+  doc.y = y + 18;
+  doc.font("Helvetica").fontSize(9);
+};
 
-          <p style="margin:24px 0 0;font-size:13px;color:#6b7280;line-height:1.6;">
-            Thank you for shopping with ${escapeHtml(appName)}. If anything looks wrong on this invoice,
-            reply to this email or contact our support team with your order number.
-          </p>
-        </td></tr>
+const drawAddressColumns = (doc, paymentLines, shippingLines) => {
+  const headerY = doc.y;
+  doc.font("Helvetica-Bold").fontSize(9);
+  doc.text("Payment Address", PAGE_LEFT, headerY);
+  doc.text("Shipping Address", 300, headerY);
 
-        <tr>
-          <td style="background:#f9fafb;padding:14px 28px;text-align:center;font-size:12px;color:#9ca3af;">
-            ${escapeHtml(appName)} · This is an automated invoice; please retain it for your records.
-          </td>
-        </tr>
+  const bodyY = headerY + 14;
+  doc.font("Helvetica").fontSize(9);
 
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
+  let leftY = bodyY;
+  paymentLines.forEach((line) => {
+    doc.text(line, PAGE_LEFT, leftY, { width: 240, lineBreak: false });
+    leftY += 12;
+  });
+
+  let rightY = bodyY;
+  shippingLines.forEach((line) => {
+    doc.text(line, 300, rightY, { width: 240, lineBreak: false });
+    rightY += 12;
+  });
+
+  doc.y = Math.max(leftY, rightY) + 16;
+};
+
+const drawTotals = (doc, { subtotal, shippingLabel, shippingCost, total }) => {
+  let y = doc.y + 8;
+  const labelX = 335;
+  const valueX = 410;
+  const labelWidth = 75;
+  const valueWidth = 75;
+
+  const drawRow = (label, value, bold = false) => {
+    doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(9);
+    doc.text(label, labelX, y, { width: labelWidth, align: "right" });
+    doc.text(value, valueX, y, { width: valueWidth, align: "right" });
+    y += 14;
+  };
+
+  drawRow("Sub-Total", formatZar(subtotal));
+  drawRow(shippingLabel, formatZar(shippingCost));
+  drawRow("Total", formatZar(total), true);
+  doc.y = y;
+};
+
+const measureRowHeight = (doc, line) => {
+  const productHeight = doc.heightOfString(String(line.title || ""), {
+    width: TABLE_COLUMNS[0].width,
+  });
+  const modelHeight = doc.heightOfString(
+    String(line.model || "—"),
+    { width: TABLE_COLUMNS[1].width }
+  );
+  return Math.max(productHeight, modelHeight, 12) + 6;
+};
+
+const drawProductRow = (doc, line) => {
+  const rowTop = doc.y;
+  const rowHeight = measureRowHeight(doc, line);
+
+  doc.font("Helvetica").fontSize(9);
+  doc.text(String(line.title || ""), TABLE_COLUMNS[0].x, rowTop, {
+    width: TABLE_COLUMNS[0].width,
+  });
+  doc.text(String(line.model || "—"), TABLE_COLUMNS[1].x, rowTop, {
+    width: TABLE_COLUMNS[1].width,
+  });
+  doc.text(String(line.quantity ?? ""), TABLE_COLUMNS[2].x, rowTop, {
+    width: TABLE_COLUMNS[2].width,
+    align: "center",
+  });
+  doc.text(formatZar(line.price), TABLE_COLUMNS[3].x, rowTop, {
+    width: TABLE_COLUMNS[3].width,
+    align: "right",
+  });
+  doc.text(formatZar(line.lineTotal), TABLE_COLUMNS[4].x, rowTop, {
+    width: TABLE_COLUMNS[4].width,
+    align: "right",
+  });
+
+  doc
+    .moveTo(PAGE_LEFT, rowTop + rowHeight - 2)
+    .lineTo(PAGE_RIGHT, rowTop + rowHeight - 2)
+    .strokeColor("#cccccc")
+    .lineWidth(0.5)
+    .stroke();
+
+  doc.y = rowTop + rowHeight;
 };
 
 /**
- * Generate an HTML invoice for the given order, upload it to S3 under
- * `invoices/<orderNumber>-<invoiceNumber>.html`, and return both the invoice
- * number and the public URL. Caller is responsible for persisting these onto
- * the Order document.
+ * Build an OpenCart/TCPDF-style order invoice PDF buffer.
+ */
+const buildInvoicePdf = async ({
+  order,
+  productModels,
+  appName,
+  storeLabel,
+  phone,
+  email,
+  shippingMethod,
+}) => {
+  const paymentAddress = formatInvoiceAddressLines(order.shippingAddress);
+  const shippingAddress = formatInvoiceAddressLines(
+    order.billingAddress || order.shippingAddress
+  );
+  const items = (order.items || []).map((line) => ({
+    ...line,
+    model: productModels.get(String(line.product)) || "—",
+  }));
+
+  const subtotal = items.reduce(
+    (sum, line) => sum + Number(line.lineTotal || 0),
+    0
+  );
+  const shippingCost = Math.max(0, Number(order.totalAmount || 0) - subtotal);
+
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: "A4", margin: PAGE_LEFT });
+    const chunks = [];
+
+    doc.on("data", (chunk) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    doc.font("Helvetica-Bold").fontSize(16).text(appName, PAGE_LEFT, PAGE_LEFT);
+    doc.font("Helvetica").fontSize(10);
+    doc.text(storeLabel);
+    if (phone) doc.text(phone);
+    if (email) doc.text(email);
+
+    doc.moveDown(0.8);
+    doc.text(`Date: ${formatInvoiceDate(order.createdAt)}`);
+    doc.text(`Order ID: ${order.orderNumber}`);
+    doc.text(`Order Status: ${mapOrderStatus(order.orderStatus)}`);
+    doc.text(`Payment Method: ${mapPaymentMethod(order.paymentMethod)}`);
+    doc.text(`Shipping Method: ${shippingMethod}`);
+
+    doc.moveDown(0.8);
+    drawAddressColumns(doc, paymentAddress, shippingAddress);
+
+    drawTableHeader(doc);
+    for (const line of items) {
+      const rowHeight = measureRowHeight(doc, line);
+      if (doc.y + rowHeight > PAGE_BOTTOM) {
+        doc.addPage();
+        drawTableHeader(doc);
+      }
+      drawProductRow(doc, line);
+    }
+
+    if (doc.y + 60 > PAGE_BOTTOM) {
+      doc.addPage();
+    }
+
+    drawTotals(doc, {
+      subtotal,
+      shippingLabel: shippingMethod,
+      shippingCost,
+      total: order.totalAmount,
+    });
+
+    doc.end();
+  });
+};
+
+/**
+ * Generate a PDF invoice for the given order, upload it to S3 under
+ * `invoices/order_<orderNumber>.pdf`, and return both the invoice number and the
+ * public URL. Caller is responsible for persisting these onto the Order document.
  *
  * The function never throws to the caller because invoice generation is best-
  * effort during the verify path — on failure it returns { number: "", url: "" }
@@ -157,18 +305,33 @@ const generateInvoice = async (order) => {
   try {
     const invoiceNumber = await nextInvoiceNumber();
     const appName = process.env.APP_NAME || "Satya";
+    const storeLabel = process.env.INVOICE_STORE_LABEL || "Online";
+    const phone = process.env.INVOICE_CONTACT_PHONE || "";
+    const email =
+      process.env.INVOICE_CONTACT_EMAIL ||
+      process.env.BREVO_SENDER_EMAIL ||
+      "";
+    const shippingMethod =
+      order.shippingMethod ||
+      process.env.INVOICE_SHIPPING_METHOD_LABEL ||
+      "Local Shipping";
 
-    const html = buildInvoiceHtml({
+    const productModels = await loadProductModels(order.items);
+    const buffer = await buildInvoicePdf({
       order,
-      invoiceNumber,
+      productModels,
       appName,
+      storeLabel,
+      phone,
+      email,
+      shippingMethod,
     });
 
-    const buffer = Buffer.from(html, "utf-8");
+    const safeOrderId = String(order.orderNumber).replace(/[^a-zA-Z0-9-]/g, "_");
     const fakeFile = {
       buffer,
-      originalname: `${order.orderNumber}-${invoiceNumber}.html`,
-      mimetype: "text/html; charset=utf-8",
+      originalname: `order_${safeOrderId}.pdf`,
+      mimetype: "application/pdf",
     };
 
     const url = await uploadFile(fakeFile, "invoices");
@@ -185,5 +348,5 @@ const generateInvoice = async (order) => {
 module.exports = {
   generateInvoice,
   nextInvoiceNumber,
-  _internal: { buildInvoiceHtml },
+  _internal: { buildInvoicePdf, formatZar, formatInvoiceDate },
 };

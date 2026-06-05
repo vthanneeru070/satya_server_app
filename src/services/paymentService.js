@@ -6,7 +6,6 @@ const Cart = require("../models/Cart");
 const Product = require("../models/Product");
 const User = require("../models/User");
 const Counter = require("../models/Counter");
-const Donation = require("../models/Donation");
 const DonationContribution = require("../models/DonationContribution");
 const HttpError = require("../utils/httpError");
 const paystackService = require("./paystackService");
@@ -142,20 +141,16 @@ const initializePayment = async (orderId, { userId, isAdmin = false, callbackUrl
  * Payment both in PENDING, returns the auth URL. The contribution is only
  * flipped to PAID by verifyPaymentByReference after server-side Paystack verify.
  */
-const initializeDonationPayment = async (
-  donationId,
-  { userId, amount, currency = "ZAR", note = "", callbackUrl } = {}
-) => {
+const initializeDonationPayment = async ({
+  userId,
+  amount,
+  currency = "ZAR",
+  note = "",
+  callbackUrl,
+} = {}) => {
   if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
     throw new HttpError("amount must be a positive number", 400);
   }
-
-  const donation = await Donation.findOne({
-    _id: donationId,
-    status: "APPROVED",
-    isVisible: true,
-  });
-  if (!donation) throw new HttpError("Donation not found", 404);
 
   const user = await User.findById(userId).select("email fullName");
   const email = user?.email;
@@ -184,7 +179,6 @@ const initializeDonationPayment = async (
         [
           {
             contributionNumber,
-            donation: donation._id,
             user: userId,
             amount: normalizedAmount,
             currency: normalizedCurrency,
@@ -208,8 +202,6 @@ const initializeDonationPayment = async (
         callbackUrl: resolvedCallbackUrl,
         metadata: {
           kind: "DONATION",
-          donationId: String(donation._id),
-          donationTitle: donation.title,
           contributionId: String(contribution._id),
           contributionNumber,
           userId: String(userId),
@@ -248,10 +240,6 @@ const initializeDonationPayment = async (
         amount: normalizedAmount,
         currency: normalizedCurrency,
         email,
-        donation: {
-          _id: donation._id,
-          title: donation.title,
-        },
       };
     });
   } finally {
