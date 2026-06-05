@@ -1,3 +1,4 @@
+const axios = require("axios");
 const PDFDocument = require("pdfkit");
 const Counter = require("../models/Counter");
 const Product = require("../models/Product");
@@ -5,9 +6,34 @@ const { uploadFile } = require("./s3Service");
 
 const INVOICE_PREFIX = process.env.INVOICE_NUMBER_PREFIX || "INV";
 
-const PAGE_LEFT = 40;
-const PAGE_RIGHT = 555;
-const PAGE_BOTTOM = 760;
+const PAGE_WIDTH = 595.28;
+const MARGIN = 36;
+const PAGE_LEFT = MARGIN;
+const PAGE_RIGHT = PAGE_WIDTH - MARGIN;
+const CONTENT_WIDTH = PAGE_RIGHT - PAGE_LEFT;
+const PAGE_BOTTOM = 780;
+
+const HEADER_BG = "#2c3e50";
+const BORDER_COLOR = "#cccccc";
+const WHITE = "#ffffff";
+
+const PRODUCT_COLS = {
+  product: { label: "Product", width: 210 },
+  model: { label: "Model", width: 80 },
+  quantity: { label: "Quantity", width: 55 },
+  price: { label: "Price", width: 85 },
+  total: { label: "Total", width: CONTENT_WIDTH - 210 - 80 - 55 - 85 },
+};
+
+const COL_X = (() => {
+  let x = PAGE_LEFT;
+  const positions = {};
+  for (const [key, col] of Object.entries(PRODUCT_COLS)) {
+    positions[key] = x;
+    x += col.width;
+  }
+  return positions;
+})();
 
 /**
  * Next sequential invoice number. Uses the shared `Counter` collection with a
@@ -68,6 +94,12 @@ const mapOrderStatus = (status) => {
   }
 };
 
+const formatOrderId = (orderNumber) => {
+  if (!orderNumber) return "—";
+  const match = String(orderNumber).match(/(\d+)$/);
+  return match ? match[1] : String(orderNumber);
+};
+
 const formatInvoiceAddressLines = (addr) => {
   if (!addr) return ["—"];
   return [
@@ -86,80 +118,293 @@ const toProductModel = (slug) => {
   return compact.length > 15 ? compact.slice(0, 15) : compact;
 };
 
-const loadProductModels = async (items = []) => {
+const loadProductDetails = async (items = []) => {
   const ids = items.map((line) => line.product).filter(Boolean);
   if (!ids.length) return new Map();
 
   const products = await Product.find({ _id: { $in: ids } })
-    .select("slug")
+    .select("slug title imageUrl")
     .lean();
+
   return new Map(
     products.map((product) => [
       String(product._id),
-      toProductModel(product.slug),
+      {
+        model: toProductModel(product.slug),
+        title: product.title || "",
+        imageUrl: product.imageUrl || "",
+      },
     ])
   );
 };
 
-const TABLE_COLUMNS = [
-  { key: "product", label: "Product", x: PAGE_LEFT, width: 175, align: "left" },
-  { key: "model", label: "Model", x: 215, width: 65, align: "left" },
-  { key: "quantity", label: "Quantity", x: 280, width: 55, align: "center" },
-  { key: "price", label: "Price", x: 335, width: 75, align: "right" },
-  { key: "total", label: "Total", x: 410, width: 75, align: "right" },
-];
-
-const drawTableHeader = (doc) => {
-  const y = doc.y;
-  doc.font("Helvetica-Bold").fontSize(9);
-  TABLE_COLUMNS.forEach((col) => {
-    doc.text(col.label, col.x, y, { width: col.width, align: col.align });
-  });
-  doc
-    .moveTo(PAGE_LEFT, y + 13)
-    .lineTo(PAGE_RIGHT, y + 13)
-    .strokeColor("#000000")
-    .lineWidth(0.5)
-    .stroke();
-  doc.y = y + 18;
-  doc.font("Helvetica").fontSize(9);
+const loadImageBuffer = async (url) => {
+  if (!url) return null;
+  try {
+    const response = await axios.get(url, {
+      responseType: "arraybuffer",
+      timeout: 8000,
+    });
+    return Buffer.from(response.data);
+  } catch {
+    return null;
+  }
 };
 
-const drawAddressColumns = (doc, paymentLines, shippingLines) => {
-  const headerY = doc.y;
+const strokeRect = (doc, x, y, w, h) => {
+  doc
+    .save()
+    .rect(x, y, w, h)
+    .strokeColor(BORDER_COLOR)
+    .lineWidth(0.5)
+    .stroke()
+    .restore();
+};
+
+const fillRect = (doc, x, y, w, h, color) => {
+  doc.save().rect(x, y, w, h).fill(color).restore();
+};
+
+const drawCompanyHeader = (doc, { appName, storeLabel, phone, email }) => {
+  const headerTop = MARGIN;
+  doc.font("Helvetica-Bold").fontSize(18);
+  doc.text(appName, PAGE_LEFT, headerTop, {
+    width: CONTENT_WIDTH,
+    align: "right",
+  });
+
+  doc.font("Helvetica").fontSize(10);
+  let y = doc.y;
+  doc.text(storeLabel, PAGE_LEFT, y, { width: CONTENT_WIDTH, align: "right" });
+  if (phone) {
+    y = doc.y;
+    doc.text(phone, PAGE_LEFT, y, { width: CONTENT_WIDTH, align: "right" });
+  }
+  if (email) {
+    y = doc.y;
+    doc.text(email, PAGE_LEFT, y, { width: CONTENT_WIDTH, align: "right" });
+  }
+
+  doc.y = doc.y + 18;
+};
+
+const drawMetaRow = (doc, leftLabel, leftValue, rightLabel, rightValue) => {
+  const y = doc.y;
+  const half = CONTENT_WIDTH / 2;
+  doc.font("Helvetica-Bold").fontSize(9).text(leftLabel, PAGE_LEFT, y, {
+    continued: true,
+    width: half,
+    align: "left",
+  });
+  doc.font("Helvetica").text(` ${leftValue}`, { continued: false });
+
+  if (rightLabel) {
+    doc.font("Helvetica-Bold").text(rightLabel, PAGE_LEFT + half, y, {
+      continued: true,
+      width: half,
+      align: "left",
+    });
+    doc.font("Helvetica").text(` ${rightValue}`, { continued: false });
+  }
+
+  doc.y = y + 14;
+};
+
+const drawOrderMeta = (doc, order, shippingMethod) => {
+  drawMetaRow(
+    doc,
+    "Date:",
+    formatInvoiceDate(order.createdAt),
+    "Order Status:",
+    mapOrderStatus(order.orderStatus)
+  );
+  drawMetaRow(
+    doc,
+    "Order ID:",
+    formatOrderId(order.orderNumber),
+    "Payment Method:",
+    mapPaymentMethod(order.paymentMethod)
+  );
+  drawMetaRow(doc, "", "", "Shipping Method:", shippingMethod);
+  doc.y += 8;
+};
+
+const drawAddressTable = (doc, paymentLines, shippingLines) => {
+  const colWidth = CONTENT_WIDTH / 2;
+  const headerHeight = 22;
+  const bodyHeight = Math.max(paymentLines.length, shippingLines.length) * 13 + 16;
+  const tableTop = doc.y;
+
+  fillRect(doc, PAGE_LEFT, tableTop, colWidth, headerHeight, HEADER_BG);
+  fillRect(doc, PAGE_LEFT + colWidth, tableTop, colWidth, headerHeight, HEADER_BG);
+
+  doc.font("Helvetica-Bold").fontSize(9).fillColor(WHITE);
+  doc.text("Payment Address", PAGE_LEFT, tableTop + 6, {
+    width: colWidth,
+    align: "center",
+  });
+  doc.text("Shipping Address", PAGE_LEFT + colWidth, tableTop + 6, {
+    width: colWidth,
+    align: "center",
+  });
+
+  strokeRect(doc, PAGE_LEFT, tableTop, colWidth, headerHeight + bodyHeight);
+  strokeRect(doc, PAGE_LEFT + colWidth, tableTop, colWidth, headerHeight + bodyHeight);
+  doc
+    .moveTo(PAGE_LEFT, tableTop + headerHeight)
+    .lineTo(PAGE_RIGHT, tableTop + headerHeight)
+    .strokeColor(BORDER_COLOR)
+    .lineWidth(0.5)
+    .stroke();
+
+  doc.fillColor("#000000").font("Helvetica").fontSize(9);
+  const bodyTop = tableTop + headerHeight + 8;
+  paymentLines.forEach((line, index) => {
+    doc.text(line, PAGE_LEFT + 8, bodyTop + index * 13, {
+      width: colWidth - 16,
+      lineBreak: false,
+    });
+  });
+  shippingLines.forEach((line, index) => {
+    doc.text(line, PAGE_LEFT + colWidth + 8, bodyTop + index * 13, {
+      width: colWidth - 16,
+      lineBreak: false,
+    });
+  });
+
+  doc.y = tableTop + headerHeight + bodyHeight + 14;
+};
+
+const drawProductTableHeader = (doc) => {
+  const headerHeight = 22;
+  const tableTop = doc.y;
+
+  fillRect(doc, PAGE_LEFT, tableTop, CONTENT_WIDTH, headerHeight, HEADER_BG);
+
+  doc.font("Helvetica-Bold").fontSize(9).fillColor(WHITE);
+  doc.text(PRODUCT_COLS.product.label, COL_X.product + 8, tableTop + 6, {
+    width: PRODUCT_COLS.product.width - 16,
+    align: "left",
+  });
+  doc.text(PRODUCT_COLS.model.label, COL_X.model, tableTop + 6, {
+    width: PRODUCT_COLS.model.width,
+    align: "center",
+  });
+  doc.text(PRODUCT_COLS.quantity.label, COL_X.quantity, tableTop + 6, {
+    width: PRODUCT_COLS.quantity.width,
+    align: "center",
+  });
+  doc.text(PRODUCT_COLS.price.label, COL_X.price, tableTop + 6, {
+    width: PRODUCT_COLS.price.width,
+    align: "center",
+  });
+  doc.text(PRODUCT_COLS.total.label, COL_X.total, tableTop + 6, {
+    width: PRODUCT_COLS.total.width,
+    align: "center",
+  });
+
+  strokeRect(doc, PAGE_LEFT, tableTop, CONTENT_WIDTH, headerHeight);
+  drawProductColumnDividers(doc, tableTop, headerHeight);
+  doc.fillColor("#000000");
+  doc.y = tableTop + headerHeight;
+  return tableTop;
+};
+
+const measureProductCellHeight = (doc, line, imageBuffer) => {
+  const imageSize = 42;
+  const textX = COL_X.product + (imageBuffer ? imageSize + 14 : 8);
+  const textWidth = PRODUCT_COLS.product.width - (imageBuffer ? imageSize + 22 : 16);
   doc.font("Helvetica-Bold").fontSize(9);
-  doc.text("Payment Address", PAGE_LEFT, headerY);
-  doc.text("Shipping Address", 300, headerY);
+  const textHeight = doc.heightOfString(String(line.title || "—"), {
+    width: textWidth,
+  });
+  return Math.max(imageBuffer ? imageSize + 8 : 0, textHeight + 16, 50);
+};
 
-  const bodyY = headerY + 14;
+const drawProductColumnDividers = (doc, top, height) => {
+  let x = PAGE_LEFT;
+  const keys = Object.keys(PRODUCT_COLS);
+  for (let i = 1; i < keys.length; i += 1) {
+    x += PRODUCT_COLS[keys[i - 1]].width;
+    doc
+      .moveTo(x, top)
+      .lineTo(x, top + height)
+      .strokeColor(BORDER_COLOR)
+      .lineWidth(0.5)
+      .stroke();
+  }
+};
+
+const drawProductRow = (doc, line, imageBuffer) => {
+  const rowTop = doc.y;
+  const rowHeight = measureProductCellHeight(doc, line, imageBuffer);
+  const imageSize = 42;
+  const padding = 8;
+
+  strokeRect(doc, PAGE_LEFT, rowTop, CONTENT_WIDTH, rowHeight);
+  drawProductColumnDividers(doc, rowTop, rowHeight);
+
+  const midY = rowTop + rowHeight / 2;
+  if (imageBuffer) {
+    try {
+      doc.image(imageBuffer, COL_X.product + padding, rowTop + padding, {
+        fit: [imageSize, imageSize],
+        align: "center",
+        valign: "center",
+      });
+    } catch {
+      // Skip broken image data and render text-only row.
+    }
+  }
+
+  const textX = COL_X.product + (imageBuffer ? imageSize + 14 : padding);
+  const textWidth = PRODUCT_COLS.product.width - (imageBuffer ? imageSize + 22 : 16);
+  const textY = imageBuffer
+    ? rowTop + padding
+    : midY - 5;
+
+  doc.font("Helvetica-Bold").fontSize(9).fillColor("#000000");
+  doc.text(String(line.title || "—"), textX, textY, {
+    width: textWidth,
+    lineBreak: true,
+  });
+
   doc.font("Helvetica").fontSize(9);
-
-  let leftY = bodyY;
-  paymentLines.forEach((line) => {
-    doc.text(line, PAGE_LEFT, leftY, { width: 240, lineBreak: false });
-    leftY += 12;
+  doc.text(String(line.model || "—"), COL_X.model, midY - 5, {
+    width: PRODUCT_COLS.model.width,
+    align: "center",
+    lineBreak: false,
+  });
+  doc.text(String(line.quantity ?? 0), COL_X.quantity, midY - 5, {
+    width: PRODUCT_COLS.quantity.width,
+    align: "center",
+    lineBreak: false,
+  });
+  doc.text(formatZar(line.price), COL_X.price, midY - 5, {
+    width: PRODUCT_COLS.price.width,
+    align: "center",
+    lineBreak: false,
+  });
+  doc.text(formatZar(line.lineTotal), COL_X.total, midY - 5, {
+    width: PRODUCT_COLS.total.width,
+    align: "center",
+    lineBreak: false,
   });
 
-  let rightY = bodyY;
-  shippingLines.forEach((line) => {
-    doc.text(line, 300, rightY, { width: 240, lineBreak: false });
-    rightY += 12;
-  });
-
-  doc.y = Math.max(leftY, rightY) + 16;
+  doc.y = rowTop + rowHeight;
 };
 
 const drawTotals = (doc, { subtotal, shippingLabel, shippingCost, total }) => {
-  let y = doc.y + 8;
-  const labelX = 335;
-  const valueX = 410;
-  const labelWidth = 75;
-  const valueWidth = 75;
+  let y = doc.y + 12;
+  const labelX = COL_X.price;
+  const valueX = COL_X.total;
+  const labelWidth = PRODUCT_COLS.price.width;
+  const valueWidth = PRODUCT_COLS.total.width;
 
   const drawRow = (label, value, bold = false) => {
-    doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(9);
-    doc.text(label, labelX, y, { width: labelWidth, align: "right" });
-    doc.text(value, valueX, y, { width: valueWidth, align: "right" });
+    doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(9).fillColor("#000000");
+    doc.text(label, labelX, y, { width: labelWidth, align: "right", lineBreak: false });
+    doc.text(value, valueX, y, { width: valueWidth, align: "right", lineBreak: false });
     y += 14;
   };
 
@@ -169,57 +414,23 @@ const drawTotals = (doc, { subtotal, shippingLabel, shippingCost, total }) => {
   doc.y = y;
 };
 
-const measureRowHeight = (doc, line) => {
-  const productHeight = doc.heightOfString(String(line.title || ""), {
-    width: TABLE_COLUMNS[0].width,
+const enrichOrderItems = (orderItems, productDetails) =>
+  (orderItems || []).map((line) => {
+    const details = productDetails.get(String(line.product)) || {};
+    return {
+      ...line,
+      title: line.title || details.title || "—",
+      model: details.model || "—",
+      imageUrl: line.imageUrl || details.imageUrl || "",
+    };
   });
-  const modelHeight = doc.heightOfString(
-    String(line.model || "—"),
-    { width: TABLE_COLUMNS[1].width }
-  );
-  return Math.max(productHeight, modelHeight, 12) + 6;
-};
-
-const drawProductRow = (doc, line) => {
-  const rowTop = doc.y;
-  const rowHeight = measureRowHeight(doc, line);
-
-  doc.font("Helvetica").fontSize(9);
-  doc.text(String(line.title || ""), TABLE_COLUMNS[0].x, rowTop, {
-    width: TABLE_COLUMNS[0].width,
-  });
-  doc.text(String(line.model || "—"), TABLE_COLUMNS[1].x, rowTop, {
-    width: TABLE_COLUMNS[1].width,
-  });
-  doc.text(String(line.quantity ?? ""), TABLE_COLUMNS[2].x, rowTop, {
-    width: TABLE_COLUMNS[2].width,
-    align: "center",
-  });
-  doc.text(formatZar(line.price), TABLE_COLUMNS[3].x, rowTop, {
-    width: TABLE_COLUMNS[3].width,
-    align: "right",
-  });
-  doc.text(formatZar(line.lineTotal), TABLE_COLUMNS[4].x, rowTop, {
-    width: TABLE_COLUMNS[4].width,
-    align: "right",
-  });
-
-  doc
-    .moveTo(PAGE_LEFT, rowTop + rowHeight - 2)
-    .lineTo(PAGE_RIGHT, rowTop + rowHeight - 2)
-    .strokeColor("#cccccc")
-    .lineWidth(0.5)
-    .stroke();
-
-  doc.y = rowTop + rowHeight;
-};
 
 /**
- * Build an OpenCart/TCPDF-style order invoice PDF buffer.
+ * Build an OpenCart-style order invoice PDF buffer.
  */
 const buildInvoicePdf = async ({
   order,
-  productModels,
+  productDetails,
   appName,
   storeLabel,
   phone,
@@ -230,10 +441,11 @@ const buildInvoicePdf = async ({
   const shippingAddress = formatInvoiceAddressLines(
     order.billingAddress || order.shippingAddress
   );
-  const items = (order.items || []).map((line) => ({
-    ...line,
-    model: productModels.get(String(line.product)) || "—",
-  }));
+  const items = enrichOrderItems(order.items, productDetails);
+
+  const imageBuffers = await Promise.all(
+    items.map((line) => loadImageBuffer(line.imageUrl))
+  );
 
   const subtotal = items.reduce(
     (sum, line) => sum + Number(line.lineTotal || 0),
@@ -242,40 +454,29 @@ const buildInvoicePdf = async ({
   const shippingCost = Math.max(0, Number(order.totalAmount || 0) - subtotal);
 
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: "A4", margin: PAGE_LEFT });
+    const doc = new PDFDocument({ size: "A4", margin: MARGIN });
     const chunks = [];
 
     doc.on("data", (chunk) => chunks.push(chunk));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    doc.font("Helvetica-Bold").fontSize(16).text(appName, PAGE_LEFT, PAGE_LEFT);
-    doc.font("Helvetica").fontSize(10);
-    doc.text(storeLabel);
-    if (phone) doc.text(phone);
-    if (email) doc.text(email);
+    drawCompanyHeader(doc, { appName, storeLabel, phone, email });
+    drawOrderMeta(doc, order, shippingMethod);
+    drawAddressTable(doc, paymentAddress, shippingAddress);
+    drawProductTableHeader(doc);
 
-    doc.moveDown(0.8);
-    doc.text(`Date: ${formatInvoiceDate(order.createdAt)}`);
-    doc.text(`Order ID: ${order.orderNumber}`);
-    doc.text(`Order Status: ${mapOrderStatus(order.orderStatus)}`);
-    doc.text(`Payment Method: ${mapPaymentMethod(order.paymentMethod)}`);
-    doc.text(`Shipping Method: ${shippingMethod}`);
-
-    doc.moveDown(0.8);
-    drawAddressColumns(doc, paymentAddress, shippingAddress);
-
-    drawTableHeader(doc);
-    for (const line of items) {
-      const rowHeight = measureRowHeight(doc, line);
+    for (let index = 0; index < items.length; index += 1) {
+      const line = items[index];
+      const rowHeight = measureProductCellHeight(doc, line, imageBuffers[index]);
       if (doc.y + rowHeight > PAGE_BOTTOM) {
         doc.addPage();
-        drawTableHeader(doc);
+        drawProductTableHeader(doc);
       }
-      drawProductRow(doc, line);
+      drawProductRow(doc, line, imageBuffers[index]);
     }
 
-    if (doc.y + 60 > PAGE_BOTTOM) {
+    if (doc.y + 80 > PAGE_BOTTOM) {
       doc.addPage();
     }
 
@@ -294,10 +495,6 @@ const buildInvoicePdf = async ({
  * Generate a PDF invoice for the given order, upload it to S3 under
  * `invoices/order_<orderNumber>.pdf`, and return both the invoice number and the
  * public URL. Caller is responsible for persisting these onto the Order document.
- *
- * The function never throws to the caller because invoice generation is best-
- * effort during the verify path — on failure it returns { number: "", url: "" }
- * and logs. A subsequent admin action can regenerate.
  */
 const generateInvoice = async (order) => {
   if (!order) return { number: "", url: "" };
@@ -316,10 +513,10 @@ const generateInvoice = async (order) => {
       process.env.INVOICE_SHIPPING_METHOD_LABEL ||
       "Local Shipping";
 
-    const productModels = await loadProductModels(order.items);
+    const productDetails = await loadProductDetails(order.items);
     const buffer = await buildInvoicePdf({
       order,
-      productModels,
+      productDetails,
       appName,
       storeLabel,
       phone,
