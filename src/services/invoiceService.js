@@ -118,12 +118,22 @@ const toProductModel = (slug) => {
   return compact.length > 15 ? compact.slice(0, 15) : compact;
 };
 
+const effectivePriceOf = (product) =>
+  product?.salePrice && product.salePrice > 0 ? product.salePrice : product?.price || 0;
+
+const toPlainLine = (line) => {
+  if (!line) return {};
+  if (typeof line.toObject === "function") return line.toObject();
+  if (typeof line.toJSON === "function") return line.toJSON();
+  return line;
+};
+
 const loadProductDetails = async (items = []) => {
-  const ids = items.map((line) => line.product).filter(Boolean);
+  const ids = items.map((line) => toPlainLine(line).product).filter(Boolean);
   if (!ids.length) return new Map();
 
   const products = await Product.find({ _id: { $in: ids } })
-    .select("slug title imageUrl")
+    .select("slug title imageUrl price salePrice")
     .lean();
 
   return new Map(
@@ -133,6 +143,7 @@ const loadProductDetails = async (items = []) => {
         model: toProductModel(product.slug),
         title: product.title || "",
         imageUrl: product.imageUrl || "",
+        price: effectivePriceOf(product),
       },
     ])
   );
@@ -210,7 +221,7 @@ const drawMetaRow = (doc, leftLabel, leftValue, rightLabel, rightValue) => {
   doc.y = y + 14;
 };
 
-const drawOrderMeta = (doc, order, shippingMethod) => {
+const drawOrderMeta = (doc, order) => {
   drawMetaRow(
     doc,
     "Date:",
@@ -225,7 +236,6 @@ const drawOrderMeta = (doc, order, shippingMethod) => {
     "Payment Method:",
     mapPaymentMethod(order.paymentMethod)
   );
-  drawMetaRow(doc, "", "", "Shipping Method:", shippingMethod);
   doc.y += 8;
 };
 
@@ -344,7 +354,7 @@ const drawProductRow = (doc, line, imageBuffer) => {
   strokeRect(doc, PAGE_LEFT, rowTop, CONTENT_WIDTH, rowHeight);
   drawProductColumnDividers(doc, rowTop, rowHeight);
 
-  const midY = rowTop + rowHeight / 2;
+  const cellTextY = rowTop + rowHeight / 2 - 4;
   if (imageBuffer) {
     try {
       doc.image(imageBuffer, COL_X.product + padding, rowTop + padding, {
@@ -359,9 +369,7 @@ const drawProductRow = (doc, line, imageBuffer) => {
 
   const textX = COL_X.product + (imageBuffer ? imageSize + 14 : padding);
   const textWidth = PRODUCT_COLS.product.width - (imageBuffer ? imageSize + 22 : 16);
-  const textY = imageBuffer
-    ? rowTop + padding
-    : midY - 5;
+  const textY = imageBuffer ? rowTop + padding : cellTextY;
 
   doc.font("Helvetica-Bold").fontSize(9).fillColor("#000000");
   doc.text(String(line.title || "—"), textX, textY, {
@@ -370,22 +378,22 @@ const drawProductRow = (doc, line, imageBuffer) => {
   });
 
   doc.font("Helvetica").fontSize(9);
-  doc.text(String(line.model || "—"), COL_X.model, midY - 5, {
+  doc.text(String(line.model || "—"), COL_X.model, cellTextY, {
     width: PRODUCT_COLS.model.width,
     align: "center",
     lineBreak: false,
   });
-  doc.text(String(line.quantity ?? 0), COL_X.quantity, midY - 5, {
+  doc.text(String(line.quantity), COL_X.quantity, cellTextY, {
     width: PRODUCT_COLS.quantity.width,
     align: "center",
     lineBreak: false,
   });
-  doc.text(formatZar(line.price), COL_X.price, midY - 5, {
+  doc.text(formatZar(line.price), COL_X.price, cellTextY, {
     width: PRODUCT_COLS.price.width,
     align: "center",
     lineBreak: false,
   });
-  doc.text(formatZar(line.lineTotal), COL_X.total, midY - 5, {
+  doc.text(formatZar(line.lineTotal), COL_X.total, cellTextY, {
     width: PRODUCT_COLS.total.width,
     align: "center",
     lineBreak: false,
@@ -394,7 +402,7 @@ const drawProductRow = (doc, line, imageBuffer) => {
   doc.y = rowTop + rowHeight;
 };
 
-const drawTotals = (doc, { subtotal, shippingLabel, shippingCost, total }) => {
+const drawTotals = (doc, { subtotal, total }) => {
   let y = doc.y + 12;
   const labelX = COL_X.price;
   const valueX = COL_X.total;
@@ -409,19 +417,28 @@ const drawTotals = (doc, { subtotal, shippingLabel, shippingCost, total }) => {
   };
 
   drawRow("Sub-Total", formatZar(subtotal));
-  drawRow(shippingLabel, formatZar(shippingCost));
   drawRow("Total", formatZar(total), true);
   doc.y = y;
 };
 
 const enrichOrderItems = (orderItems, productDetails) =>
   (orderItems || []).map((line) => {
-    const details = productDetails.get(String(line.product)) || {};
+    const raw = toPlainLine(line);
+    const details = productDetails.get(String(raw.product)) || {};
+    const quantity = Math.max(1, Number(raw.quantity) || 0);
+    const price =
+      Number(raw.price) > 0 ? Number(raw.price) : Number(details.price) || 0;
+    const lineTotal =
+      Number(raw.lineTotal) > 0 ? Number(raw.lineTotal) : price * quantity;
+
     return {
-      ...line,
-      title: line.title || details.title || "—",
+      ...raw,
+      title: raw.title || details.title || "—",
       model: details.model || "—",
-      imageUrl: line.imageUrl || details.imageUrl || "",
+      imageUrl: raw.imageUrl || details.imageUrl || "",
+      quantity,
+      price,
+      lineTotal,
     };
   });
 
@@ -435,7 +452,6 @@ const buildInvoicePdf = async ({
   storeLabel,
   phone,
   email,
-  shippingMethod,
 }) => {
   const paymentAddress = formatInvoiceAddressLines(order.shippingAddress);
   const shippingAddress = formatInvoiceAddressLines(
@@ -451,7 +467,7 @@ const buildInvoicePdf = async ({
     (sum, line) => sum + Number(line.lineTotal || 0),
     0
   );
-  const shippingCost = Math.max(0, Number(order.totalAmount || 0) - subtotal);
+  const total = Number(order.totalAmount) > 0 ? Number(order.totalAmount) : subtotal;
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "A4", margin: MARGIN });
@@ -462,7 +478,7 @@ const buildInvoicePdf = async ({
     doc.on("error", reject);
 
     drawCompanyHeader(doc, { appName, storeLabel, phone, email });
-    drawOrderMeta(doc, order, shippingMethod);
+    drawOrderMeta(doc, order);
     drawAddressTable(doc, paymentAddress, shippingAddress);
     drawProductTableHeader(doc);
 
@@ -480,12 +496,7 @@ const buildInvoicePdf = async ({
       doc.addPage();
     }
 
-    drawTotals(doc, {
-      subtotal,
-      shippingLabel: shippingMethod,
-      shippingCost,
-      total: order.totalAmount,
-    });
+    drawTotals(doc, { subtotal, total });
 
     doc.end();
   });
@@ -501,18 +512,13 @@ const generateInvoice = async (order) => {
 
   try {
     const invoiceNumber = await nextInvoiceNumber();
-    const appName = process.env.APP_NAME || "Satya";
+    const appName = process.env.APP_NAME || "Sathya";
     const storeLabel = process.env.INVOICE_STORE_LABEL || "Online";
     const phone = process.env.INVOICE_CONTACT_PHONE || "";
     const email =
       process.env.INVOICE_CONTACT_EMAIL ||
       process.env.BREVO_SENDER_EMAIL ||
       "";
-    const shippingMethod =
-      order.shippingMethod ||
-      process.env.INVOICE_SHIPPING_METHOD_LABEL ||
-      "Local Shipping";
-
     const productDetails = await loadProductDetails(order.items);
     const buffer = await buildInvoicePdf({
       order,
@@ -521,7 +527,6 @@ const generateInvoice = async (order) => {
       storeLabel,
       phone,
       email,
-      shippingMethod,
     });
 
     const safeOrderId = String(order.orderNumber).replace(/[^a-zA-Z0-9-]/g, "_");
