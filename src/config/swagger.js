@@ -255,6 +255,11 @@ const options = {
             name: { type: "string" },
             alternate_names: { type: "array", items: { type: "string" } },
             description: { type: "string" },
+            deity_color: {
+              type: "string",
+              description: "Hex color for UI branding (e.g. #FF5733)",
+              example: "#FF5733",
+            },
             roles: { type: "array", items: { type: "string" } },
             media: {
               type: "object",
