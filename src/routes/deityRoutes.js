@@ -49,6 +49,7 @@ const router = express.Router();
  *             properties:
  *               name: { type: string }
  *               description: { type: string }
+ *               deity_color: { type: string, description: "Hex color e.g. #FF5733", example: "#FF5733" }
  *               alternate_names: { type: string, description: "JSON array string e.g. [\"Mahalakshmi\",\"Shri\"]" }
  *               roles: { type: string, description: "JSON array string" }
  *               lineage: { type: string, description: "JSON object string" }
@@ -213,6 +214,7 @@ router.get(
  *             properties:
  *               name: { type: string }
  *               description: { type: string }
+ *               deity_color: { type: string, description: "Hex color e.g. #FF5733", example: "#FF5733" }
  *               alternate_names: { type: string, description: "JSON array string" }
  *               roles: { type: string, description: "JSON array string" }
  *               lineage: { type: string, description: "JSON object string" }

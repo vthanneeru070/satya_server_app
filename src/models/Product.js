@@ -13,6 +13,37 @@ const mongoose = require("mongoose");
  * `quantity` = stock units consumed per kit (e.g. 2 packs where each pack is
  * `itemQuantity` + `unit` on the inventory row, such as 50 grams).
  */
+/** Snapshot of a linked pooja stored on the product (denormalized for fast reads). */
+const associatePujaSchema = new mongoose.Schema(
+  {
+    id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Pooja",
+      required: true,
+    },
+    title: {
+      type: String,
+      trim: true,
+      required: true,
+    },
+    date: {
+      type: Date,
+      required: true,
+    },
+    status: {
+      type: String,
+      enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"],
+      required: true,
+    },
+    deity: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Deity",
+      required: true,
+    },
+  },
+  { _id: false }
+);
+
 const poojaKitItemSchema = new mongoose.Schema(
   {
     inventoryItem: {
@@ -97,6 +128,13 @@ const productSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+
+    /** Linked pooja snapshots: id, title, date, status, deity */
+    associate_puja: {
+      type: [associatePujaSchema],
+      default: [],
+    },
+
     category: {
       type: String,
       trim: true,

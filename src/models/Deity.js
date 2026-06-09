@@ -37,6 +37,13 @@ const deitySchema = new mongoose.Schema(
       default: "",
     },
 
+    /** UI / branding color for this deity (hex e.g. #FF5733) */
+    deity_color: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
     roles: {
       type: [String],
       default: [],

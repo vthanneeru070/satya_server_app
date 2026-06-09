@@ -1,7 +1,39 @@
+const axios = require("axios");
+const PDFDocument = require("pdfkit");
 const Counter = require("../models/Counter");
+const Product = require("../models/Product");
 const { uploadFile } = require("./s3Service");
 
 const INVOICE_PREFIX = process.env.INVOICE_NUMBER_PREFIX || "INV";
+
+const PAGE_WIDTH = 595.28;
+const MARGIN = 36;
+const PAGE_LEFT = MARGIN;
+const PAGE_RIGHT = PAGE_WIDTH - MARGIN;
+const CONTENT_WIDTH = PAGE_RIGHT - PAGE_LEFT;
+const PAGE_BOTTOM = 780;
+
+const HEADER_BG = "#2c3e50";
+const BORDER_COLOR = "#cccccc";
+const WHITE = "#ffffff";
+
+const PRODUCT_COLS = {
+  product: { label: "Product", width: 210 },
+  model: { label: "Model", width: 80 },
+  quantity: { label: "Quantity", width: 55 },
+  price: { label: "Price", width: 85 },
+  total: { label: "Total", width: CONTENT_WIDTH - 210 - 80 - 55 - 85 },
+};
+
+const COL_X = (() => {
+  let x = PAGE_LEFT;
+  const positions = {};
+  for (const [key, col] of Object.entries(PRODUCT_COLS)) {
+    positions[key] = x;
+    x += col.width;
+  }
+  return positions;
+})();
 
 /**
  * Next sequential invoice number. Uses the shared `Counter` collection with a
@@ -17,158 +49,491 @@ const nextInvoiceNumber = async () => {
   return `${INVOICE_PREFIX}-${doc.seq}`;
 };
 
-const escapeHtml = (value) => {
-  if (value === null || value === undefined) return "";
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-};
+const formatZar = (amount) => `R${Number(amount || 0).toFixed(2)}`;
 
-const formatMoney = (amount, currency = "ZAR") => {
-  const safe = Number(amount || 0);
-  return `${escapeHtml(currency)} ${safe.toFixed(2)}`;
-};
-
-const formatDate = (date) => {
+const formatInvoiceDate = (date) => {
   if (!date) return "";
   const d = date instanceof Date ? date : new Date(date);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toISOString().slice(0, 10);
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
 };
 
-const formatAddress = (addr) => {
-  if (!addr) return "—";
-  const parts = [
+const mapPaymentMethod = (method) => {
+  switch (method) {
+    case "PAYSTACK":
+      return "Pay now using";
+    case "COD":
+      return "Cash On Delivery";
+    case "EFT":
+      return "EFT";
+    default:
+      return method || "—";
+  }
+};
+
+const mapOrderStatus = (status) => {
+  switch (status) {
+    case "FULFILLED":
+    case "DELIVERED":
+      return "Complete";
+    case "CANCELLED":
+      return "Cancelled";
+    case "PLACED":
+      return "Pending";
+    case "PROCESSING":
+      return "Processing";
+    case "SHIPPED":
+      return "Shipped";
+    case "OUT_FOR_DELIVERY":
+      return "Out For Delivery";
+    default:
+      return status || "—";
+  }
+};
+
+const formatOrderId = (orderNumber) => {
+  if (!orderNumber) return "—";
+  const match = String(orderNumber).match(/(\d+)$/);
+  return match ? match[1] : String(orderNumber);
+};
+
+const formatInvoiceAddressLines = (addr) => {
+  if (!addr) return ["—"];
+  return [
     addr.fullName,
-    addr.phone,
+    addr.addressLine2,
     addr.addressLine1,
-    [addr.city, addr.state].filter(Boolean).join(", "),
-    addr.postalCode,
+    [addr.city, addr.postalCode].filter(Boolean).join(" "),
+    addr.state,
     addr.country,
   ].filter((piece) => piece && String(piece).trim().length > 0);
-  return parts.map(escapeHtml).join("<br/>");
 };
 
-const buildInvoiceHtml = ({ order, invoiceNumber, appName }) => {
-  const items = (order.items || [])
-    .map(
-      (line) => `
-        <tr>
-          <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">${escapeHtml(line.title)}</td>
-          <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;">${escapeHtml(line.quantity)}</td>
-          <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right;">${formatMoney(line.price, order.currency)}</td>
-          <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:right;">${formatMoney(line.lineTotal, order.currency)}</td>
-        </tr>`
-    )
-    .join("");
+const toProductModel = (slug) => {
+  if (!slug) return "—";
+  const compact = String(slug).replace(/-/g, "").toUpperCase();
+  return compact.length > 15 ? compact.slice(0, 15) : compact;
+};
 
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<title>Invoice ${escapeHtml(invoiceNumber)}</title>
-</head>
-<body style="margin:0;padding:0;background:#f5f6fa;font-family:Helvetica,Arial,sans-serif;color:#1f2937;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f5f6fa;padding:24px 0;">
-    <tr><td align="center">
-      <table role="presentation" width="640" cellspacing="0" cellpadding="0" border="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.06);">
+const effectivePriceOf = (product) =>
+  product?.salePrice && product.salePrice > 0 ? product.salePrice : product?.price || 0;
 
-        <tr>
-          <td style="background:linear-gradient(135deg,#7c3aed,#4f46e5);padding:24px 28px;color:#fff;">
-            <div style="font-size:13px;letter-spacing:1.5px;opacity:0.85;">${escapeHtml(appName)} INVOICE</div>
-            <div style="font-size:22px;font-weight:600;margin-top:6px;">Invoice ${escapeHtml(invoiceNumber)}</div>
-            <div style="font-size:13px;opacity:0.85;margin-top:4px;">Order ${escapeHtml(order.orderNumber)} · ${escapeHtml(formatDate(order.createdAt))}</div>
-          </td>
-        </tr>
+const toPlainLine = (line) => {
+  if (!line) return {};
+  if (typeof line.toObject === "function") return line.toObject();
+  if (typeof line.toJSON === "function") return line.toJSON();
+  return line;
+};
 
-        <tr><td style="padding:24px 28px;">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
-            <tr>
-              <td style="vertical-align:top;width:50%;padding-right:12px;">
-                <div style="font-size:12px;text-transform:uppercase;color:#6b7280;letter-spacing:1px;margin-bottom:6px;">Billed to</div>
-                <div style="font-size:14px;line-height:1.5;">${formatAddress(order.shippingAddress)}</div>
-              </td>
-              <td style="vertical-align:top;width:50%;padding-left:12px;">
-                <div style="font-size:12px;text-transform:uppercase;color:#6b7280;letter-spacing:1px;margin-bottom:6px;">Payment</div>
-                <div style="font-size:14px;line-height:1.5;">
-                  Status: <strong>${escapeHtml(order.paymentStatus)}</strong><br/>
-                  Method: ${escapeHtml(order.paymentMethod)}<br/>
-                  Reference: ${escapeHtml(order.paystackReference || order.orderNumber)}
-                </div>
-              </td>
-            </tr>
-          </table>
+const loadProductDetails = async (items = []) => {
+  const ids = items.map((line) => toPlainLine(line).product).filter(Boolean);
+  if (!ids.length) return new Map();
 
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top:24px;border-collapse:collapse;">
-            <thead>
-              <tr style="background:#f3f4f6;">
-                <th align="left" style="padding:10px 12px;font-size:12px;letter-spacing:1px;color:#374151;text-transform:uppercase;border-bottom:1px solid #e5e7eb;">Item</th>
-                <th align="center" style="padding:10px 12px;font-size:12px;letter-spacing:1px;color:#374151;text-transform:uppercase;border-bottom:1px solid #e5e7eb;">Qty</th>
-                <th align="right" style="padding:10px 12px;font-size:12px;letter-spacing:1px;color:#374151;text-transform:uppercase;border-bottom:1px solid #e5e7eb;">Unit</th>
-                <th align="right" style="padding:10px 12px;font-size:12px;letter-spacing:1px;color:#374151;text-transform:uppercase;border-bottom:1px solid #e5e7eb;">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${items || `<tr><td colspan="4" style="padding:16px 12px;color:#6b7280;">No line items.</td></tr>`}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td colspan="3" align="right" style="padding:14px 12px;font-size:14px;color:#111827;font-weight:600;border-top:2px solid #111827;">Total</td>
-                <td align="right" style="padding:14px 12px;font-size:16px;color:#111827;font-weight:700;border-top:2px solid #111827;">${formatMoney(order.totalAmount, order.currency)}</td>
-              </tr>
-            </tfoot>
-          </table>
+  const products = await Product.find({ _id: { $in: ids } })
+    .select("slug title imageUrl price salePrice")
+    .lean();
 
-          <p style="margin:24px 0 0;font-size:13px;color:#6b7280;line-height:1.6;">
-            Thank you for shopping with ${escapeHtml(appName)}. If anything looks wrong on this invoice,
-            reply to this email or contact our support team with your order number.
-          </p>
-        </td></tr>
+  return new Map(
+    products.map((product) => [
+      String(product._id),
+      {
+        model: toProductModel(product.slug),
+        title: product.title || "",
+        imageUrl: product.imageUrl || "",
+        price: effectivePriceOf(product),
+      },
+    ])
+  );
+};
 
-        <tr>
-          <td style="background:#f9fafb;padding:14px 28px;text-align:center;font-size:12px;color:#9ca3af;">
-            ${escapeHtml(appName)} · This is an automated invoice; please retain it for your records.
-          </td>
-        </tr>
+const loadImageBuffer = async (url) => {
+  if (!url) return null;
+  try {
+    const response = await axios.get(url, {
+      responseType: "arraybuffer",
+      timeout: 8000,
+    });
+    return Buffer.from(response.data);
+  } catch {
+    return null;
+  }
+};
 
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
+const strokeRect = (doc, x, y, w, h) => {
+  doc
+    .save()
+    .rect(x, y, w, h)
+    .strokeColor(BORDER_COLOR)
+    .lineWidth(0.5)
+    .stroke()
+    .restore();
+};
+
+const fillRect = (doc, x, y, w, h, color) => {
+  doc.save().rect(x, y, w, h).fill(color).restore();
+};
+
+const drawCompanyHeader = (doc, { appName, storeLabel, phone, email }) => {
+  const headerTop = MARGIN;
+  doc.font("Helvetica-Bold").fontSize(18);
+  doc.text(appName, PAGE_LEFT, headerTop, {
+    width: CONTENT_WIDTH,
+    align: "right",
+  });
+
+  doc.font("Helvetica").fontSize(10);
+  let y = doc.y;
+  doc.text(storeLabel, PAGE_LEFT, y, { width: CONTENT_WIDTH, align: "right" });
+  if (phone) {
+    y = doc.y;
+    doc.text(phone, PAGE_LEFT, y, { width: CONTENT_WIDTH, align: "right" });
+  }
+  if (email) {
+    y = doc.y;
+    doc.text(email, PAGE_LEFT, y, { width: CONTENT_WIDTH, align: "right" });
+  }
+
+  doc.y = doc.y + 18;
+};
+
+const drawMetaRow = (doc, leftLabel, leftValue, rightLabel, rightValue) => {
+  const y = doc.y;
+  const half = CONTENT_WIDTH / 2;
+  doc.font("Helvetica-Bold").fontSize(9).text(leftLabel, PAGE_LEFT, y, {
+    continued: true,
+    width: half,
+    align: "left",
+  });
+  doc.font("Helvetica").text(` ${leftValue}`, { continued: false });
+
+  if (rightLabel) {
+    doc.font("Helvetica-Bold").text(rightLabel, PAGE_LEFT + half, y, {
+      continued: true,
+      width: half,
+      align: "left",
+    });
+    doc.font("Helvetica").text(` ${rightValue}`, { continued: false });
+  }
+
+  doc.y = y + 14;
+};
+
+const drawOrderMeta = (doc, order) => {
+  drawMetaRow(
+    doc,
+    "Date:",
+    formatInvoiceDate(order.createdAt),
+    "Order Status:",
+    mapOrderStatus(order.orderStatus)
+  );
+  drawMetaRow(
+    doc,
+    "Order ID:",
+    formatOrderId(order.orderNumber),
+    "Payment Method:",
+    mapPaymentMethod(order.paymentMethod)
+  );
+  doc.y += 8;
+};
+
+const drawAddressTable = (doc, paymentLines, shippingLines) => {
+  const colWidth = CONTENT_WIDTH / 2;
+  const headerHeight = 22;
+  const bodyHeight = Math.max(paymentLines.length, shippingLines.length) * 13 + 16;
+  const tableTop = doc.y;
+
+  fillRect(doc, PAGE_LEFT, tableTop, colWidth, headerHeight, HEADER_BG);
+  fillRect(doc, PAGE_LEFT + colWidth, tableTop, colWidth, headerHeight, HEADER_BG);
+
+  doc.font("Helvetica-Bold").fontSize(9).fillColor(WHITE);
+  doc.text("Payment Address", PAGE_LEFT, tableTop + 6, {
+    width: colWidth,
+    align: "center",
+  });
+  doc.text("Shipping Address", PAGE_LEFT + colWidth, tableTop + 6, {
+    width: colWidth,
+    align: "center",
+  });
+
+  strokeRect(doc, PAGE_LEFT, tableTop, colWidth, headerHeight + bodyHeight);
+  strokeRect(doc, PAGE_LEFT + colWidth, tableTop, colWidth, headerHeight + bodyHeight);
+  doc
+    .moveTo(PAGE_LEFT, tableTop + headerHeight)
+    .lineTo(PAGE_RIGHT, tableTop + headerHeight)
+    .strokeColor(BORDER_COLOR)
+    .lineWidth(0.5)
+    .stroke();
+
+  doc.fillColor("#000000").font("Helvetica").fontSize(9);
+  const bodyTop = tableTop + headerHeight + 8;
+  paymentLines.forEach((line, index) => {
+    doc.text(line, PAGE_LEFT + 8, bodyTop + index * 13, {
+      width: colWidth - 16,
+      lineBreak: false,
+    });
+  });
+  shippingLines.forEach((line, index) => {
+    doc.text(line, PAGE_LEFT + colWidth + 8, bodyTop + index * 13, {
+      width: colWidth - 16,
+      lineBreak: false,
+    });
+  });
+
+  doc.y = tableTop + headerHeight + bodyHeight + 14;
+};
+
+const drawProductTableHeader = (doc) => {
+  const headerHeight = 22;
+  const tableTop = doc.y;
+
+  fillRect(doc, PAGE_LEFT, tableTop, CONTENT_WIDTH, headerHeight, HEADER_BG);
+
+  doc.font("Helvetica-Bold").fontSize(9).fillColor(WHITE);
+  doc.text(PRODUCT_COLS.product.label, COL_X.product + 8, tableTop + 6, {
+    width: PRODUCT_COLS.product.width - 16,
+    align: "left",
+  });
+  doc.text(PRODUCT_COLS.model.label, COL_X.model, tableTop + 6, {
+    width: PRODUCT_COLS.model.width,
+    align: "center",
+  });
+  doc.text(PRODUCT_COLS.quantity.label, COL_X.quantity, tableTop + 6, {
+    width: PRODUCT_COLS.quantity.width,
+    align: "center",
+  });
+  doc.text(PRODUCT_COLS.price.label, COL_X.price, tableTop + 6, {
+    width: PRODUCT_COLS.price.width,
+    align: "center",
+  });
+  doc.text(PRODUCT_COLS.total.label, COL_X.total, tableTop + 6, {
+    width: PRODUCT_COLS.total.width,
+    align: "center",
+  });
+
+  strokeRect(doc, PAGE_LEFT, tableTop, CONTENT_WIDTH, headerHeight);
+  drawProductColumnDividers(doc, tableTop, headerHeight);
+  doc.fillColor("#000000");
+  doc.y = tableTop + headerHeight;
+  return tableTop;
+};
+
+const measureProductCellHeight = (doc, line, imageBuffer) => {
+  const imageSize = 42;
+  const textX = COL_X.product + (imageBuffer ? imageSize + 14 : 8);
+  const textWidth = PRODUCT_COLS.product.width - (imageBuffer ? imageSize + 22 : 16);
+  doc.font("Helvetica-Bold").fontSize(9);
+  const textHeight = doc.heightOfString(String(line.title || "—"), {
+    width: textWidth,
+  });
+  return Math.max(imageBuffer ? imageSize + 8 : 0, textHeight + 16, 50);
+};
+
+const drawProductColumnDividers = (doc, top, height) => {
+  let x = PAGE_LEFT;
+  const keys = Object.keys(PRODUCT_COLS);
+  for (let i = 1; i < keys.length; i += 1) {
+    x += PRODUCT_COLS[keys[i - 1]].width;
+    doc
+      .moveTo(x, top)
+      .lineTo(x, top + height)
+      .strokeColor(BORDER_COLOR)
+      .lineWidth(0.5)
+      .stroke();
+  }
+};
+
+const drawProductRow = (doc, line, imageBuffer) => {
+  const rowTop = doc.y;
+  const rowHeight = measureProductCellHeight(doc, line, imageBuffer);
+  const imageSize = 42;
+  const padding = 8;
+
+  strokeRect(doc, PAGE_LEFT, rowTop, CONTENT_WIDTH, rowHeight);
+  drawProductColumnDividers(doc, rowTop, rowHeight);
+
+  const cellTextY = rowTop + rowHeight / 2 - 4;
+  if (imageBuffer) {
+    try {
+      doc.image(imageBuffer, COL_X.product + padding, rowTop + padding, {
+        fit: [imageSize, imageSize],
+        align: "center",
+        valign: "center",
+      });
+    } catch {
+      // Skip broken image data and render text-only row.
+    }
+  }
+
+  const textX = COL_X.product + (imageBuffer ? imageSize + 14 : padding);
+  const textWidth = PRODUCT_COLS.product.width - (imageBuffer ? imageSize + 22 : 16);
+  const textY = imageBuffer ? rowTop + padding : cellTextY;
+
+  doc.font("Helvetica-Bold").fontSize(9).fillColor("#000000");
+  doc.text(String(line.title || "—"), textX, textY, {
+    width: textWidth,
+    lineBreak: true,
+  });
+
+  doc.font("Helvetica").fontSize(9);
+  doc.text(String(line.model || "—"), COL_X.model, cellTextY, {
+    width: PRODUCT_COLS.model.width,
+    align: "center",
+    lineBreak: false,
+  });
+  doc.text(String(line.quantity), COL_X.quantity, cellTextY, {
+    width: PRODUCT_COLS.quantity.width,
+    align: "center",
+    lineBreak: false,
+  });
+  doc.text(formatZar(line.price), COL_X.price, cellTextY, {
+    width: PRODUCT_COLS.price.width,
+    align: "center",
+    lineBreak: false,
+  });
+  doc.text(formatZar(line.lineTotal), COL_X.total, cellTextY, {
+    width: PRODUCT_COLS.total.width,
+    align: "center",
+    lineBreak: false,
+  });
+
+  doc.y = rowTop + rowHeight;
+};
+
+const drawTotals = (doc, { subtotal, total }) => {
+  let y = doc.y + 12;
+  const labelX = COL_X.price;
+  const valueX = COL_X.total;
+  const labelWidth = PRODUCT_COLS.price.width;
+  const valueWidth = PRODUCT_COLS.total.width;
+
+  const drawRow = (label, value, bold = false) => {
+    doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(9).fillColor("#000000");
+    doc.text(label, labelX, y, { width: labelWidth, align: "right", lineBreak: false });
+    doc.text(value, valueX, y, { width: valueWidth, align: "right", lineBreak: false });
+    y += 14;
+  };
+
+  drawRow("Sub-Total", formatZar(subtotal));
+  drawRow("Total", formatZar(total), true);
+  doc.y = y;
+};
+
+const enrichOrderItems = (orderItems, productDetails) =>
+  (orderItems || []).map((line) => {
+    const raw = toPlainLine(line);
+    const details = productDetails.get(String(raw.product)) || {};
+    const quantity = Math.max(1, Number(raw.quantity) || 0);
+    const price =
+      Number(raw.price) > 0 ? Number(raw.price) : Number(details.price) || 0;
+    const lineTotal =
+      Number(raw.lineTotal) > 0 ? Number(raw.lineTotal) : price * quantity;
+
+    return {
+      ...raw,
+      title: raw.title || details.title || "—",
+      model: details.model || "—",
+      imageUrl: raw.imageUrl || details.imageUrl || "",
+      quantity,
+      price,
+      lineTotal,
+    };
+  });
+
+/**
+ * Build an OpenCart-style order invoice PDF buffer.
+ */
+const buildInvoicePdf = async ({
+  order,
+  productDetails,
+  appName,
+  storeLabel,
+  phone,
+  email,
+}) => {
+  const paymentAddress = formatInvoiceAddressLines(order.shippingAddress);
+  const shippingAddress = formatInvoiceAddressLines(
+    order.billingAddress || order.shippingAddress
+  );
+  const items = enrichOrderItems(order.items, productDetails);
+
+  const imageBuffers = await Promise.all(
+    items.map((line) => loadImageBuffer(line.imageUrl))
+  );
+
+  const subtotal = items.reduce(
+    (sum, line) => sum + Number(line.lineTotal || 0),
+    0
+  );
+  const total = Number(order.totalAmount) > 0 ? Number(order.totalAmount) : subtotal;
+
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: "A4", margin: MARGIN });
+    const chunks = [];
+
+    doc.on("data", (chunk) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    drawCompanyHeader(doc, { appName, storeLabel, phone, email });
+    drawOrderMeta(doc, order);
+    drawAddressTable(doc, paymentAddress, shippingAddress);
+    drawProductTableHeader(doc);
+
+    for (let index = 0; index < items.length; index += 1) {
+      const line = items[index];
+      const rowHeight = measureProductCellHeight(doc, line, imageBuffers[index]);
+      if (doc.y + rowHeight > PAGE_BOTTOM) {
+        doc.addPage();
+        drawProductTableHeader(doc);
+      }
+      drawProductRow(doc, line, imageBuffers[index]);
+    }
+
+    if (doc.y + 80 > PAGE_BOTTOM) {
+      doc.addPage();
+    }
+
+    drawTotals(doc, { subtotal, total });
+
+    doc.end();
+  });
 };
 
 /**
- * Generate an HTML invoice for the given order, upload it to S3 under
- * `invoices/<orderNumber>-<invoiceNumber>.html`, and return both the invoice
- * number and the public URL. Caller is responsible for persisting these onto
- * the Order document.
- *
- * The function never throws to the caller because invoice generation is best-
- * effort during the verify path — on failure it returns { number: "", url: "" }
- * and logs. A subsequent admin action can regenerate.
+ * Generate a PDF invoice for the given order, upload it to S3 under
+ * `invoices/order_<orderNumber>.pdf`, and return both the invoice number and the
+ * public URL. Caller is responsible for persisting these onto the Order document.
  */
 const generateInvoice = async (order) => {
   if (!order) return { number: "", url: "" };
 
   try {
     const invoiceNumber = await nextInvoiceNumber();
-    const appName = process.env.APP_NAME || "Satya";
-
-    const html = buildInvoiceHtml({
+    const appName = process.env.APP_NAME || "Sathya";
+    const storeLabel = process.env.INVOICE_STORE_LABEL || "Online";
+    const phone = process.env.INVOICE_CONTACT_PHONE || "";
+    const email =
+      process.env.INVOICE_CONTACT_EMAIL ||
+      process.env.BREVO_SENDER_EMAIL ||
+      "";
+    const productDetails = await loadProductDetails(order.items);
+    const buffer = await buildInvoicePdf({
       order,
-      invoiceNumber,
+      productDetails,
       appName,
+      storeLabel,
+      phone,
+      email,
     });
 
-    const buffer = Buffer.from(html, "utf-8");
+    const safeOrderId = String(order.orderNumber).replace(/[^a-zA-Z0-9-]/g, "_");
     const fakeFile = {
       buffer,
-      originalname: `${order.orderNumber}-${invoiceNumber}.html`,
-      mimetype: "text/html; charset=utf-8",
+      originalname: `order_${safeOrderId}.pdf`,
+      mimetype: "application/pdf",
     };
 
     const url = await uploadFile(fakeFile, "invoices");
@@ -185,5 +550,5 @@ const generateInvoice = async (order) => {
 module.exports = {
   generateInvoice,
   nextInvoiceNumber,
-  _internal: { buildInvoiceHtml },
+  _internal: { buildInvoicePdf, formatZar, formatInvoiceDate },
 };

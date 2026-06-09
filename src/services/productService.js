@@ -1,4 +1,5 @@
 const Product = require("../models/Product");
+const Pooja = require("../models/Pooja");
 const InventoryItem = require("../models/InventoryItem");
 const HttpError = require("../utils/httpError");
 const { deleteFile } = require("./s3Service");
@@ -55,6 +56,68 @@ const parseJsonField = (value, fieldName) => {
   throw new HttpError(`${fieldName} has an unsupported type`, 400);
 };
 
+const parseObjectIdArrayField = (value, fieldName) => {
+  if (value === undefined || value === null) return undefined;
+
+  let parsed = value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch (_) {
+      if (trimmed.includes(",")) {
+        parsed = trimmed.split(",").map((item) => item.trim()).filter(Boolean);
+      } else {
+        parsed = [trimmed];
+      }
+    }
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new HttpError(`${fieldName} must be an array of Pooja ids`, 400);
+  }
+
+  const objectIdRegex = /^[a-fA-F0-9]{24}$/;
+  const ids = parsed.map((entry) => {
+    if (entry && typeof entry === "object" && entry.id) {
+      return String(entry.id).trim();
+    }
+    return String(entry).trim();
+  });
+
+  const invalidId = ids.find((id) => !objectIdRegex.test(id));
+  if (invalidId) {
+    throw new HttpError(`${fieldName} must contain valid ObjectId values`, 400);
+  }
+
+  return ids;
+};
+
+const buildAssociatePujaSnapshots = async (poojaIds) => {
+  if (!poojaIds?.length) return [];
+
+  const rows = await Pooja.find({ _id: { $in: poojaIds } })
+    .select("title date status deity")
+    .lean();
+
+  const byId = new Map(rows.map((row) => [String(row._id), row]));
+
+  return poojaIds.map((poojaId) => {
+    const row = byId.get(String(poojaId));
+    if (!row) {
+      throw new HttpError(`associate_puja id ${poojaId} is invalid`, 400);
+    }
+    return {
+      id: row._id,
+      title: row.title,
+      date: row.date,
+      status: row.status,
+      deity: row.deity,
+    };
+  });
+};
+
 const normalizeBoolean = (value) => {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") return value.toLowerCase() === "true";
@@ -79,6 +142,12 @@ const buildProductPayload = (body = {}) => {
   if (body.currency !== undefined) payload.currency = String(body.currency).trim().toUpperCase();
 
   if (body.deity !== undefined) payload.deity = body.deity || null;
+  if (body.associate_puja !== undefined) {
+    payload.associatePujaIds = parseObjectIdArrayField(
+      body.associate_puja,
+      "associate_puja"
+    );
+  }
   if (body.category !== undefined) {
     const c = String(body.category).trim();
     payload.category = c || null;
@@ -131,6 +200,13 @@ const buildProductPayload = (body = {}) => {
   return payload;
 };
 
+const productPopulatePaths = () => [
+  { path: "deity", select: "name deity_color" },
+  { path: "associate_puja.deity", select: "name deity_color" },
+  { path: "items.inventoryItem" },
+  { path: "createdBy", select: "fullName email role" },
+];
+
 const assertInventoryItemsValid = async (kitItems) => {
   if (!kitItems?.length) return;
   const ids = kitItems
@@ -174,6 +250,12 @@ const createProduct = async ({ body, imageUrl, userId }) => {
     throw new HttpError("items is required", 400);
   }
   await assertInventoryItemsValid(payload.items);
+  if (payload.associatePujaIds !== undefined) {
+    payload.associate_puja = await buildAssociatePujaSnapshots(
+      payload.associatePujaIds
+    );
+    delete payload.associatePujaIds;
+  }
   assertPriceConsistency(payload.price, payload.salePrice);
 
   payload.slug = await generateUniqueSlug(payload.slug || payload.title);
@@ -182,6 +264,7 @@ const createProduct = async ({ body, imageUrl, userId }) => {
 
   try {
     const product = await Product.create(payload);
+    await product.populate(productPopulatePaths());
     return inventoryService.enrichProductStock(product);
   } catch (err) {
     if (err.code === 11000) {
@@ -197,6 +280,12 @@ const updateProduct = async ({ id, body, imageUrl }) => {
 
   const payload = buildProductPayload(body);
   if (payload.items) await assertInventoryItemsValid(payload.items);
+  if (payload.associatePujaIds !== undefined) {
+    payload.associate_puja = await buildAssociatePujaSnapshots(
+      payload.associatePujaIds
+    );
+    delete payload.associatePujaIds;
+  }
 
   // Validate consistency against the resulting merged document.
   const mergedPrice = payload.price !== undefined ? payload.price : existing.price;
@@ -232,6 +321,7 @@ const updateProduct = async ({ id, body, imageUrl }) => {
     deleteFile(previousImageUrl).catch(() => {});
   }
 
+  await existing.populate(productPopulatePaths());
   return inventoryService.enrichProductStock(existing);
 };
 
@@ -323,10 +413,7 @@ const getProductById = async (id, { viewer = "public" } = {}) => {
   } else {
     filter.isDeleted = { $ne: true };
   }
-  const product = await Product.findOne(filter)
-    .populate("deity", "name")
-    .populate("items.inventoryItem")
-    .populate("createdBy", "fullName email role");
+  const product = await Product.findOne(filter).populate(productPopulatePaths());
   if (!product) throw new HttpError("Product not found", 404);
 
   // Fire-and-forget view counter for analytics; never block the request.
@@ -351,9 +438,7 @@ const paginatedFind = async (filter, query) => {
       .sort(sort)
       .skip(skip)
       .limit(limit)
-      .populate("deity", "name")
-      .populate("items.inventoryItem")
-      .populate("createdBy", "fullName email role"),
+      .populate(productPopulatePaths()),
     Product.countDocuments(filter),
   ]);
 
@@ -420,6 +505,7 @@ const setProductStatus = async (id, productStatus) => {
   if (!product) throw new HttpError("Product not found", 404);
   product.productStatus = productStatus;
   await product.save();
+  await product.populate(productPopulatePaths());
   return product;
 };
 
@@ -428,6 +514,7 @@ const setFeatured = async (id, isFeatured) => {
   if (!product) throw new HttpError("Product not found", 404);
   product.isFeatured = !!isFeatured;
   await product.save();
+  await product.populate(productPopulatePaths());
   return product;
 };
 
@@ -440,7 +527,7 @@ const reviewProduct = async (id, status) => {
   if (!product) throw new HttpError("Product not found", 404);
   product.status = status;
   await product.save();
-  await product.populate("createdBy", "email role fullName");
+  await product.populate(productPopulatePaths());
   return product;
 };
 
@@ -451,8 +538,11 @@ const getFeaturedProducts = async ({ limit = 10 } = {}) => {
   })
     .sort({ updatedAt: -1 })
     .limit(Math.min(Number(limit) || 10, 100))
-    .populate("deity", "name")
-    .populate("items.inventoryItem");
+    .populate([
+      { path: "deity", select: "name deity_color" },
+      { path: "associate_puja.deity", select: "name deity_color" },
+      { path: "items.inventoryItem" },
+    ]);
   return inventoryService.enrichProductsStock(items);
 };
 
@@ -460,8 +550,11 @@ const getPopularProducts = async ({ limit = 10 } = {}) => {
   const items = await Product.find(publicBuyableFilter())
     .sort({ purchaseCount: -1, viewCount: -1 })
     .limit(Math.min(Number(limit) || 10, 100))
-    .populate("deity", "name")
-    .populate("items.inventoryItem");
+    .populate([
+      { path: "deity", select: "name deity_color" },
+      { path: "associate_puja.deity", select: "name deity_color" },
+      { path: "items.inventoryItem" },
+    ]);
   return inventoryService.enrichProductsStock(items);
 };
 

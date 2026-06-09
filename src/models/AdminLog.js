@@ -10,6 +10,7 @@ const adminLogSchema = new mongoose.Schema(
         "remove_admin",
         "delete_user",
         "restore_user",
+        "delete_dedicated_admin",
       ],
       required: true,
     },

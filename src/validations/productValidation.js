@@ -16,6 +16,11 @@ const itemsField = Joi.alternatives().try(
   Joi.string().trim().min(2)
 );
 
+const associatePujaField = Joi.alternatives().try(
+  Joi.array().items(objectIdHex),
+  Joi.string().trim().min(2)
+);
+
 const numericFromForm = (joiNum) =>
   Joi.alternatives().try(joiNum, Joi.string().trim().pattern(/^-?\d+(\.\d+)?$/));
 
@@ -35,6 +40,7 @@ const createProductSchema = Joi.object({
   currency: Joi.string().trim().uppercase().min(2).max(10).required(),
 
   deity: objectIdHex.optional().allow("", null),
+  associate_puja: associatePujaField.optional(),
   category: Joi.string().trim().max(100).optional().allow("", null),
 
   // Admins can only save as DRAFT or submit for review (PENDING). Approval
@@ -67,6 +73,7 @@ const updateProductSchema = Joi.object({
   currency: Joi.string().trim().uppercase().min(2).max(10),
 
   deity: objectIdHex.allow("", null),
+  associate_puja: associatePujaField,
   category: Joi.string().trim().max(100).allow("", null),
 
   // Admins editing their own product cannot self-promote past PENDING.

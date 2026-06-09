@@ -123,6 +123,7 @@ const createDeity = async (req, res, next) => {
     const deity = await Deity.create({
       name: body.name,
       description: body.description,
+      ...(body.deity_color !== undefined && { deity_color: body.deity_color }),
       ...(parsed.alternateNames !== undefined && { alternate_names: parsed.alternateNames }),
       ...(parsed.roles !== undefined && { roles: parsed.roles }),
       ...(parsed.lineage !== undefined && { lineage: parsed.lineage }),
@@ -230,6 +231,7 @@ const updateDeity = async (req, res, next) => {
     const hasBodyUpdates =
       body.name !== undefined ||
       body.description !== undefined ||
+      body.deity_color !== undefined ||
       body.status !== undefined ||
       parsed.alternateNames !== undefined ||
       parsed.roles !== undefined ||
@@ -251,6 +253,7 @@ const updateDeity = async (req, res, next) => {
 
     if (body.name !== undefined) deity.name = body.name;
     if (body.description !== undefined) deity.description = body.description;
+    if (body.deity_color !== undefined) deity.deity_color = body.deity_color;
     if (parsed.alternateNames !== undefined) deity.alternate_names = parsed.alternateNames;
     if (parsed.roles !== undefined) deity.roles = parsed.roles;
     if (parsed.lineage !== undefined) deity.lineage = parsed.lineage;

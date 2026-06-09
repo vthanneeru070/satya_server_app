@@ -187,7 +187,8 @@ router.get("/profile", authenticate, getProfile);
  *     summary: Create profile (first-time registration)
  *     description: |
  *       Multipart form after Firebase login when `isRegistered` is false.
- *       Required fields + profile `image` (unless OAuth `photoUrl` already set).
+ *       Required: fullName, gender, countryCode.
+ *       Optional: dateOfBirth, phone, image, timeOfBirth, placeOfBirth, sunSign, moonSign, firstName, lastName, timezone, preferredLanguage.
  *     tags: [Auth]
  *     security:
  *       - bearerAuth: []
@@ -258,9 +259,10 @@ router.patch(
  *     summary: Delete account (soft delete)
  *     description: |
  *       Requires a `comment` (5–500 chars) explaining why the user is leaving.
- *       Sets `isDeleted`, stores `accountDeletionComment`, clears FCM tokens,
- *       removes profile image from S3, and revokes refresh tokens.
- *       Deleted users cannot log in again.
+ *       Sets `isDeleted`, stores `accountDeletionComment`, clears push/device tokens,
+ *       removes profile image, and anonymizes identity/profile fields.
+ *       Retains transaction/legal records (orders/payments/requests) but redacts personal shipping data on retained orders.
+ *       Also revokes refresh tokens.
  *     tags: [Auth]
  *     security:
  *       - bearerAuth: []

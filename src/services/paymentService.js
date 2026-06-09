@@ -6,7 +6,6 @@ const Cart = require("../models/Cart");
 const Product = require("../models/Product");
 const User = require("../models/User");
 const Counter = require("../models/Counter");
-const Donation = require("../models/Donation");
 const DonationContribution = require("../models/DonationContribution");
 const HttpError = require("../utils/httpError");
 const paystackService = require("./paystackService");
@@ -22,6 +21,16 @@ const adminNotificationService = require("./adminNotificationService");
 const appendOrderHistory = (order, status, note = "") => {
   order.orderStatusHistory = order.orderStatusHistory || [];
   order.orderStatusHistory.push({ status, at: new Date(), note });
+};
+
+/** Resolve ORDER vs DONATION even when legacy rows omit paymentFor. */
+const resolvePaymentKind = (payment) => {
+  if (!payment) return null;
+  const explicit = String(payment.paymentFor || "").toUpperCase();
+  if (explicit === "DONATION" || explicit === "ORDER") return explicit;
+  if (payment.donationContribution) return "DONATION";
+  if (payment.order) return "ORDER";
+  return "ORDER";
 };
 
 const nextDonationContributionNumber = async (session) => {
@@ -185,20 +194,16 @@ const initializePayment = async (orderId, { userId, isAdmin = false, callbackUrl
  * Payment both in PENDING, returns the auth URL. The contribution is only
  * flipped to PAID by verifyPaymentByReference after server-side Paystack verify.
  */
-const initializeDonationPayment = async (
-  donationId,
-  { userId, amount, currency = "ZAR", note = "", callbackUrl } = {}
-) => {
+const initializeDonationPayment = async ({
+  userId,
+  amount,
+  currency = "ZAR",
+  note = "",
+  callbackUrl,
+} = {}) => {
   if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
     throw new HttpError("amount must be a positive number", 400);
   }
-
-  const donation = await Donation.findOne({
-    _id: donationId,
-    status: "APPROVED",
-    isVisible: true,
-  });
-  if (!donation) throw new HttpError("Donation not found", 404);
 
   const user = await User.findById(userId).select("email fullName");
   const email = user?.email;
@@ -227,7 +232,6 @@ const initializeDonationPayment = async (
         [
           {
             contributionNumber,
-            donation: donation._id,
             user: userId,
             amount: normalizedAmount,
             currency: normalizedCurrency,
@@ -251,8 +255,6 @@ const initializeDonationPayment = async (
         callbackUrl: resolvedCallbackUrl,
         metadata: {
           kind: "DONATION",
-          donationId: String(donation._id),
-          donationTitle: donation.title,
           contributionId: String(contribution._id),
           contributionNumber,
           userId: String(userId),
@@ -291,10 +293,6 @@ const initializeDonationPayment = async (
         amount: normalizedAmount,
         currency: normalizedCurrency,
         email,
-        donation: {
-          _id: donation._id,
-          title: donation.title,
-        },
       };
     });
   } finally {
@@ -585,11 +583,39 @@ const verifyPaymentByReference = async (reference, { userId, isAdmin = false } =
     await session.endSession();
   }
 
-  if (kind === "DONATION" && out?.contribution) {
-    await fanOutDonationAdminNotifications(out.contribution, {
-      notifyDonor: shouldNotify,
-    });
+  const paymentKind = kind || (out?.contribution ? "DONATION" : "ORDER");
+  const donationPaid =
+    out?.contribution &&
+    out.contribution.paymentStatus === "PAID" &&
+    out.status === "success";
+
+  if (donationPaid) {
+    if (shouldNotify) {
+      await notifyDonationReceived(out.contribution.user, {
+        amount: out.contribution.amount,
+        currency: out.contribution.currency,
+        contributionId: out.contribution._id,
+      });
+    }
+    const contribution =
+      (await DonationContribution.findById(out.contribution._id)
+        .populate("donation", "title")
+        .lean()) || out.contribution;
+    await adminNotificationService
+      .notifyPaymentSuccessForDonation(contribution, { pushFcm: shouldNotify })
+      .catch((err) =>
+        console.error(
+          "[paymentService] admin PAYMENT_SUCCESS notification failed:",
+          err?.message || err
+        )
+      );
   } else if (shouldNotify) {
+    if (paymentKind === "DONATION") {
+      console.warn(
+        "[paymentService] donation verify succeeded but contribution is not PAID — skipping admin notify",
+        { reference, status: out?.status }
+      );
+    } else {
       await notifyOrderPlaced(out.order.user, { order: out.order });
 
       // Best-effort invoice + email fan-out for ORDER payments. None of these
@@ -635,6 +661,7 @@ const verifyPaymentByReference = async (reference, { userId, isAdmin = false } =
           err?.message || err
         )
       );
+    }
   }
 
   return out;

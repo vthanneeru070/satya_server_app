@@ -24,13 +24,23 @@ const firstImage = (...candidates) => {
   return null;
 };
 
-const mapHit = ({ id, type, title, name, description, imageUrl, updatedAt }) => ({
+const mapHit = ({
+  id,
+  type,
+  title,
+  name,
+  description,
+  imageUrl,
+  deityColor,
+  updatedAt,
+}) => ({
   id: String(id),
   type,
   title: title || name || "",
   name: name || title || "",
   description: trimDescription(description),
   imageUrl: imageUrl || null,
+  ...(deityColor ? { deity_color: deityColor } : {}),
   updatedAt,
 });
 
@@ -135,7 +145,7 @@ const searchDeities = async (query, limit) => {
   const filter = { status: "APPROVED", ...(text || {}) };
 
   const rows = await Deity.find(filter)
-    .select("name description media updatedAt")
+    .select("name description deity_color media updatedAt")
     .sort({ updatedAt: -1 })
     .limit(limit)
     .lean();
@@ -148,6 +158,7 @@ const searchDeities = async (query, limit) => {
       title: row.name,
       description: row.description,
       imageUrl: firstImage(row.media?.images),
+      deityColor: row.deity_color,
       updatedAt: row.updatedAt,
     })
   );

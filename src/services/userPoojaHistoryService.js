@@ -224,8 +224,6 @@ const finishPooja = async (userId, poojaId) => {
   session.finishedAt = new Date();
   await session.save();
 
-  await User.updateOne({ _id: userId }, { $inc: { streakCount: 1 }, lastSyncAt: new Date() });
-
   return { session: formatSession(session) };
 };
 

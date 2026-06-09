@@ -271,11 +271,11 @@ router.get(
 
 /**
  * @swagger
- * /donations/{id}/donate:
+ * /donations/donate:
  *   post:
  *     summary: Start a Paystack donation
  *     description: |
- *       Initializes a Paystack transaction for a donation and returns an
+ *       Initializes a direct Paystack donation transaction and returns an
  *       authorization_url for the client to open. If `callbackUrl` is omitted,
  *       the server falls back to `PAYSTACK_CALLBACK_URL`. The resolved
  *       `callbackUrl` is echoed in the response so the WebView knows which
@@ -284,12 +284,6 @@ router.get(
  *     tags: [Donations]
  *     security:
  *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
  *     requestBody:
  *       required: true
  *       content:
@@ -317,13 +311,7 @@ router.get(
  *       404:
  *         description: Donation not found
  */
-router.post(
-  "/:id/donate",
-  authenticate,
-  validate(donationIdParamsSchema, "params"),
-  validate(initiateDonationSchema),
-  initiateDonation
-);
+router.post("/donate", authenticate, validate(initiateDonationSchema), initiateDonation);
 
 /**
  * @swagger

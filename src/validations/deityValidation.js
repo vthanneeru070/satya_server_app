@@ -57,10 +57,20 @@ const devotionalExperienceSchema = Joi.object({
   notes: Joi.string().trim().allow("").optional(),
 });
 
+const deityColorField = Joi.string()
+  .trim()
+  .max(20)
+  .pattern(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/)
+  .allow("")
+  .messages({
+    "string.pattern.base": "deity_color must be a hex color (e.g. #FF5733 or #F00)",
+  });
+
 const createDeitySchema = Joi.object({
   name: Joi.string().trim().min(2).max(200).required(),
   alternate_names: arrayOrJsonString(Joi.array().items(Joi.string().trim().min(1))).optional(),
   description: Joi.string().trim().allow("").max(5000).optional(),
+  deity_color: deityColorField.optional(),
   roles: arrayOrJsonString(Joi.array().items(Joi.string().trim().min(1))).optional(),
   lineage: objectOrJsonString(lineageSchema).optional(),
   structure: arrayOrJsonString(Joi.array().items(titleDescSchema)).optional(),
@@ -80,6 +90,7 @@ const updateDeitySchema = Joi.object({
   name: Joi.string().trim().min(2).max(200),
   alternate_names: arrayOrJsonString(Joi.array().items(Joi.string().trim().min(1))),
   description: Joi.string().trim().allow("").max(5000),
+  deity_color: deityColorField,
   roles: arrayOrJsonString(Joi.array().items(Joi.string().trim().min(1))),
   lineage: objectOrJsonString(lineageSchema),
   structure: arrayOrJsonString(Joi.array().items(titleDescSchema)),

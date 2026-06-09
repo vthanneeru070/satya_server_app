@@ -1,5 +1,6 @@
 const User = require("../models/User");
 const AdminLog = require("../models/AdminLog");
+const RefreshToken = require("../models/RefreshToken");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const {
@@ -363,6 +364,60 @@ const setAdminPanelAccess = async (req, res, next) => {
   }
 };
 
+/**
+ * Permanently delete a dedicated admin (role=admin only).
+ * Removes Firebase Auth user and MongoDB User document; revokes refresh tokens.
+ */
+const deleteDedicatedAdmin = async (req, res, next) => {
+  try {
+    const targetId = req.params.id;
+    if (String(targetId) === String(req.user.userId)) {
+      throw new HttpError("You cannot delete your own account", 400);
+    }
+
+    const target = await User.findById(targetId);
+    if (!target) {
+      throw new HttpError("Admin not found", 404);
+    }
+    if (target.role === "superadmin") {
+      throw new HttpError("Superadmin accounts cannot be deleted via this endpoint", 400);
+    }
+    if (target.role !== "admin") {
+      throw new HttpError("Only dedicated admin accounts (role=admin) can be deleted here", 400);
+    }
+
+    await deleteFirebaseUser(target.firebaseUid, { strict: true });
+    await RefreshToken.deleteMany({ userId: target._id });
+
+    const deleted = await User.findByIdAndDelete(target._id);
+    if (!deleted) {
+      throw new HttpError("Admin not found", 404);
+    }
+
+    await AdminLog.create({
+      action: "delete_dedicated_admin",
+      performedBy: req.user.userId,
+      targetUser: target._id,
+    });
+
+    return sendSuccess(
+      res,
+      {
+        deletedAdmin: {
+          id: String(target._id),
+          email: target.email,
+          fullName: target.fullName,
+          firebaseUid: target.firebaseUid,
+        },
+        firebaseDeleted: true,
+      },
+      `Admin ${target.email || target._id} deleted from database and Firebase Auth`
+    );
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const listAdmins = async (req, res, next) => {
   try {
     const page = Number(req.query.page || 1);
@@ -405,6 +460,7 @@ const listAdmins = async (req, res, next) => {
 
 module.exports = {
   createDedicatedAdmin,
+  deleteDedicatedAdmin,
   resendPasswordResetLink,
   setAdminPanelAccess,
   listAdmins,

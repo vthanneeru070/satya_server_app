@@ -119,6 +119,19 @@ const adminCancelPaidSchema = Joi.object({
   reason: Joi.string().trim().max(2000).allow("").optional(),
 });
 
+const adminInitiateRefundSchema = Joi.object({
+  reason: Joi.string().trim().max(2000).allow("").optional(),
+  adminNote: Joi.string().trim().max(2000).allow("").optional(),
+});
+
+const cancelMyOrderSchema = Joi.object({
+  reason: Joi.string().trim().min(5).max(2000).required().messages({
+    "any.required": "A cancellation reason is required",
+    "string.min": "Cancellation reason must be at least 5 characters",
+    "string.max": "Cancellation reason must be at most 2000 characters",
+  }),
+});
+
 module.exports = {
   shippingAddressSchema,
   checkoutOrderSchema,
@@ -134,4 +147,6 @@ module.exports = {
   dispatchOrderSchema,
   confirmDeliverySchema,
   adminCancelPaidSchema,
+  adminInitiateRefundSchema,
+  cancelMyOrderSchema,
 };

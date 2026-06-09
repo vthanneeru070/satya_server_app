@@ -51,15 +51,15 @@ class AdminNotificationService {
       ],
     }).select("fcmTokens fcmDevices");
 
-    return [
-      ...new Set(
-        admins.flatMap((u) => {
-          const fromDevices = (u.fcmDevices || []).map((d) => d.token).filter(Boolean);
-          const fromLegacy = u.fcmTokens || [];
-          return [...fromDevices, ...fromLegacy];
-        })
-      ),
-    ];
+    const tokens = [];
+    for (const u of admins) {
+      if (Array.isArray(u.fcmTokens) && u.fcmTokens.length) {
+        tokens.push(...u.fcmTokens);
+      } else if (Array.isArray(u.fcmDevices)) {
+        tokens.push(...u.fcmDevices.map((d) => d.token).filter(Boolean));
+      }
+    }
+    return [...new Set(tokens.filter(Boolean))];
   }
 
   /** Remove tokens Firebase reports as invalid. */
@@ -98,12 +98,7 @@ class AdminNotificationService {
           notification: { title, body },
           data: toFcmData(data),
           webpush: {
-            headers: { Urgency: "high" },
-            notification: {
-              title,
-              body: body || "",
-              icon: "/icons/Icon-192.png",
-            },
+            notification: { title, body },
           },
           android: {
             priority: "high",
@@ -159,19 +154,19 @@ class AdminNotificationService {
     body,
     data,
     logTag = "adminNotification",
+    /** When false, FCM is sent only if this sourceKey had no row yet (recovery path). */
+    pushFcm = true,
   }) {
     if (!type || !sourceKey || !title) {
-      return { notification: null, push: { sent: 0, failed: 0 } };
+      return { notification: null, push: { sent: 0, failed: 0 }, isNew: false };
     }
 
-    let notification = null;
-    let isNew = false;
-    try {
-      const existing = await AdminNotification.findOne({ sourceKey })
-        .select("_id")
-        .lean();
-      isNew = !existing;
+    const existed = await AdminNotification.findOne({ sourceKey, isDeleted: { $ne: true } })
+      .select("_id")
+      .lean();
 
+    let notification = null;
+    try {
       notification = await AdminNotification.findOneAndUpdate(
         { sourceKey },
         {
@@ -189,8 +184,11 @@ class AdminNotificationService {
       console.warn(`[adminNotification] persist(${sourceKey}):`, err?.message || err);
     }
 
-    let push = { sent: 0, failed: 0, deadTokens: [], skipped: true };
-    if (isNew && notification?._id) {
+    const isNew = !existed;
+    const shouldPush = pushFcm || isNew;
+    let push = { sent: 0, failed: 0, deadTokens: [] };
+
+    if (shouldPush && notification) {
       push = await this.pushToAllAdmins(
         {
           title,
@@ -203,26 +201,14 @@ class AdminNotificationService {
         },
         logTag
       );
-    } else if (!isNew) {
-      console.log(`[adminNotification] ${logTag}: ${sourceKey} already recorded — FCM skipped`);
+      if (push.sent === 0) {
+        console.warn(
+          `[adminNotification] ${logTag}: FCM not delivered (tokens=${(await this.collectAdminTokens()).length}, isNew=${isNew}, pushFcm=${pushFcm})`
+        );
+      }
     }
 
     return { notification, push, isNew };
-  }
-
-  /**
-   * Idempotent admin alert for a PAID donation (inbox row + FCM on first record only).
-   */
-  async ensurePaymentSuccessForDonation(contribution) {
-    if (!contribution?._id) return null;
-
-    const sourceKey = `donation:${contribution._id}:${ADMIN_NOTIFICATION_TYPES.PAYMENT_SUCCESS}`;
-    const exists = await AdminNotification.exists({ sourceKey, ...notDeleted });
-    if (exists) {
-      return { skipped: true, reason: "already recorded", sourceKey };
-    }
-
-    return this.notifyPaymentSuccessForDonation(contribution);
   }
 
   // ── Typed helpers (order / payment / refund) ─────────────────────────────
@@ -268,7 +254,7 @@ class AdminNotificationService {
     });
   }
 
-  async notifyPaymentSuccessForDonation(contribution) {
+  async notifyPaymentSuccessForDonation(contribution, { pushFcm = true } = {}) {
     if (!contribution?._id) return null;
 
     let donationTitle = "";
@@ -306,6 +292,7 @@ class AdminNotificationService {
       body,
       data,
       logTag: "notifyPaymentSuccessDonation",
+      pushFcm,
     });
   }
 

@@ -255,6 +255,11 @@ const options = {
             name: { type: "string" },
             alternate_names: { type: "array", items: { type: "string" } },
             description: { type: "string" },
+            deity_color: {
+              type: "string",
+              description: "Hex color for UI branding (e.g. #FF5733)",
+              example: "#FF5733",
+            },
             roles: { type: "array", items: { type: "string" } },
             media: {
               type: "object",
@@ -286,13 +291,7 @@ const options = {
         },
         ProfileCreateMultipart: {
           type: "object",
-          required: [
-            "fullName",
-            "gender",
-            "dateOfBirth",
-            "countryCode",
-            "phone",
-          ],
+          required: ["fullName", "gender", "countryCode"],
           properties: {
             fullName: { type: "string", example: "Venkat Thanneeru" },
             gender: {
@@ -347,7 +346,7 @@ const options = {
             image: {
               type: "string",
               format: "binary",
-              description: "Profile photo (required unless OAuth photoUrl exists)",
+              description: "Optional profile photo upload",
             },
           },
         },
@@ -780,6 +779,23 @@ const options = {
             price: { type: "number" },
             salePrice: { type: "number", nullable: true },
             currency: { type: "string" },
+            associate_puja: {
+              type: "array",
+              description: "Linked pooja snapshots",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "string", description: "Pooja ObjectId" },
+                  title: { type: "string" },
+                  date: { type: "string", format: "date-time" },
+                  status: {
+                    type: "string",
+                    enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"],
+                  },
+                  deity: { type: "string", description: "Deity ObjectId" },
+                },
+              },
+            },
             effectivePrice: { type: "number" },
             stockQuantity: {
               type: "integer",
@@ -820,6 +836,11 @@ const options = {
             salePrice: { type: "number", example: 799 },
             currency: { type: "string", example: "ZAR" },
             deity: { type: "string", description: "Deity ObjectId" },
+            associate_puja: {
+              type: "string",
+              description:
+                'JSON array of Pooja ObjectIds, e.g. ["507f1f77bcf86cd799439011","507f1f77bcf86cd799439012"]',
+            },
             category: { type: "string", example: "Ganesh" },
             status: {
               type: "string",
@@ -1007,6 +1028,23 @@ const options = {
             feedback: { type: "string" },
           },
         },
+        OrderCancelOrder: {
+          type: "object",
+          description: "Present when orderStatus is CANCELLED.",
+          properties: {
+            canceledBy: { type: "string", enum: ["user", "admin"] },
+            cancelReason: { type: "string", maxLength: 2000 },
+            canceledAt: { type: "string", format: "date-time" },
+          },
+        },
+        OrderRefundedBy: {
+          type: "object",
+          properties: {
+            adminId: { type: "string" },
+            fullName: { type: "string" },
+            email: { type: "string" },
+          },
+        },
         OrderRefund: {
           type: "object",
           description:
@@ -1023,6 +1061,9 @@ const options = {
             attemptedAt: { type: "string", format: "date-time", nullable: true },
             processedAt: { type: "string", format: "date-time", nullable: true },
             lastError: { type: "string" },
+            reason: { type: "string", maxLength: 2000 },
+            adminNote: { type: "string", maxLength: 2000 },
+            refundedBy: { $ref: "#/components/schemas/OrderRefundedBy" },
           },
         },
         Order: {
@@ -1085,6 +1126,7 @@ const options = {
             invoice: { $ref: "#/components/schemas/OrderInvoice" },
             fulfillment: { $ref: "#/components/schemas/OrderFulfillment" },
             refund: { $ref: "#/components/schemas/OrderRefund" },
+            cancelOrder: { $ref: "#/components/schemas/OrderCancelOrder" },
             orderType: {
               type: "string",
               enum: ["NORMAL", "REPLACEMENT"],
