@@ -185,6 +185,7 @@ router.patch(
  * /admin/dashboard:
  *   get:
  *     summary: Admin dashboard metrics
+ *     description: Returns user counts, today active users, today's sloka, and review status counts (PENDING, APPROVED, REJECTED) for festivals, poojas, deities, and donations.
  *     tags: [Admin]
  *     security:
  *       - bearerAuth: []
