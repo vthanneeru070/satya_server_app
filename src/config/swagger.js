@@ -781,8 +781,20 @@ const options = {
             currency: { type: "string" },
             associate_puja: {
               type: "array",
-              items: { type: "string" },
-              description: "Linked Pooja ObjectIds",
+              description: "Linked pooja snapshots",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "string", description: "Pooja ObjectId" },
+                  title: { type: "string" },
+                  date: { type: "string", format: "date-time" },
+                  status: {
+                    type: "string",
+                    enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"],
+                  },
+                  deity: { type: "string", description: "Deity ObjectId" },
+                },
+              },
             },
             effectivePrice: { type: "number" },
             stockQuantity: {

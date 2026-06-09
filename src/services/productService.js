@@ -79,12 +79,43 @@ const parseObjectIdArrayField = (value, fieldName) => {
   }
 
   const objectIdRegex = /^[a-fA-F0-9]{24}$/;
-  const invalidId = parsed.find((id) => !objectIdRegex.test(String(id).trim()));
+  const ids = parsed.map((entry) => {
+    if (entry && typeof entry === "object" && entry.id) {
+      return String(entry.id).trim();
+    }
+    return String(entry).trim();
+  });
+
+  const invalidId = ids.find((id) => !objectIdRegex.test(id));
   if (invalidId) {
     throw new HttpError(`${fieldName} must contain valid ObjectId values`, 400);
   }
 
-  return parsed.map((id) => String(id).trim());
+  return ids;
+};
+
+const buildAssociatePujaSnapshots = async (poojaIds) => {
+  if (!poojaIds?.length) return [];
+
+  const rows = await Pooja.find({ _id: { $in: poojaIds } })
+    .select("title date status deity")
+    .lean();
+
+  const byId = new Map(rows.map((row) => [String(row._id), row]));
+
+  return poojaIds.map((poojaId) => {
+    const row = byId.get(String(poojaId));
+    if (!row) {
+      throw new HttpError(`associate_puja id ${poojaId} is invalid`, 400);
+    }
+    return {
+      id: row._id,
+      title: row.title,
+      date: row.date,
+      status: row.status,
+      deity: row.deity,
+    };
+  });
 };
 
 const normalizeBoolean = (value) => {
@@ -112,7 +143,7 @@ const buildProductPayload = (body = {}) => {
 
   if (body.deity !== undefined) payload.deity = body.deity || null;
   if (body.associate_puja !== undefined) {
-    payload.associate_puja = parseObjectIdArrayField(
+    payload.associatePujaIds = parseObjectIdArrayField(
       body.associate_puja,
       "associate_puja"
     );
@@ -169,17 +200,9 @@ const buildProductPayload = (body = {}) => {
   return payload;
 };
 
-const assertAssociatePujasValid = async (poojaIds) => {
-  if (!poojaIds?.length) return;
-  const rows = await Pooja.find({ _id: { $in: poojaIds } }).select("_id").lean();
-  if (rows.length !== poojaIds.length) {
-    throw new HttpError("One or more associate_puja ids are invalid", 400);
-  }
-};
-
 const productPopulatePaths = () => [
   { path: "deity", select: "name deity_color" },
-  { path: "associate_puja", select: "title status deity" },
+  { path: "associate_puja.deity", select: "name deity_color" },
   { path: "items.inventoryItem" },
   { path: "createdBy", select: "fullName email role" },
 ];
@@ -227,8 +250,11 @@ const createProduct = async ({ body, imageUrl, userId }) => {
     throw new HttpError("items is required", 400);
   }
   await assertInventoryItemsValid(payload.items);
-  if (payload.associate_puja !== undefined) {
-    await assertAssociatePujasValid(payload.associate_puja);
+  if (payload.associatePujaIds !== undefined) {
+    payload.associate_puja = await buildAssociatePujaSnapshots(
+      payload.associatePujaIds
+    );
+    delete payload.associatePujaIds;
   }
   assertPriceConsistency(payload.price, payload.salePrice);
 
@@ -254,8 +280,11 @@ const updateProduct = async ({ id, body, imageUrl }) => {
 
   const payload = buildProductPayload(body);
   if (payload.items) await assertInventoryItemsValid(payload.items);
-  if (payload.associate_puja !== undefined) {
-    await assertAssociatePujasValid(payload.associate_puja);
+  if (payload.associatePujaIds !== undefined) {
+    payload.associate_puja = await buildAssociatePujaSnapshots(
+      payload.associatePujaIds
+    );
+    delete payload.associatePujaIds;
   }
 
   // Validate consistency against the resulting merged document.
@@ -511,7 +540,7 @@ const getFeaturedProducts = async ({ limit = 10 } = {}) => {
     .limit(Math.min(Number(limit) || 10, 100))
     .populate([
       { path: "deity", select: "name deity_color" },
-      { path: "associate_puja", select: "title status deity" },
+      { path: "associate_puja.deity", select: "name deity_color" },
       { path: "items.inventoryItem" },
     ]);
   return inventoryService.enrichProductsStock(items);
@@ -523,7 +552,7 @@ const getPopularProducts = async ({ limit = 10 } = {}) => {
     .limit(Math.min(Number(limit) || 10, 100))
     .populate([
       { path: "deity", select: "name deity_color" },
-      { path: "associate_puja", select: "title status deity" },
+      { path: "associate_puja.deity", select: "name deity_color" },
       { path: "items.inventoryItem" },
     ]);
   return inventoryService.enrichProductsStock(items);
