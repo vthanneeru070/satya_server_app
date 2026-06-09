@@ -97,6 +97,15 @@ const productSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+
+    /** Linked pooja ceremony guides (Pooja document ids) */
+    associate_puja: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Pooja",
+      },
+    ],
+
     category: {
       type: String,
       trim: true,

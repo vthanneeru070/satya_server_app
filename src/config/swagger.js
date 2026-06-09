@@ -779,6 +779,11 @@ const options = {
             price: { type: "number" },
             salePrice: { type: "number", nullable: true },
             currency: { type: "string" },
+            associate_puja: {
+              type: "array",
+              items: { type: "string" },
+              description: "Linked Pooja ObjectIds",
+            },
             effectivePrice: { type: "number" },
             stockQuantity: {
               type: "integer",
@@ -819,6 +824,11 @@ const options = {
             salePrice: { type: "number", example: 799 },
             currency: { type: "string", example: "ZAR" },
             deity: { type: "string", description: "Deity ObjectId" },
+            associate_puja: {
+              type: "string",
+              description:
+                'JSON array of Pooja ObjectIds, e.g. ["507f1f77bcf86cd799439011","507f1f77bcf86cd799439012"]',
+            },
             category: { type: "string", example: "Ganesh" },
             status: {
               type: "string",
