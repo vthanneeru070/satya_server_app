@@ -53,59 +53,6 @@ const nextDonationContributionNumber = async (session) => {
 const resolveCallbackUrl = (callbackUrl) =>
   callbackUrl || process.env.PAYSTACK_CALLBACK_URL || null;
 
-/** Donation payments always carry `donationContribution`; prefer that over `paymentFor`. */
-const resolvePaymentKind = (payment) => {
-  if (!payment) return "ORDER";
-  if (payment.donationContribution) return "DONATION";
-  if (payment.paymentFor === "DONATION") return "DONATION";
-  return payment.paymentFor || "ORDER";
-};
-
-/**
- * Persist admin PAYMENT_SUCCESS + FCM when a contribution is PAID.
- * Donor thank-you push only on first settlement (`notifyDonor`).
- */
-const fanOutDonationAdminNotifications = async (
-  contribution,
-  { notifyDonor = false } = {}
-) => {
-  if (!contribution?._id) return;
-
-  let doc = contribution;
-  const needsReload =
-    doc.paymentStatus !== "PAID" ||
-    !doc.donation ||
-    typeof doc.donation !== "object";
-  if (needsReload) {
-    doc = await DonationContribution.findById(contribution._id)
-      .populate("donation", "title")
-      .lean();
-  }
-  if (!doc || doc.paymentStatus !== "PAID") return;
-
-  if (notifyDonor) {
-    await notifyDonationReceived(doc.user, {
-      amount: doc.amount,
-      currency: doc.currency,
-      contributionId: doc._id,
-      donationTitle: doc.donation?.title,
-    }).catch((err) =>
-      console.warn("[paymentService] notifyDonationReceived failed:", err?.message || err)
-    );
-  }
-
-  const result = await adminNotificationService.ensurePaymentSuccessForDonation(doc);
-  if (result?.skipped) {
-    console.log(
-      `[paymentService] donation admin notify skipped (${result.sourceKey || "exists"})`
-    );
-  } else if (result?.push?.sent === 0) {
-    console.warn(
-      "[paymentService] donation admin FCM: 0 tokens sent — ensure admins called POST /fcm/register with platform web"
-    );
-  }
-};
-
 // ── ORDER: initialize ───────────────────────────────────────────────────────
 
 /**
@@ -680,7 +627,7 @@ const markPaymentFailedFromWebhook = async (reference, eventData) => {
   payment.response = { ...(payment.response || {}), webhook: eventData };
   await payment.save();
 
-  if (resolvePaymentKind(payment) === "DONATION" && payment.donationContribution) {
+  if (payment.paymentFor === "DONATION" && payment.donationContribution) {
     const contribution = await DonationContribution.findById(
       payment.donationContribution
     );
