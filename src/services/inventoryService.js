@@ -202,6 +202,12 @@ const enrichProductStock = async (product) => {
     };
   });
 
+  if (plain.category === "Ayurvedic" && !(plain.items?.length)) {
+    plain.stockQuantity = null;
+    plain.inStock = true;
+    return plain;
+  }
+
   const availableKits = computeAvailableKits(plain.items, invMap);
   plain.stockQuantity = availableKits;
   plain.inStock = availableKits > 0;
@@ -220,6 +226,12 @@ const enrichProductsStock = async (products) => {
         inventoryItem: inv ? formatInventorySummary(inv) : line.inventoryItem,
       };
     });
+    if (plain.category === "Ayurvedic" && !(plain.items?.length)) {
+      plain.stockQuantity = null;
+      plain.inStock = true;
+      return plain;
+    }
+
     const availableKits = computeAvailableKits(plain.items, invMap);
     plain.stockQuantity = availableKits;
     plain.inStock = availableKits > 0;
@@ -228,6 +240,8 @@ const enrichProductsStock = async (products) => {
 };
 
 const assertKitStockForOrder = (product, orderQty, inventoryById) => {
+  if (product.category === "Ayurvedic" && !(product.items?.length)) return;
+
   const available = computeAvailableKits(product.items || [], inventoryById);
   if (available <= 0) {
     throw new HttpError(`"${product.title}" is out of stock`, 400);

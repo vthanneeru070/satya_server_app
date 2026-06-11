@@ -27,13 +27,29 @@ const numericFromForm = (joiNum) =>
 const REVIEW_STATUSES = ["DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"];
 const CREATE_STATUSES = ["DRAFT", "PENDING"];
 const PUBLISH_STATUSES = ["ACTIVE", "INACTIVE"];
+const PRODUCT_CATEGORIES = ["Ayurvedic", "Puja kits"];
+
+const itemsFieldOptional = Joi.alternatives().try(
+  Joi.array().items(poojaKitItemSchema).min(0),
+  Joi.string().trim().min(2)
+);
+
+const assertCategoryItemRules = (value, helpers) => {
+  const category = value.category || "Puja kits";
+  if (category === "Puja kits" && (value.items === undefined || value.items === null)) {
+    return helpers.error("any.invalid", {
+      message: "items is required for Puja kits products",
+    });
+  }
+  return value;
+};
 
 const createProductSchema = Joi.object({
   title: Joi.string().trim().min(2).max(200).required(),
   slug: Joi.string().trim().lowercase().pattern(/^[a-z0-9-]+$/).max(220).optional(),
   description: Joi.string().trim().allow("").max(5000).optional(),
 
-  items: itemsField.required(),
+  items: itemsFieldOptional.optional(),
 
   price: numericFromForm(Joi.number().min(0)).required(),
   salePrice: numericFromForm(Joi.number().min(0)).optional(),
@@ -41,32 +57,36 @@ const createProductSchema = Joi.object({
 
   deity: objectIdHex.optional().allow("", null),
   associate_puja: associatePujaField.optional(),
-  category: Joi.string().trim().max(100).optional().allow("", null),
+  category: Joi.string().valid(...PRODUCT_CATEGORIES).default("Puja kits"),
 
   // Admins can only save as DRAFT or submit for review (PENDING). Approval
   // is owned by superadmin via the review endpoint.
   status: Joi.string().valid(...CREATE_STATUSES).optional(),
   productStatus: Joi.string().valid(...PUBLISH_STATUSES).optional(),
   isFeatured: Joi.alternatives().try(Joi.boolean(), Joi.string().valid("true", "false")).optional(),
-}).custom((value, helpers) => {
-  if (
-    value.salePrice !== undefined &&
-    value.salePrice !== null &&
-    Number(value.salePrice) > Number(value.price)
-  ) {
-    return helpers.error("any.invalid", { message: "salePrice must be less than or equal to price" });
-  }
-  return value;
-}, "price-consistency").messages({
-  "any.invalid": "salePrice must be less than or equal to price",
-});
+})
+  .custom((value, helpers) => {
+    if (
+      value.salePrice !== undefined &&
+      value.salePrice !== null &&
+      Number(value.salePrice) > Number(value.price)
+    ) {
+      return helpers.error("any.invalid", {
+        message: "salePrice must be less than or equal to price",
+      });
+    }
+    return assertCategoryItemRules(value, helpers);
+  }, "product-create-rules")
+  .messages({
+    "any.invalid": "{{#message}}",
+  });
 
 const updateProductSchema = Joi.object({
   title: Joi.string().trim().min(2).max(200),
   slug: Joi.string().trim().lowercase().pattern(/^[a-z0-9-]+$/).max(220),
   description: Joi.string().trim().allow("").max(5000),
 
-  items: itemsField,
+  items: itemsFieldOptional,
 
   price: numericFromForm(Joi.number().min(0)),
   salePrice: numericFromForm(Joi.number().min(0)).allow(null),
@@ -74,7 +94,7 @@ const updateProductSchema = Joi.object({
 
   deity: objectIdHex.allow("", null),
   associate_puja: associatePujaField,
-  category: Joi.string().trim().max(100).allow("", null),
+  category: Joi.string().valid(...PRODUCT_CATEGORIES),
 
   // Admins editing their own product cannot self-promote past PENDING.
   status: Joi.string().valid(...CREATE_STATUSES),
@@ -91,7 +111,7 @@ const listProductsQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).default(10),
   search: Joi.string().trim().max(120).optional(),
   deity: objectIdHex.optional(),
-  category: Joi.string().trim().max(100).optional(),
+  category: Joi.string().valid(...PRODUCT_CATEGORIES).optional(),
   // Admin-only filters; ignored for public viewers in the service layer.
   status: Joi.string().valid(...REVIEW_STATUSES).optional(),
   productStatus: Joi.string().valid(...PUBLISH_STATUSES).optional(),
@@ -126,6 +146,7 @@ const toggleFeaturedSchema = Joi.object({
 });
 
 module.exports = {
+  PRODUCT_CATEGORIES,
   createProductSchema,
   updateProductSchema,
   productIdParamsSchema,

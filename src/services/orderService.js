@@ -118,7 +118,7 @@ const assertProductBuyable = (product) => {
   if (product.status !== "APPROVED" || product.productStatus !== "ACTIVE") {
     throw new HttpError("This product is not available right now", 400);
   }
-  if (!product.items?.length) {
+  if (product.category !== "Ayurvedic" && !product.items?.length) {
     throw new HttpError(`"${product.title}" has no inventory kit configured`, 400);
   }
 };

@@ -32,12 +32,14 @@ const assertProductBuyable = async (product, requestedQty) => {
   if (product.status !== "APPROVED" || product.productStatus !== "ACTIVE") {
     throw new HttpError("This product is not available right now", 400);
   }
-  if (!product.items?.length) {
+  if (product.category !== "Ayurvedic" && !product.items?.length) {
     throw new HttpError(`"${product.title}" has no inventory kit configured`, 400);
   }
-  const invIds = (product.items || []).map((l) => l.inventoryItem).filter(Boolean);
-  const invMap = await inventoryService.loadInventoryMap(invIds);
-  inventoryService.assertKitStockForOrder(product, requestedQty, invMap);
+  if (product.items?.length) {
+    const invIds = product.items.map((l) => l.inventoryItem).filter(Boolean);
+    const invMap = await inventoryService.loadInventoryMap(invIds);
+    inventoryService.assertKitStockForOrder(product, requestedQty, invMap);
+  }
 };
 
 const unitPrice = (product) =>
