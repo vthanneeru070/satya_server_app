@@ -2,6 +2,7 @@ const InventoryItem = require("../models/InventoryItem");
 const Product = require("../models/Product");
 const HttpError = require("../utils/httpError");
 const { inventory: inventoryMaster } = require("../masterdata");
+const { isAyurvedicCategory } = require("../validations/productValidation");
 
 const notDeleted = { isDeleted: { $ne: true } };
 
@@ -202,7 +203,7 @@ const enrichProductStock = async (product) => {
     };
   });
 
-  if (plain.category === "Ayurvedic" && !(plain.items?.length)) {
+  if (isAyurvedicCategory(plain.category) && !(plain.items?.length)) {
     plain.stockQuantity = null;
     plain.inStock = true;
     return plain;
@@ -226,7 +227,7 @@ const enrichProductsStock = async (products) => {
         inventoryItem: inv ? formatInventorySummary(inv) : line.inventoryItem,
       };
     });
-    if (plain.category === "Ayurvedic" && !(plain.items?.length)) {
+    if (isAyurvedicCategory(plain.category) && !(plain.items?.length)) {
       plain.stockQuantity = null;
       plain.inStock = true;
       return plain;
@@ -240,7 +241,7 @@ const enrichProductsStock = async (products) => {
 };
 
 const assertKitStockForOrder = (product, orderQty, inventoryById) => {
-  if (product.category === "Ayurvedic" && !(product.items?.length)) return;
+  if (isAyurvedicCategory(product.category) && !(product.items?.length)) return;
 
   const available = computeAvailableKits(product.items || [], inventoryById);
   if (available <= 0) {

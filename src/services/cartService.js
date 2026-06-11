@@ -2,6 +2,7 @@ const Cart = require("../models/Cart");
 const Product = require("../models/Product");
 const HttpError = require("../utils/httpError");
 const inventoryService = require("./inventoryService");
+const { isAyurvedicCategory } = require("../validations/productValidation");
 
 const getOrCreateCart = async (userId) => {
   let cart = await Cart.findOne({ user: userId, isDeleted: { $ne: true } });
@@ -32,7 +33,7 @@ const assertProductBuyable = async (product, requestedQty) => {
   if (product.status !== "APPROVED" || product.productStatus !== "ACTIVE") {
     throw new HttpError("This product is not available right now", 400);
   }
-  if (product.category !== "Ayurvedic" && !product.items?.length) {
+  if (!isAyurvedicCategory(product.category) && !product.items?.length) {
     throw new HttpError(`"${product.title}" has no inventory kit configured`, 400);
   }
   if (product.items?.length) {

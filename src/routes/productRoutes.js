@@ -111,7 +111,9 @@ router.get("/popular", getPopularProducts);
  *         description: Deity ObjectId
  *       - in: query
  *         name: category
- *         schema: { type: string }
+ *         schema:
+ *           type: string
+ *           enum: [ayurvedic, pujakit]
  *       - in: query
  *         name: status
  *         schema:

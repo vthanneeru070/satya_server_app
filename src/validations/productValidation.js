@@ -27,7 +27,11 @@ const numericFromForm = (joiNum) =>
 const REVIEW_STATUSES = ["DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"];
 const CREATE_STATUSES = ["DRAFT", "PENDING"];
 const PUBLISH_STATUSES = ["ACTIVE", "INACTIVE"];
-const PRODUCT_CATEGORIES = ["Ayurvedic", "Puja kits"];
+const PRODUCT_CATEGORY_AYURVEDIC = "ayurvedic";
+const PRODUCT_CATEGORY_PUJA_KIT = "pujakit";
+const PRODUCT_CATEGORIES = [PRODUCT_CATEGORY_AYURVEDIC, PRODUCT_CATEGORY_PUJA_KIT];
+
+const isAyurvedicCategory = (category) => category === PRODUCT_CATEGORY_AYURVEDIC;
 
 const itemsFieldOptional = Joi.alternatives().try(
   Joi.array().items(poojaKitItemSchema).min(0),
@@ -35,10 +39,10 @@ const itemsFieldOptional = Joi.alternatives().try(
 );
 
 const assertCategoryItemRules = (value, helpers) => {
-  const category = value.category || "Puja kits";
-  if (category === "Puja kits" && (value.items === undefined || value.items === null)) {
+  const category = value.category || PRODUCT_CATEGORY_PUJA_KIT;
+  if (!isAyurvedicCategory(category) && (value.items === undefined || value.items === null)) {
     return helpers.error("any.invalid", {
-      message: "items is required for Puja kits products",
+      message: "items is required for pujakit products",
     });
   }
   return value;
@@ -57,7 +61,7 @@ const createProductSchema = Joi.object({
 
   deity: objectIdHex.optional().allow("", null),
   associate_puja: associatePujaField.optional(),
-  category: Joi.string().valid(...PRODUCT_CATEGORIES).default("Puja kits"),
+  category: Joi.string().valid(...PRODUCT_CATEGORIES).default(PRODUCT_CATEGORY_PUJA_KIT),
 
   // Admins can only save as DRAFT or submit for review (PENDING). Approval
   // is owned by superadmin via the review endpoint.
@@ -147,6 +151,9 @@ const toggleFeaturedSchema = Joi.object({
 
 module.exports = {
   PRODUCT_CATEGORIES,
+  PRODUCT_CATEGORY_AYURVEDIC,
+  PRODUCT_CATEGORY_PUJA_KIT,
+  isAyurvedicCategory,
   createProductSchema,
   updateProductSchema,
   productIdParamsSchema,

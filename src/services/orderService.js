@@ -7,6 +7,7 @@ const Counter = require("../models/Counter");
 const ReplacementRequest = require("../models/ReplacementRequest");
 const inventoryService = require("./inventoryService");
 const HttpError = require("../utils/httpError");
+const { isAyurvedicCategory } = require("../validations/productValidation");
 const orderEmailService = require("./orderEmailService");
 const {
   notifyOrderStatusChanged,
@@ -118,7 +119,7 @@ const assertProductBuyable = (product) => {
   if (product.status !== "APPROVED" || product.productStatus !== "ACTIVE") {
     throw new HttpError("This product is not available right now", 400);
   }
-  if (product.category !== "Ayurvedic" && !product.items?.length) {
+  if (!isAyurvedicCategory(product.category) && !product.items?.length) {
     throw new HttpError(`"${product.title}" has no inventory kit configured`, 400);
   }
 };

@@ -798,8 +798,8 @@ const options = {
             },
             category: {
               type: "string",
-              enum: ["Ayurvedic", "Puja kits"],
-              default: "Puja kits",
+              enum: ["ayurvedic", "pujakit"],
+              default: "pujakit",
             },
             effectivePrice: { type: "number" },
             stockQuantity: {
@@ -829,7 +829,7 @@ const options = {
             items: {
               type: "string",
               description:
-                'JSON array of kit lines referencing inventory. Required for Puja kits; optional for Ayurvedic. Example: [{"inventoryItem":"6a03...","quantity":1}]',
+                'JSON array of kit lines referencing inventory. Required for pujakit; optional for ayurvedic. Example: [{"inventoryItem":"6a03...","quantity":1}]',
             },
             stockQuantity: {
               type: "number",
@@ -844,14 +844,14 @@ const options = {
             associate_puja: {
               type: "string",
               description:
-                'Optional JSON array of Pooja ObjectIds (Puja kits or Ayurvedic). e.g. ["507f1f77bcf86cd799439011"]',
+                'Optional JSON array of Pooja ObjectIds (pujakit or ayurvedic). e.g. ["507f1f77bcf86cd799439011"]',
             },
             category: {
               type: "string",
-              enum: ["Ayurvedic", "Puja kits"],
-              default: "Puja kits",
+              enum: ["ayurvedic", "pujakit"],
+              default: "pujakit",
               description:
-                "Puja kits require items; Ayurvedic products may omit items and associate_puja.",
+                "pujakit requires items; ayurvedic products may omit items and associate_puja.",
             },
             status: {
               type: "string",

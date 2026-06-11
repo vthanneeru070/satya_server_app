@@ -4,9 +4,11 @@ const InventoryItem = require("../models/InventoryItem");
 const HttpError = require("../utils/httpError");
 const { deleteFile } = require("./s3Service");
 const inventoryService = require("./inventoryService");
-const { PRODUCT_CATEGORIES } = require("../validations/productValidation");
-
-const isAyurvedicCategory = (category) => category === "Ayurvedic";
+const {
+  PRODUCT_CATEGORIES,
+  PRODUCT_CATEGORY_PUJA_KIT,
+  isAyurvedicCategory,
+} = require("../validations/productValidation");
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -239,7 +241,7 @@ const assertInventoryItemsValid = async (kitItems) => {
 
 const assertCategoryItemRules = (category, items) => {
   if (!isAyurvedicCategory(category) && (!items || items.length === 0)) {
-    throw new HttpError("items is required for Puja kits products", 400);
+    throw new HttpError("items is required for pujakit products", 400);
   }
 };
 
@@ -263,7 +265,7 @@ const createProduct = async ({ body, imageUrl, userId }) => {
   if (!payload.title) throw new HttpError("title is required", 400);
   if (payload.price === undefined) throw new HttpError("price is required", 400);
 
-  const category = payload.category || "Puja kits";
+  const category = payload.category || PRODUCT_CATEGORY_PUJA_KIT;
   payload.category = category;
   const items = payload.items || [];
   payload.items = items;
@@ -299,7 +301,7 @@ const updateProduct = async ({ id, body, imageUrl }) => {
 
   const payload = buildProductPayload(body);
 
-  const mergedCategory = payload.category ?? existing.category ?? "Puja kits";
+  const mergedCategory = payload.category ?? existing.category ?? PRODUCT_CATEGORY_PUJA_KIT;
   const mergedItems =
     payload.items !== undefined ? payload.items : existing.items || [];
   assertCategoryItemRules(mergedCategory, mergedItems);

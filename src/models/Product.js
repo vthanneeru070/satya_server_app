@@ -130,8 +130,8 @@ const productSchema = new mongoose.Schema(
 
     category: {
       type: String,
-      enum: ["Ayurvedic", "Puja kits"],
-      default: "Puja kits",
+      enum: ["ayurvedic", "pujakit"],
+      default: "pujakit",
       required: true,
       index: true,
     },
@@ -197,8 +197,8 @@ productSchema.pre("validate", function ensurePriceConsistency() {
     throw new Error("salePrice cannot be greater than price");
   }
 
-  if (this.category === "Puja kits" && (!this.items || this.items.length === 0)) {
-    throw new Error("At least one inventory item is required for Puja kits");
+  if (this.category === "pujakit" && (!this.items || this.items.length === 0)) {
+    throw new Error("At least one inventory item is required for pujakit products");
   }
 });
 
