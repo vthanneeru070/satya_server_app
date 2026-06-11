@@ -31,20 +31,66 @@ const PRODUCT_CATEGORY_AYURVEDIC = "ayurvedic";
 const PRODUCT_CATEGORY_PUJA_KIT = "pujakit";
 const PRODUCT_CATEGORIES = [PRODUCT_CATEGORY_AYURVEDIC, PRODUCT_CATEGORY_PUJA_KIT];
 
-const isAyurvedicCategory = (category) => category === PRODUCT_CATEGORY_AYURVEDIC;
+const isAyurvedicCategory = (category) =>
+  String(category || "").trim().toLowerCase() === PRODUCT_CATEGORY_AYURVEDIC;
 
 const itemsFieldOptional = Joi.alternatives().try(
   Joi.array().items(poojaKitItemSchema).min(0),
   Joi.string().trim().min(2)
 );
 
-const assertCategoryItemRules = (value, helpers) => {
+const isBlank = (value) => value === undefined || value === null || value === "";
+
+const resolveProductQuantityInput = (value = {}) => {
+  if (!isBlank(value.quantity)) return value.quantity;
+  if (!isBlank(value.stockQuantity)) return value.stockQuantity;
+  return undefined;
+};
+
+const normalizeProductInput = (value = {}) => {
+  const next = { ...value };
+  if (next.category !== undefined && next.category !== null) {
+    next.category = String(next.category).trim().toLowerCase();
+  }
+  const qty = resolveProductQuantityInput(next);
+  if (qty !== undefined) {
+    next.quantity = qty;
+  }
+  return next;
+};
+
+const assertCategoryFieldRules = (value, helpers) => {
   const category = value.category || PRODUCT_CATEGORY_PUJA_KIT;
-  if (!isAyurvedicCategory(category) && (value.items === undefined || value.items === null)) {
+  const qtyInput = resolveProductQuantityInput(value);
+
+  if (!isAyurvedicCategory(category)) {
+    if (value.items === undefined || value.items === null) {
+      return helpers.error("any.invalid", {
+        message: "items is required for pujakit products",
+      });
+    }
+    if (!isBlank(qtyInput)) {
+      return helpers.error("any.invalid", {
+        message: "quantity is only allowed for ayurvedic products",
+      });
+    }
+    return value;
+  }
+
+  if (isBlank(qtyInput)) {
     return helpers.error("any.invalid", {
-      message: "items is required for pujakit products",
+      message: "quantity is required for ayurvedic products",
     });
   }
+
+  const qty = Number(qtyInput);
+  if (!Number.isFinite(qty) || qty < 0) {
+    return helpers.error("any.invalid", {
+      message: "quantity must be a non-negative number",
+    });
+  }
+
+  value.quantity = qty;
   return value;
 };
 
@@ -61,7 +107,13 @@ const createProductSchema = Joi.object({
 
   deity: objectIdHex.optional().allow("", null),
   associate_puja: associatePujaField.optional(),
-  category: Joi.string().valid(...PRODUCT_CATEGORIES).default(PRODUCT_CATEGORY_PUJA_KIT),
+  category: Joi.string()
+    .trim()
+    .lowercase()
+    .valid(...PRODUCT_CATEGORIES)
+    .default(PRODUCT_CATEGORY_PUJA_KIT),
+  quantity: numericFromForm(Joi.number().min(0)).optional(),
+  stockQuantity: numericFromForm(Joi.number().min(0)).optional(),
 
   // Admins can only save as DRAFT or submit for review (PENDING). Approval
   // is owned by superadmin via the review endpoint.
@@ -70,16 +122,17 @@ const createProductSchema = Joi.object({
   isFeatured: Joi.alternatives().try(Joi.boolean(), Joi.string().valid("true", "false")).optional(),
 })
   .custom((value, helpers) => {
+    const normalized = normalizeProductInput(value);
     if (
-      value.salePrice !== undefined &&
-      value.salePrice !== null &&
-      Number(value.salePrice) > Number(value.price)
+      normalized.salePrice !== undefined &&
+      normalized.salePrice !== null &&
+      Number(normalized.salePrice) > Number(normalized.price)
     ) {
       return helpers.error("any.invalid", {
         message: "salePrice must be less than or equal to price",
       });
     }
-    return assertCategoryItemRules(value, helpers);
+    return assertCategoryFieldRules(normalized, helpers);
   }, "product-create-rules")
   .messages({
     "any.invalid": "{{#message}}",
@@ -98,13 +151,17 @@ const updateProductSchema = Joi.object({
 
   deity: objectIdHex.allow("", null),
   associate_puja: associatePujaField,
-  category: Joi.string().valid(...PRODUCT_CATEGORIES),
+  category: Joi.string().trim().lowercase().valid(...PRODUCT_CATEGORIES),
+  quantity: numericFromForm(Joi.number().min(0)).allow(null),
+  stockQuantity: numericFromForm(Joi.number().min(0)).optional(),
 
   // Admins editing their own product cannot self-promote past PENDING.
   status: Joi.string().valid(...CREATE_STATUSES),
   productStatus: Joi.string().valid(...PUBLISH_STATUSES),
   isFeatured: Joi.alternatives().try(Joi.boolean(), Joi.string().valid("true", "false")),
-}).min(1);
+})
+  .min(1)
+  .custom((value, helpers) => normalizeProductInput(value), "product-update-normalize");
 
 const productIdParamsSchema = Joi.object({
   id: objectIdHex.required(),
@@ -154,6 +211,8 @@ module.exports = {
   PRODUCT_CATEGORY_AYURVEDIC,
   PRODUCT_CATEGORY_PUJA_KIT,
   isAyurvedicCategory,
+  normalizeProductInput,
+  resolveProductQuantityInput,
   createProductSchema,
   updateProductSchema,
   productIdParamsSchema,

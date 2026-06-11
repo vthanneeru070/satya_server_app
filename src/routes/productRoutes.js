@@ -4,6 +4,7 @@ const authorizeRoles = require("../middleware/authorizeRoles");
 const authorizeSuperAdmin = require("../middleware/authorizeSuperAdmin");
 const validate = require("../middleware/validate");
 const upload = require("../middleware/upload");
+const normalizeProductBody = require("../middleware/normalizeProductBody");
 const {
   createProduct,
   updateProduct,
@@ -297,6 +298,7 @@ router.post(
   authenticate,
   authorizeRoles("admin"),
   upload.single("image"),
+  normalizeProductBody,
   validate(createProductSchema),
   createProduct
 );
@@ -334,6 +336,7 @@ router.patch(
   authenticate,
   authorizeRoles("admin"),
   upload.single("image"),
+  normalizeProductBody,
   validate(productIdParamsSchema, "params"),
   validate(updateProductSchema),
   updateProduct

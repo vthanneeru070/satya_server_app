@@ -8,6 +8,7 @@ const {
   PRODUCT_CATEGORIES,
   PRODUCT_CATEGORY_PUJA_KIT,
   isAyurvedicCategory,
+  resolveProductQuantityInput,
 } = require("../validations/productValidation");
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -207,11 +208,12 @@ const buildProductPayload = (body = {}) => {
     }
   }
 
-  if (body.quantity !== undefined) {
-    if (body.quantity === null || body.quantity === "") {
+  const rawQuantity = resolveProductQuantityInput(body);
+  if (rawQuantity !== undefined) {
+    if (rawQuantity === null || rawQuantity === "") {
       payload.quantity = null;
     } else {
-      const qty = normalizeNumber(body.quantity);
+      const qty = normalizeNumber(rawQuantity);
       if (qty === undefined) {
         throw new HttpError("quantity must be a valid number", 400);
       }
