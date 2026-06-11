@@ -203,9 +203,10 @@ const enrichProductStock = async (product) => {
     };
   });
 
-  if (isAyurvedicCategory(plain.category) && !(plain.items?.length)) {
-    plain.stockQuantity = null;
-    plain.inStock = true;
+  if (isAyurvedicCategory(plain.category)) {
+    const stock = Number(plain.quantity) || 0;
+    plain.stockQuantity = stock;
+    plain.inStock = stock > 0;
     return plain;
   }
 
@@ -227,9 +228,10 @@ const enrichProductsStock = async (products) => {
         inventoryItem: inv ? formatInventorySummary(inv) : line.inventoryItem,
       };
     });
-    if (isAyurvedicCategory(plain.category) && !(plain.items?.length)) {
-      plain.stockQuantity = null;
-      plain.inStock = true;
+    if (isAyurvedicCategory(plain.category)) {
+      const stock = Number(plain.quantity) || 0;
+      plain.stockQuantity = stock;
+      plain.inStock = stock > 0;
       return plain;
     }
 
@@ -241,7 +243,19 @@ const enrichProductsStock = async (products) => {
 };
 
 const assertKitStockForOrder = (product, orderQty, inventoryById) => {
-  if (isAyurvedicCategory(product.category) && !(product.items?.length)) return;
+  if (isAyurvedicCategory(product.category)) {
+    const available = Number(product.quantity) || 0;
+    if (available <= 0) {
+      throw new HttpError(`"${product.title}" is out of stock`, 400);
+    }
+    if (orderQty > available) {
+      throw new HttpError(
+        `Only ${available} unit(s) of "${product.title}" are available`,
+        400
+      );
+    }
+    return;
+  }
 
   const available = computeAvailableKits(product.items || [], inventoryById);
   if (available <= 0) {
@@ -284,6 +298,38 @@ const buildInventoryDeductionOps = (orderLines, productMap) => {
   }));
 };
 
+const buildAyurvedicQuantityDeductionOps = (orderLines, productMap) =>
+  orderLines
+    .map((line) => {
+      const product = productMap.get(String(line.product));
+      if (!isAyurvedicCategory(product?.category)) return null;
+      return {
+        updateOne: {
+          filter: {
+            _id: line.product,
+            quantity: { $gte: line.quantity },
+            ...notDeleted,
+          },
+          update: { $inc: { quantity: -line.quantity } },
+        },
+      };
+    })
+    .filter(Boolean);
+
+const buildAyurvedicQuantityRestockOps = (orderLines, productMap) =>
+  orderLines
+    .map((line) => {
+      const product = productMap.get(String(line.product));
+      if (!isAyurvedicCategory(product?.category)) return null;
+      return {
+        updateOne: {
+          filter: { _id: line.product, ...notDeleted },
+          update: { $inc: { quantity: line.quantity } },
+        },
+      };
+    })
+    .filter(Boolean);
+
 const buildInventoryRestockOps = (orderLines, productMap) => {
   const incrementByInv = new Map();
   for (const line of orderLines) {
@@ -306,22 +352,39 @@ const buildInventoryRestockOps = (orderLines, productMap) => {
 };
 
 const applyInventoryDeductionForOrder = async (order, productMap, session) => {
-  const ops = buildInventoryDeductionOps(order.items, productMap);
-  if (!ops.length) {
-    throw new HttpError("Product kit has no inventory components configured", 500);
+  const invOps = buildInventoryDeductionOps(order.items, productMap);
+  const productQtyOps = buildAyurvedicQuantityDeductionOps(order.items, productMap);
+
+  if (!invOps.length && !productQtyOps.length) {
+    throw new HttpError("Product has no stock configured", 500);
   }
-  const result = await InventoryItem.bulkWrite(ops, { session });
-  if (result.modifiedCount !== ops.length) {
-    throw new HttpError(
-      "One or more inventory items went out of stock during checkout. Please review your cart.",
-      409
-    );
+
+  if (invOps.length) {
+    const result = await InventoryItem.bulkWrite(invOps, { session });
+    if (result.modifiedCount !== invOps.length) {
+      throw new HttpError(
+        "One or more inventory items went out of stock during checkout. Please review your cart.",
+        409
+      );
+    }
+  }
+
+  if (productQtyOps.length) {
+    const result = await Product.bulkWrite(productQtyOps, { session });
+    if (result.modifiedCount !== productQtyOps.length) {
+      throw new HttpError(
+        "One or more products went out of stock during checkout. Please review your cart.",
+        409
+      );
+    }
   }
 };
 
 const restockInventoryForOrder = async (order, productMap, session) => {
-  const ops = buildInventoryRestockOps(order.items, productMap);
-  if (ops.length) await InventoryItem.bulkWrite(ops, { session });
+  const invOps = buildInventoryRestockOps(order.items, productMap);
+  const productQtyOps = buildAyurvedicQuantityRestockOps(order.items, productMap);
+  if (invOps.length) await InventoryItem.bulkWrite(invOps, { session });
+  if (productQtyOps.length) await Product.bulkWrite(productQtyOps, { session });
 };
 
 const loadProductsForOrderLines = async (orderLines, session) => {

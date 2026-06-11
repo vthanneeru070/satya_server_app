@@ -136,6 +136,13 @@ const productSchema = new mongoose.Schema(
       index: true,
     },
 
+    /** Stock units on hand — only used when category is ayurvedic */
+    quantity: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
+
     status: {
       type: String,
       enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"],
@@ -197,8 +204,18 @@ productSchema.pre("validate", function ensurePriceConsistency() {
     throw new Error("salePrice cannot be greater than price");
   }
 
-  if (this.category === "pujakit" && (!this.items || this.items.length === 0)) {
-    throw new Error("At least one inventory item is required for pujakit products");
+  if (this.category === "pujakit") {
+    if (!this.items || this.items.length === 0) {
+      throw new Error("At least one inventory item is required for pujakit products");
+    }
+    this.quantity = null;
+    return;
+  }
+
+  if (this.category === "ayurvedic") {
+    if (this.quantity === null || this.quantity === undefined) {
+      throw new Error("quantity is required for ayurvedic products");
+    }
   }
 });
 

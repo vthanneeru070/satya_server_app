@@ -36,8 +36,8 @@ const assertProductBuyable = async (product, requestedQty) => {
   if (!isAyurvedicCategory(product.category) && !product.items?.length) {
     throw new HttpError(`"${product.title}" has no inventory kit configured`, 400);
   }
-  if (product.items?.length) {
-    const invIds = product.items.map((l) => l.inventoryItem).filter(Boolean);
+  if (isAyurvedicCategory(product.category) || product.items?.length) {
+    const invIds = (product.items || []).map((l) => l.inventoryItem).filter(Boolean);
     const invMap = await inventoryService.loadInventoryMap(invIds);
     inventoryService.assertKitStockForOrder(product, requestedQty, invMap);
   }

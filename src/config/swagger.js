@@ -801,11 +801,17 @@ const options = {
               enum: ["ayurvedic", "pujakit"],
               default: "pujakit",
             },
+            quantity: {
+              type: "integer",
+              minimum: 0,
+              nullable: true,
+              description: "Stock on hand — required for ayurvedic; omitted for pujakit",
+            },
             effectivePrice: { type: "number" },
             stockQuantity: {
               type: "integer",
               readOnly: true,
-              description: "Max kits buildable from inventory",
+              description: "Available stock (ayurvedic quantity or computed kit count)",
             },
             inStock: { type: "boolean", readOnly: true },
             status: {
@@ -851,7 +857,13 @@ const options = {
               enum: ["ayurvedic", "pujakit"],
               default: "pujakit",
               description:
-                "pujakit requires items; ayurvedic products may omit items and associate_puja.",
+                "pujakit requires items; ayurvedic products require quantity and may omit items and associate_puja.",
+            },
+            quantity: {
+              type: "integer",
+              minimum: 0,
+              description: "Required when category is ayurvedic",
+              example: 50,
             },
             status: {
               type: "string",

@@ -207,6 +207,21 @@ const buildProductPayload = (body = {}) => {
     }
   }
 
+  if (body.quantity !== undefined) {
+    if (body.quantity === null || body.quantity === "") {
+      payload.quantity = null;
+    } else {
+      const qty = normalizeNumber(body.quantity);
+      if (qty === undefined) {
+        throw new HttpError("quantity must be a valid number", 400);
+      }
+      if (qty < 0) {
+        throw new HttpError("quantity must be a non-negative number", 400);
+      }
+      payload.quantity = Math.floor(qty);
+    }
+  }
+
   if (body.slug !== undefined) payload.slug = slugify(body.slug);
 
   return payload;
@@ -239,9 +254,19 @@ const assertInventoryItemsValid = async (kitItems) => {
   }
 };
 
-const assertCategoryItemRules = (category, items) => {
-  if (!isAyurvedicCategory(category) && (!items || items.length === 0)) {
-    throw new HttpError("items is required for pujakit products", 400);
+const assertCategoryFieldRules = (category, { items, quantity } = {}) => {
+  if (!isAyurvedicCategory(category)) {
+    if (!items || items.length === 0) {
+      throw new HttpError("items is required for pujakit products", 400);
+    }
+    return;
+  }
+
+  if (quantity === undefined || quantity === null) {
+    throw new HttpError("quantity is required for ayurvedic products", 400);
+  }
+  if (Number(quantity) < 0) {
+    throw new HttpError("quantity must be a non-negative number", 400);
   }
 };
 
@@ -269,7 +294,12 @@ const createProduct = async ({ body, imageUrl, userId }) => {
   payload.category = category;
   const items = payload.items || [];
   payload.items = items;
-  assertCategoryItemRules(category, items);
+  if (isAyurvedicCategory(category)) {
+    assertCategoryFieldRules(category, { quantity: payload.quantity });
+  } else {
+    payload.quantity = null;
+    assertCategoryFieldRules(category, { items });
+  }
   if (items.length) await assertInventoryItemsValid(items);
   if (payload.associatePujaIds !== undefined) {
     payload.associate_puja = await buildAssociatePujaSnapshots(
@@ -304,7 +334,15 @@ const updateProduct = async ({ id, body, imageUrl }) => {
   const mergedCategory = payload.category ?? existing.category ?? PRODUCT_CATEGORY_PUJA_KIT;
   const mergedItems =
     payload.items !== undefined ? payload.items : existing.items || [];
-  assertCategoryItemRules(mergedCategory, mergedItems);
+  const mergedQuantity =
+    payload.quantity !== undefined ? payload.quantity : existing.quantity;
+
+  if (isAyurvedicCategory(mergedCategory)) {
+    assertCategoryFieldRules(mergedCategory, { quantity: mergedQuantity });
+  } else {
+    payload.quantity = null;
+    assertCategoryFieldRules(mergedCategory, { items: mergedItems });
+  }
   if (payload.items?.length) await assertInventoryItemsValid(payload.items);
 
   if (payload.associatePujaIds !== undefined) {
