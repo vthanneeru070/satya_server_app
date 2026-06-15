@@ -41,7 +41,7 @@ const nextDonationContributionNumber = async (session) => {
     [{ $set: { seq: { $add: [{ $ifNull: ["$seq", 10000] }, 1] } } }],
     { new: true, upsert: true, session, updatePipeline: true }
   );
-  return `SATYA-DON-${doc.seq}`;
+  return `SATHYA-DON-${doc.seq}`;
 };
 
 /**
@@ -171,7 +171,7 @@ const initializeDonationPayment = async ({
     await session.withTransaction(async () => {
       const contributionNumber = await nextDonationContributionNumber(session);
       const reference = `PSK-DON-${contributionNumber.replace(
-        /^SATYA-DON-/,
+        /^SATHYA-DON-/,
         ""
       )}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
 
