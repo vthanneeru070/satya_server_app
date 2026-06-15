@@ -29,10 +29,22 @@ const CREATE_STATUSES = ["DRAFT", "PENDING"];
 const PUBLISH_STATUSES = ["ACTIVE", "INACTIVE"];
 const PRODUCT_CATEGORY_AYURVEDIC = "ayurvedic";
 const PRODUCT_CATEGORY_PUJA_KIT = "pujakit";
-const PRODUCT_CATEGORIES = [PRODUCT_CATEGORY_AYURVEDIC, PRODUCT_CATEGORY_PUJA_KIT];
+const PRODUCT_CATEGORY_BOOK = "book";
+const PRODUCT_CATEGORIES = [
+  PRODUCT_CATEGORY_AYURVEDIC,
+  PRODUCT_CATEGORY_PUJA_KIT,
+  PRODUCT_CATEGORY_BOOK,
+];
 
 const isAyurvedicCategory = (category) =>
   String(category || "").trim().toLowerCase() === PRODUCT_CATEGORY_AYURVEDIC;
+
+const isBookCategory = (category) =>
+  String(category || "").trim().toLowerCase() === PRODUCT_CATEGORY_BOOK;
+
+/** Ayurvedic and book products track stock via `quantity` instead of kit items. */
+const usesProductQuantity = (category) =>
+  isAyurvedicCategory(category) || isBookCategory(category);
 
 const itemsFieldOptional = Joi.alternatives().try(
   Joi.array().items(poojaKitItemSchema).min(0),
@@ -63,7 +75,7 @@ const assertCategoryFieldRules = (value, helpers) => {
   const category = value.category || PRODUCT_CATEGORY_PUJA_KIT;
   const qtyInput = resolveProductQuantityInput(value);
 
-  if (!isAyurvedicCategory(category)) {
+  if (!usesProductQuantity(category)) {
     if (value.items === undefined || value.items === null) {
       return helpers.error("any.invalid", {
         message: "items is required for pujakit products",
@@ -71,7 +83,7 @@ const assertCategoryFieldRules = (value, helpers) => {
     }
     if (!isBlank(qtyInput)) {
       return helpers.error("any.invalid", {
-        message: "quantity is only allowed for ayurvedic products",
+        message: "quantity is only allowed for ayurvedic and book products",
       });
     }
     return value;
@@ -79,7 +91,7 @@ const assertCategoryFieldRules = (value, helpers) => {
 
   if (isBlank(qtyInput)) {
     return helpers.error("any.invalid", {
-      message: "quantity is required for ayurvedic products",
+      message: "quantity is required for ayurvedic and book products",
     });
   }
 
@@ -210,7 +222,10 @@ module.exports = {
   PRODUCT_CATEGORIES,
   PRODUCT_CATEGORY_AYURVEDIC,
   PRODUCT_CATEGORY_PUJA_KIT,
+  PRODUCT_CATEGORY_BOOK,
   isAyurvedicCategory,
+  isBookCategory,
+  usesProductQuantity,
   normalizeProductInput,
   resolveProductQuantityInput,
   createProductSchema,

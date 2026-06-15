@@ -7,7 +7,7 @@ const inventoryService = require("./inventoryService");
 const {
   PRODUCT_CATEGORIES,
   PRODUCT_CATEGORY_PUJA_KIT,
-  isAyurvedicCategory,
+  usesProductQuantity,
   resolveProductQuantityInput,
 } = require("../validations/productValidation");
 
@@ -257,7 +257,7 @@ const assertInventoryItemsValid = async (kitItems) => {
 };
 
 const assertCategoryFieldRules = (category, { items, quantity } = {}) => {
-  if (!isAyurvedicCategory(category)) {
+  if (!usesProductQuantity(category)) {
     if (!items || items.length === 0) {
       throw new HttpError("items is required for pujakit products", 400);
     }
@@ -265,7 +265,7 @@ const assertCategoryFieldRules = (category, { items, quantity } = {}) => {
   }
 
   if (quantity === undefined || quantity === null) {
-    throw new HttpError("quantity is required for ayurvedic products", 400);
+    throw new HttpError("quantity is required for ayurvedic and book products", 400);
   }
   if (Number(quantity) < 0) {
     throw new HttpError("quantity must be a non-negative number", 400);
@@ -296,7 +296,7 @@ const createProduct = async ({ body, imageUrl, userId }) => {
   payload.category = category;
   const items = payload.items || [];
   payload.items = items;
-  if (isAyurvedicCategory(category)) {
+  if (usesProductQuantity(category)) {
     assertCategoryFieldRules(category, { quantity: payload.quantity });
   } else {
     payload.quantity = null;
@@ -339,7 +339,7 @@ const updateProduct = async ({ id, body, imageUrl }) => {
   const mergedQuantity =
     payload.quantity !== undefined ? payload.quantity : existing.quantity;
 
-  if (isAyurvedicCategory(mergedCategory)) {
+  if (usesProductQuantity(mergedCategory)) {
     assertCategoryFieldRules(mergedCategory, { quantity: mergedQuantity });
   } else {
     payload.quantity = null;

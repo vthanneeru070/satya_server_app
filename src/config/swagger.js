@@ -798,20 +798,20 @@ const options = {
             },
             category: {
               type: "string",
-              enum: ["ayurvedic", "pujakit"],
+              enum: ["ayurvedic", "pujakit", "book"],
               default: "pujakit",
             },
             quantity: {
               type: "integer",
               minimum: 0,
               nullable: true,
-              description: "Stock on hand — required for ayurvedic; omitted for pujakit",
+              description: "Stock on hand — required for ayurvedic and book; omitted for pujakit",
             },
             effectivePrice: { type: "number" },
             stockQuantity: {
               type: "integer",
               readOnly: true,
-              description: "Available stock (ayurvedic quantity or computed kit count)",
+              description: "Available stock (ayurvedic/book quantity or computed kit count)",
             },
             inStock: { type: "boolean", readOnly: true },
             status: {
@@ -835,7 +835,7 @@ const options = {
             items: {
               type: "string",
               description:
-                'JSON array of kit lines referencing inventory. Required for pujakit; optional for ayurvedic. Example: [{"inventoryItem":"6a03...","quantity":1}]',
+                'JSON array of kit lines referencing inventory. Required for pujakit; optional for ayurvedic and book. Example: [{"inventoryItem":"6a03...","quantity":1}]',
             },
             stockQuantity: {
               type: "number",
@@ -854,15 +854,15 @@ const options = {
             },
             category: {
               type: "string",
-              enum: ["ayurvedic", "pujakit"],
+              enum: ["ayurvedic", "pujakit", "book"],
               default: "pujakit",
               description:
-                "pujakit requires items; ayurvedic products require quantity and may omit items and associate_puja.",
+                "pujakit requires items; ayurvedic and book products require quantity and may omit items.",
             },
             quantity: {
               type: "integer",
               minimum: 0,
-              description: "Required when category is ayurvedic",
+              description: "Required when category is ayurvedic or book",
               example: 50,
             },
             status: {

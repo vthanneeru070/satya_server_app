@@ -130,13 +130,13 @@ const productSchema = new mongoose.Schema(
 
     category: {
       type: String,
-      enum: ["ayurvedic", "pujakit"],
+      enum: ["ayurvedic", "pujakit", "book"],
       default: "pujakit",
       required: true,
       index: true,
     },
 
-    /** Stock units on hand — only used when category is ayurvedic */
+    /** Stock units on hand — used when category is ayurvedic or book */
     quantity: {
       type: Number,
       min: 0,
@@ -212,9 +212,9 @@ productSchema.pre("validate", function ensurePriceConsistency() {
     return;
   }
 
-  if (this.category === "ayurvedic") {
+  if (this.category === "ayurvedic" || this.category === "book") {
     if (this.quantity === null || this.quantity === undefined) {
-      throw new Error("quantity is required for ayurvedic products");
+      throw new Error(`quantity is required for ${this.category} products`);
     }
   }
 });

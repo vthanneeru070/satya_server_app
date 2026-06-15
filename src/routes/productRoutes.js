@@ -114,7 +114,7 @@ router.get("/popular", getPopularProducts);
  *         name: category
  *         schema:
  *           type: string
- *           enum: [ayurvedic, pujakit]
+ *           enum: [ayurvedic, pujakit, book]
  *       - in: query
  *         name: status
  *         schema:

@@ -2,7 +2,7 @@ const InventoryItem = require("../models/InventoryItem");
 const Product = require("../models/Product");
 const HttpError = require("../utils/httpError");
 const { inventory: inventoryMaster } = require("../masterdata");
-const { isAyurvedicCategory } = require("../validations/productValidation");
+const { usesProductQuantity } = require("../validations/productValidation");
 
 const notDeleted = { isDeleted: { $ne: true } };
 
@@ -203,7 +203,7 @@ const enrichProductStock = async (product) => {
     };
   });
 
-  if (isAyurvedicCategory(plain.category)) {
+  if (usesProductQuantity(plain.category)) {
     const stock = Number(plain.quantity) || 0;
     plain.stockQuantity = stock;
     plain.inStock = stock > 0;
@@ -228,7 +228,7 @@ const enrichProductsStock = async (products) => {
         inventoryItem: inv ? formatInventorySummary(inv) : line.inventoryItem,
       };
     });
-    if (isAyurvedicCategory(plain.category)) {
+    if (usesProductQuantity(plain.category)) {
       const stock = Number(plain.quantity) || 0;
       plain.stockQuantity = stock;
       plain.inStock = stock > 0;
@@ -243,7 +243,7 @@ const enrichProductsStock = async (products) => {
 };
 
 const assertKitStockForOrder = (product, orderQty, inventoryById) => {
-  if (isAyurvedicCategory(product.category)) {
+  if (usesProductQuantity(product.category)) {
     const available = Number(product.quantity) || 0;
     if (available <= 0) {
       throw new HttpError(`"${product.title}" is out of stock`, 400);
@@ -302,7 +302,7 @@ const buildAyurvedicQuantityDeductionOps = (orderLines, productMap) =>
   orderLines
     .map((line) => {
       const product = productMap.get(String(line.product));
-      if (!isAyurvedicCategory(product?.category)) return null;
+      if (!usesProductQuantity(product?.category)) return null;
       return {
         updateOne: {
           filter: {
@@ -320,7 +320,7 @@ const buildAyurvedicQuantityRestockOps = (orderLines, productMap) =>
   orderLines
     .map((line) => {
       const product = productMap.get(String(line.product));
-      if (!isAyurvedicCategory(product?.category)) return null;
+      if (!usesProductQuantity(product?.category)) return null;
       return {
         updateOne: {
           filter: { _id: line.product, ...notDeleted },
