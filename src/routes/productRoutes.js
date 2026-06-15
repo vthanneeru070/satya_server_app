@@ -4,6 +4,7 @@ const authorizeRoles = require("../middleware/authorizeRoles");
 const authorizeSuperAdmin = require("../middleware/authorizeSuperAdmin");
 const validate = require("../middleware/validate");
 const upload = require("../middleware/upload");
+const normalizeProductBody = require("../middleware/normalizeProductBody");
 const {
   createProduct,
   updateProduct,
@@ -111,7 +112,9 @@ router.get("/popular", getPopularProducts);
  *         description: Deity ObjectId
  *       - in: query
  *         name: category
- *         schema: { type: string }
+ *         schema:
+ *           type: string
+ *           enum: [ayurvedic, pujakit, book]
  *       - in: query
  *         name: status
  *         schema:
@@ -295,6 +298,7 @@ router.post(
   authenticate,
   authorizeRoles("admin"),
   upload.single("image"),
+  normalizeProductBody,
   validate(createProductSchema),
   createProduct
 );
@@ -332,6 +336,7 @@ router.patch(
   authenticate,
   authorizeRoles("admin"),
   upload.single("image"),
+  normalizeProductBody,
   validate(productIdParamsSchema, "params"),
   validate(updateProductSchema),
   updateProduct

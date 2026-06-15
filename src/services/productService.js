@@ -4,6 +4,12 @@ const InventoryItem = require("../models/InventoryItem");
 const HttpError = require("../utils/httpError");
 const { deleteFile } = require("./s3Service");
 const inventoryService = require("./inventoryService");
+const {
+  PRODUCT_CATEGORIES,
+  PRODUCT_CATEGORY_PUJA_KIT,
+  usesProductQuantity,
+  resolveProductQuantityInput,
+} = require("../validations/productValidation");
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -150,7 +156,10 @@ const buildProductPayload = (body = {}) => {
   }
   if (body.category !== undefined) {
     const c = String(body.category).trim();
-    payload.category = c || null;
+    if (!PRODUCT_CATEGORIES.includes(c)) {
+      throw new HttpError(`category must be one of: ${PRODUCT_CATEGORIES.join(", ")}`, 400);
+    }
+    payload.category = c;
   }
 
   // Review workflow status (DRAFT/PENDING/...). Validation restricts admin
@@ -176,10 +185,13 @@ const buildProductPayload = (body = {}) => {
 
   if (body.items !== undefined) {
     const items = parseJsonField(body.items, "items");
-    if (!Array.isArray(items) || items.length === 0) {
-      throw new HttpError("items must be a non-empty array", 400);
+    if (!Array.isArray(items)) {
+      throw new HttpError("items must be an array", 400);
     }
-    payload.items = items.map((it, idx) => {
+    if (items.length === 0) {
+      payload.items = [];
+    } else {
+      payload.items = items.map((it, idx) => {
       if (!it || typeof it !== "object") {
         throw new HttpError(`items[${idx}] must be an object`, 400);
       }
@@ -192,7 +204,24 @@ const buildProductPayload = (body = {}) => {
         throw new HttpError(`items[${idx}] requires a positive numeric quantity`, 400);
       }
       return { inventoryItem, quantity: qty };
-    });
+      });
+    }
+  }
+
+  const rawQuantity = resolveProductQuantityInput(body);
+  if (rawQuantity !== undefined) {
+    if (rawQuantity === null || rawQuantity === "") {
+      payload.quantity = null;
+    } else {
+      const qty = normalizeNumber(rawQuantity);
+      if (qty === undefined) {
+        throw new HttpError("quantity must be a valid number", 400);
+      }
+      if (qty < 0) {
+        throw new HttpError("quantity must be a non-negative number", 400);
+      }
+      payload.quantity = Math.floor(qty);
+    }
   }
 
   if (body.slug !== undefined) payload.slug = slugify(body.slug);
@@ -227,6 +256,22 @@ const assertInventoryItemsValid = async (kitItems) => {
   }
 };
 
+const assertCategoryFieldRules = (category, { items, quantity } = {}) => {
+  if (!usesProductQuantity(category)) {
+    if (!items || items.length === 0) {
+      throw new HttpError("items is required for pujakit products", 400);
+    }
+    return;
+  }
+
+  if (quantity === undefined || quantity === null) {
+    throw new HttpError("quantity is required for ayurvedic and book products", 400);
+  }
+  if (Number(quantity) < 0) {
+    throw new HttpError("quantity must be a non-negative number", 400);
+  }
+};
+
 const assertPriceConsistency = (price, salePrice) => {
   if (
     salePrice !== undefined &&
@@ -246,10 +291,18 @@ const createProduct = async ({ body, imageUrl, userId }) => {
 
   if (!payload.title) throw new HttpError("title is required", 400);
   if (payload.price === undefined) throw new HttpError("price is required", 400);
-  if (!payload.items || payload.items.length === 0) {
-    throw new HttpError("items is required", 400);
+
+  const category = payload.category || PRODUCT_CATEGORY_PUJA_KIT;
+  payload.category = category;
+  const items = payload.items || [];
+  payload.items = items;
+  if (usesProductQuantity(category)) {
+    assertCategoryFieldRules(category, { quantity: payload.quantity });
+  } else {
+    payload.quantity = null;
+    assertCategoryFieldRules(category, { items });
   }
-  await assertInventoryItemsValid(payload.items);
+  if (items.length) await assertInventoryItemsValid(items);
   if (payload.associatePujaIds !== undefined) {
     payload.associate_puja = await buildAssociatePujaSnapshots(
       payload.associatePujaIds
@@ -279,7 +332,21 @@ const updateProduct = async ({ id, body, imageUrl }) => {
   if (!existing) throw new HttpError("Product not found", 404);
 
   const payload = buildProductPayload(body);
-  if (payload.items) await assertInventoryItemsValid(payload.items);
+
+  const mergedCategory = payload.category ?? existing.category ?? PRODUCT_CATEGORY_PUJA_KIT;
+  const mergedItems =
+    payload.items !== undefined ? payload.items : existing.items || [];
+  const mergedQuantity =
+    payload.quantity !== undefined ? payload.quantity : existing.quantity;
+
+  if (usesProductQuantity(mergedCategory)) {
+    assertCategoryFieldRules(mergedCategory, { quantity: mergedQuantity });
+  } else {
+    payload.quantity = null;
+    assertCategoryFieldRules(mergedCategory, { items: mergedItems });
+  }
+  if (payload.items?.length) await assertInventoryItemsValid(payload.items);
+
   if (payload.associatePujaIds !== undefined) {
     payload.associate_puja = await buildAssociatePujaSnapshots(
       payload.associatePujaIds

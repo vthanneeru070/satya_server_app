@@ -95,13 +95,6 @@ const productSchema = new mongoose.Schema(
     items: {
       type: [poojaKitItemSchema],
       default: [],
-      validate: {
-        validator(items) {
-          return items.length > 0;
-        },
-        message:
-          "At least one inventory item is required",
-      },
     },
 
     price: {
@@ -137,9 +130,17 @@ const productSchema = new mongoose.Schema(
 
     category: {
       type: String,
-      trim: true,
-      default: null,
+      enum: ["ayurvedic", "pujakit", "book"],
+      default: "pujakit",
+      required: true,
       index: true,
+    },
+
+    /** Stock units on hand — used when category is ayurvedic or book */
+    quantity: {
+      type: Number,
+      min: 0,
+      default: null,
     },
 
     status: {
@@ -201,6 +202,20 @@ productSchema.pre("validate", function ensurePriceConsistency() {
     this.salePrice > this.price
   ) {
     throw new Error("salePrice cannot be greater than price");
+  }
+
+  if (this.category === "pujakit") {
+    if (!this.items || this.items.length === 0) {
+      throw new Error("At least one inventory item is required for pujakit products");
+    }
+    this.quantity = null;
+    return;
+  }
+
+  if (this.category === "ayurvedic" || this.category === "book") {
+    if (this.quantity === null || this.quantity === undefined) {
+      throw new Error(`quantity is required for ${this.category} products`);
+    }
   }
 });
 

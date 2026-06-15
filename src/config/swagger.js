@@ -796,11 +796,22 @@ const options = {
                 },
               },
             },
+            category: {
+              type: "string",
+              enum: ["ayurvedic", "pujakit", "book"],
+              default: "pujakit",
+            },
+            quantity: {
+              type: "integer",
+              minimum: 0,
+              nullable: true,
+              description: "Stock on hand — required for ayurvedic and book; omitted for pujakit",
+            },
             effectivePrice: { type: "number" },
             stockQuantity: {
               type: "integer",
               readOnly: true,
-              description: "Max kits buildable from inventory",
+              description: "Available stock (ayurvedic/book quantity or computed kit count)",
             },
             inStock: { type: "boolean", readOnly: true },
             status: {
@@ -813,7 +824,7 @@ const options = {
         },
         ProductCreateMultipart: {
           type: "object",
-          required: ["title", "items", "price"],
+          required: ["title", "price", "currency"],
           properties: {
             title: { type: "string", example: "Ganesh Pooja Kit" },
             slug: { type: "string", example: "ganesh-pooja-kit" },
@@ -824,7 +835,7 @@ const options = {
             items: {
               type: "string",
               description:
-                'JSON array of kit lines referencing inventory. Example: [{"inventoryItem":"6a03...","quantity":1}]',
+                'JSON array of kit lines referencing inventory. Required for pujakit; optional for ayurvedic and book. Example: [{"inventoryItem":"6a03...","quantity":1}]',
             },
             stockQuantity: {
               type: "number",
@@ -839,9 +850,21 @@ const options = {
             associate_puja: {
               type: "string",
               description:
-                'JSON array of Pooja ObjectIds, e.g. ["507f1f77bcf86cd799439011","507f1f77bcf86cd799439012"]',
+                'Optional JSON array of Pooja ObjectIds (pujakit or ayurvedic). e.g. ["507f1f77bcf86cd799439011"]',
             },
-            category: { type: "string", example: "Ganesh" },
+            category: {
+              type: "string",
+              enum: ["ayurvedic", "pujakit", "book"],
+              default: "pujakit",
+              description:
+                "pujakit requires items; ayurvedic and book products require quantity and may omit items.",
+            },
+            quantity: {
+              type: "integer",
+              minimum: 0,
+              description: "Required when category is ayurvedic or book",
+              example: 50,
+            },
             status: {
               type: "string",
               enum: ["DRAFT", "PENDING"],
