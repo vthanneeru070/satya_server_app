@@ -1,4 +1,5 @@
 const DEFAULT_ORIGINS = [
+  "https://admin.sathya.co.za",
   "https://admin-test.sathya.co.za",
   "http://localhost:3000",
   "http://localhost:8080",
