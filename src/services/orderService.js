@@ -109,7 +109,7 @@ const nextOrderNumber = async (session) => {
     [{ $set: { seq: { $add: [{ $ifNull: ["$seq", 10000] }, 1] } } }],
     { returnDocument: "after", upsert: true, session, updatePipeline: true }
   );
-  return `SATYA-${doc.seq}`;
+  return `SATHYA-${doc.seq}`;
 };
 
 const assertProductBuyable = (product) => {

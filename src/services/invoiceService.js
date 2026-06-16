@@ -2,9 +2,12 @@ const axios = require("axios");
 const PDFDocument = require("pdfkit");
 const Counter = require("../models/Counter");
 const Product = require("../models/Product");
+const User = require("../models/User");
 const { uploadFile } = require("./s3Service");
 
 const INVOICE_PREFIX = process.env.INVOICE_NUMBER_PREFIX || "INV";
+const INVOICE_SUPPORT_EMAIL =
+  process.env.INVOICE_SUPPORT_EMAIL || "support@sathya.co.za";
 
 const PAGE_WIDTH = 595.28;
 const MARGIN = 36;
@@ -74,21 +77,20 @@ const mapPaymentMethod = (method) => {
   }
 };
 
-const mapOrderStatus = (status) => {
+const mapPaymentStatus = (status) => {
   switch (status) {
-    case "FULFILLED":
-    case "DELIVERED":
-      return "Complete";
-    case "CANCELLED":
-      return "Cancelled";
-    case "PLACED":
+    case "PAID":
+      return "Paid";
+    case "PENDING":
       return "Pending";
-    case "PROCESSING":
-      return "Processing";
-    case "SHIPPED":
-      return "Shipped";
-    case "OUT_FOR_DELIVERY":
-      return "Out For Delivery";
+    case "FAILED":
+      return "Failed";
+    case "REFUND_INITIATED":
+      return "Refund Initiated";
+    case "REFUNDED":
+      return "Refunded";
+    case "REFUND_FAILED":
+      return "Refund Failed";
     default:
       return status || "—";
   }
@@ -221,13 +223,29 @@ const drawMetaRow = (doc, leftLabel, leftValue, rightLabel, rightValue) => {
   doc.y = y + 14;
 };
 
-const drawOrderMeta = (doc, order) => {
+const resolveCustomerEmail = async (order) => {
+  if (!order?.user) return "";
+  if (typeof order.user === "object" && order.user.email) {
+    return String(order.user.email).trim();
+  }
+  const user = await User.findById(order.user).select("email").lean();
+  return user?.email ? String(user.email).trim() : "";
+};
+
+const drawOrderMeta = (doc, order, { invoiceNumber = "", customerEmail = "" } = {}) => {
   drawMetaRow(
     doc,
-    "Date:",
+    "Order Date:",
     formatInvoiceDate(order.createdAt),
-    "Order Status:",
-    mapOrderStatus(order.orderStatus)
+    "Invoice Number:",
+    invoiceNumber || "—"
+  );
+  drawMetaRow(
+    doc,
+    "Customer Email:",
+    customerEmail || "—",
+    "Payment Status:",
+    mapPaymentStatus(order.paymentStatus)
   );
   drawMetaRow(
     doc,
@@ -421,6 +439,17 @@ const drawTotals = (doc, { subtotal, total }) => {
   doc.y = y;
 };
 
+const drawInvoiceFooter = (doc) => {
+  doc.y += 24;
+  doc.font("Helvetica").fontSize(9).fillColor("#333333");
+  doc.text(
+    `For any questions regarding this order, please contact us at ${INVOICE_SUPPORT_EMAIL}`,
+    PAGE_LEFT,
+    doc.y,
+    { width: CONTENT_WIDTH, align: "center" }
+  );
+};
+
 const enrichOrderItems = (orderItems, productDetails) =>
   (orderItems || []).map((line) => {
     const raw = toPlainLine(line);
@@ -452,6 +481,8 @@ const buildInvoicePdf = async ({
   storeLabel,
   phone,
   email,
+  invoiceNumber,
+  customerEmail,
 }) => {
   const paymentAddress = formatInvoiceAddressLines(order.shippingAddress);
   const shippingAddress = formatInvoiceAddressLines(
@@ -478,7 +509,7 @@ const buildInvoicePdf = async ({
     doc.on("error", reject);
 
     drawCompanyHeader(doc, { appName, storeLabel, phone, email });
-    drawOrderMeta(doc, order);
+    drawOrderMeta(doc, order, { invoiceNumber, customerEmail });
     drawAddressTable(doc, paymentAddress, shippingAddress);
     drawProductTableHeader(doc);
 
@@ -497,6 +528,7 @@ const buildInvoicePdf = async ({
     }
 
     drawTotals(doc, { subtotal, total });
+    drawInvoiceFooter(doc);
 
     doc.end();
   });
@@ -520,6 +552,7 @@ const generateInvoice = async (order) => {
       process.env.BREVO_SENDER_EMAIL ||
       "";
     const productDetails = await loadProductDetails(order.items);
+    const customerEmail = await resolveCustomerEmail(order);
     const buffer = await buildInvoicePdf({
       order,
       productDetails,
@@ -527,6 +560,8 @@ const generateInvoice = async (order) => {
       storeLabel,
       phone,
       email,
+      invoiceNumber,
+      customerEmail,
     });
 
     const safeOrderId = String(order.orderNumber).replace(/[^a-zA-Z0-9-]/g, "_");
