@@ -5,30 +5,49 @@ const admin = require("firebase-admin");
 
 const User = require("../src/models/User");
 
-// 🔥 Firebase service account
-const serviceAccount = require("../serviceAccountKeyProd.json");
+const initFirebaseAdmin = () => {
+  if (admin.apps.length) return;
 
-// 🔥 Initialize Firebase Admin SDK (skip if already initialized)
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
-}
+  const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } =
+    process.env;
 
-// 🔥 MongoDB connection
+  if (FIREBASE_PROJECT_ID && FIREBASE_CLIENT_EMAIL && FIREBASE_PRIVATE_KEY) {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: FIREBASE_PROJECT_ID,
+        clientEmail: FIREBASE_CLIENT_EMAIL,
+        privateKey: String(FIREBASE_PRIVATE_KEY).replace(/\\n/g, "\n"),
+      }),
+    });
+    console.log(`Firebase Admin initialized (project: ${FIREBASE_PROJECT_ID})`);
+    return;
+  }
+
+  try {
+    const serviceAccount = require("../serviceAccountKeyProd.json");
+    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+    console.log(`Firebase Admin initialized (project: ${serviceAccount.project_id})`);
+  } catch {
+    throw new Error(
+      "Set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY in .env " +
+        "or place serviceAccountKeyProd.json in the project root."
+    );
+  }
+};
+
+initFirebaseAdmin();
+
 async function connectDB() {
   if (!process.env.MONGO_URI) {
     throw new Error("Missing MONGO_URI in .env");
   }
 
-  const dbName = process.env.SUPER_ADMIN_DB_NAME || "satya_auth";
-  await mongoose.connect(process.env.MONGO_URI, { dbName });
+  const dbName = process.env.SUPER_ADMIN_DB_NAME || undefined;
+  await mongoose.connect(process.env.MONGO_URI, dbName ? { dbName } : undefined);
 
-  console.log(`MongoDB connected (db: ${dbName})`);
+  console.log(`MongoDB connected${dbName ? ` (db: ${dbName})` : ""}`);
 }
 
-// 🔥 Get or create the Firebase Auth user.
-// Idempotent: if the user already exists in Firebase, we re-use that uid.
 async function getOrCreateFirebaseUser({ email, password, fullName }) {
   try {
     const existing = await admin.auth().getUserByEmail(email);
@@ -49,22 +68,49 @@ async function getOrCreateFirebaseUser({ email, password, fullName }) {
   return created;
 }
 
-// 🔥 Create Super Admin
 async function createSuperAdmin() {
   try {
     await connectDB();
 
-    const email = (process.env.SUPER_ADMIN_EMAIL || "superadmin@sathya.com").toLowerCase().trim();
+    const email = (process.env.SUPER_ADMIN_EMAIL || "superadmin@sathya.com")
+      .toLowerCase()
+      .trim();
     const password = process.env.SUPER_ADMIN_PASSWORD || "StrongPassword@123";
     const fullName = process.env.SUPER_ADMIN_FULL_NAME || "Super Admin";
 
-    // 🔍 Check existing super admin in MongoDB
+    const firebaseUser = await getOrCreateFirebaseUser({ email, password, fullName });
+
     const existingMongoUser = await User.findOne({
-      $or: [{ email }, { role: "superadmin" }],
+      $or: [{ email }, { firebaseUid: firebaseUser.uid }],
     });
 
     if (existingMongoUser) {
-      console.log("Super admin already exists");
+      const updates = {};
+      if (existingMongoUser.firebaseUid !== firebaseUser.uid) {
+        updates.firebaseUid = firebaseUser.uid;
+      }
+      if (existingMongoUser.role !== "superadmin") {
+        updates.role = "superadmin";
+      }
+      if (!existingMongoUser.canLoginAdminPanel) {
+        updates.canLoginAdminPanel = true;
+      }
+      if (existingMongoUser.provider !== "password") {
+        updates.provider = "password";
+      }
+      if (!Array.isArray(existingMongoUser.linkedProviders) ||
+          !existingMongoUser.linkedProviders.includes("password")) {
+        updates.linkedProviders = ["password"];
+      }
+
+      if (Object.keys(updates).length) {
+        Object.assign(existingMongoUser, updates);
+        await existingMongoUser.save();
+        console.log("Existing admin synced with current Firebase project:");
+      } else {
+        console.log("Super admin already exists and is in sync:");
+      }
+
       console.log({
         id: existingMongoUser._id.toString(),
         email: existingMongoUser.email,
@@ -76,10 +122,6 @@ async function createSuperAdmin() {
       process.exit(0);
     }
 
-    // 🔥 Get or create the Firebase Auth user (idempotent)
-    const firebaseUser = await getOrCreateFirebaseUser({ email, password, fullName });
-
-    // 🔥 Save MongoDB user
     const user = await User.create({
       firebaseUid: firebaseUser.uid,
       email,
@@ -92,7 +134,6 @@ async function createSuperAdmin() {
     });
 
     console.log("MongoDB user created");
-
     console.log({
       email,
       password,
@@ -110,5 +151,4 @@ async function createSuperAdmin() {
   }
 }
 
-// 🔥 Run script
 createSuperAdmin();

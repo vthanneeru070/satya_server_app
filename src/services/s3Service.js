@@ -28,9 +28,48 @@ const s3Client = new S3Client({
   },
 });
 
-const buildPublicUrl = (key) => `https://${AWS_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com/${key}`;
-
 const sanitizeFolder = (folder = "general") => folder.replace(/^\/+|\/+$/g, "") || "general";
+
+/** Buckets with dots must use path-style URLs (virtual-hosted breaks SSL). */
+const usesPathStylePublicUrl = () =>
+  process.env.AWS_S3_PATH_STYLE === "true" ||
+  String(AWS_BUCKET_NAME || "").includes(".");
+
+const buildPublicUrl = (key) => {
+  const customBase = process.env.AWS_S3_PUBLIC_URL_BASE;
+  if (customBase) {
+    return `${String(customBase).replace(/\/+$/, "")}/${key}`;
+  }
+
+  if (usesPathStylePublicUrl()) {
+    return `https://s3.${AWS_REGION}.amazonaws.com/${AWS_BUCKET_NAME}/${key}`;
+  }
+
+  return `https://${AWS_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com/${key}`;
+};
+
+const extractKeyFromUrl = (fileUrl) => {
+  if (!fileUrl || typeof fileUrl !== "string") {
+    return null;
+  }
+
+  const prefixes = [];
+
+  const customBase = process.env.AWS_S3_PUBLIC_URL_BASE;
+  if (customBase) {
+    prefixes.push(`${String(customBase).replace(/\/+$/, "")}/`);
+  }
+
+  prefixes.push(`https://s3.${AWS_REGION}.amazonaws.com/${AWS_BUCKET_NAME}/`);
+  prefixes.push(`https://${AWS_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com/`);
+
+  const matched = prefixes.find((prefix) => fileUrl.startsWith(prefix));
+  if (!matched) {
+    return null;
+  }
+
+  return fileUrl.slice(matched.length);
+};
 
 const uploadFile = async (file, folder = "general") => {
   validateConfig();
@@ -52,19 +91,6 @@ const uploadFile = async (file, folder = "general") => {
 
   await s3Client.send(command);
   return buildPublicUrl(key);
-};
-
-const extractKeyFromUrl = (fileUrl) => {
-  if (!fileUrl || typeof fileUrl !== "string") {
-    return null;
-  }
-
-  const bucketUrlPrefix = `https://${AWS_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com/`;
-  if (!fileUrl.startsWith(bucketUrlPrefix)) {
-    return null;
-  }
-
-  return fileUrl.slice(bucketUrlPrefix.length);
 };
 
 const deleteFile = async (fileUrl) => {
