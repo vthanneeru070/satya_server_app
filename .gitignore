@@ -11,7 +11,7 @@ node_modules/
 .env.production.local
 
 # Firebase and service account secrets
-serviceAccountKey.json
+serviceAccountKey*.json
 *.pem
 *.key
 
