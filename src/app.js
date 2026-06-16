@@ -7,31 +7,30 @@ const uploadRoutes = require("./routes/uploadRoutes");
 const paymentWebhookRoutes = require("./routes/paymentWebhookRoutes");
 const paymentLandingRoutes = require("./routes/paymentLandingRoutes");
 const swaggerSpec = require("./config/swagger");
+const { corsOptions } = require("./config/cors");
 const requestLogger = require("./middleware/requestLogger");
 const rateLimiter = require("./middleware/rateLimiter");
 const notFound = require("./middleware/notFound");
 const errorHandler = require("./middleware/errorHandler");
 
+const BODY_LIMIT = process.env.REQUEST_BODY_LIMIT || "15mb";
+
 const app = express();
 
-// Render / reverse proxies: use X-Forwarded-For so rate limits are per client, not shared.
-// app.set("trust proxy", 1);
+// EC2 / nginx reverse proxy — needed for correct client IP and secure cookies.
+app.set("trust proxy", 1);
 
 app.use(helmet());
-app.use(
-  cors({
-    origin: '*',
-    credentials: true,
-  })
-);
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 // app.use(rateLimiter);
 
 // IMPORTANT: payment webhooks MUST receive the raw body so HMAC signatures can
 // be verified bit-for-bit against what Paystack sent. Mount BEFORE express.json().
 app.use("/api/v1/payments", paymentWebhookRoutes);
 
-app.use(express.json({ limit: "1mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: BODY_LIMIT }));
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use("/api/v1", routes);
