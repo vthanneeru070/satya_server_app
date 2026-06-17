@@ -20,9 +20,11 @@ const app = express();
 // EC2 / nginx reverse proxy — needed for correct client IP and secure cookies.
 app.set("trust proxy", 1);
 
-app.use(helmet());
+// CORS before helmet so preflight OPTIONS always gets ACAO headers first.
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
+
+app.use(helmet());
 // app.use(rateLimiter);
 
 // IMPORTANT: payment webhooks MUST receive the raw body so HMAC signatures can
