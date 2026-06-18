@@ -35,6 +35,7 @@ router.use("/auth", authRoutes);
 // are not swallowed by the generic admin router.
 router.use("/admin/replacements", replacementAdminRoutes);
 router.use("/admin/notifications", adminNotificationRoutes);
+router.use("/admin/ecommerce", require("./ecommerceAdminRoutes"));
 router.use("/admin", adminRoutes);
 router.use("/superadmin", superAdminRoutes);
 

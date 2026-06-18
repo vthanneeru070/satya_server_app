@@ -21,6 +21,7 @@ const CUSTOMER_INBOX_NOTIFY_STATUSES = new Set([
   ...Object.keys(ORDER_INBOX_TYPE_BY_STATUS),
 ]);
 const paystackService = require("./paystackService");
+const ecommerceSettingsService = require("./ecommerceSettingsService");
 
 const escapeRegex = (value) =>
   String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -246,7 +247,18 @@ const buildOrderPayload = async (userId, { items, useCart }) => {
     totalAmount += line.lineTotal;
   }
 
-  return { snapshots, totalAmount, currency };
+  return { snapshots, subtotal: totalAmount, currency };
+};
+
+const applyDeliveryToCheckout = async ({ snapshots, subtotal, currency }) => {
+  const totals = await ecommerceSettingsService.attachDeliveryTotals(subtotal, currency);
+  return {
+    snapshots,
+    subtotal: totals.subtotal,
+    deliveryCharge: totals.deliveryCharge,
+    totalAmount: totals.totalAmount,
+    currency: totals.currency,
+  };
 };
 
 const applyStockDeductionForOrder = async (order, session) => {
@@ -275,7 +287,7 @@ const applyStockDeductionForOrder = async (order, session) => {
 
 const persistOrder = async (
   userId,
-  { shippingAddress, snapshots, totalAmount, currency, paymentMethod, session }
+  { shippingAddress, snapshots, subtotal, deliveryCharge, totalAmount, currency, paymentMethod, session }
 ) => {
   const orderNumber = await nextOrderNumber(session);
   const [order] = await Order.create(
@@ -284,6 +296,8 @@ const persistOrder = async (
         orderNumber,
         user: userId,
         items: snapshots,
+        subtotal,
+        deliveryCharge,
         totalAmount,
         currency,
         paymentStatus: "PENDING",
@@ -311,14 +325,13 @@ const checkoutFromCart = async (userId, { shippingAddress } = {}) => {
   let order;
   try {
     await session.withTransaction(async () => {
-      const { snapshots, totalAmount, currency } = await buildOrderPayload(userId, {
+      const linePayload = await buildOrderPayload(userId, {
         useCart: true,
       });
+      const checkoutTotals = await applyDeliveryToCheckout(linePayload);
       order = await persistOrder(userId, {
         shippingAddress: addr,
-        snapshots,
-        totalAmount,
-        currency,
+        ...checkoutTotals,
         paymentMethod: "PAYSTACK",
         session,
       });
@@ -348,15 +361,14 @@ const createOrder = async (
   let order;
   try {
     await session.withTransaction(async () => {
-      const { snapshots, totalAmount, currency } = await buildOrderPayload(userId, {
+      const linePayload = await buildOrderPayload(userId, {
         items,
         useCart: !items?.length && useCart,
       });
+      const checkoutTotals = await applyDeliveryToCheckout(linePayload);
       order = await persistOrder(userId, {
         shippingAddress: addr,
-        snapshots,
-        totalAmount,
-        currency,
+        ...checkoutTotals,
         paymentMethod,
         session,
       });
