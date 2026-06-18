@@ -191,6 +191,7 @@ router.get(
  *       - in: query
  *         name: search
  *         schema: { type: string }
+ *         description: Matches product name (title) or category (ayurvedic, pujakit, book)
  *     responses:
  *       200: { description: All products fetched successfully }
  *       401: { description: Unauthorized }

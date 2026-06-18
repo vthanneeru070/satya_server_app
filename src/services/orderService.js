@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const Order = require("../models/Order");
 const User = require("../models/User");
+const Payment = require("../models/Payment");
 const Cart = require("../models/Cart");
 const Product = require("../models/Product");
 const Counter = require("../models/Counter");
@@ -20,6 +21,61 @@ const CUSTOMER_INBOX_NOTIFY_STATUSES = new Set([
   ...Object.keys(ORDER_INBOX_TYPE_BY_STATUS),
 ]);
 const paystackService = require("./paystackService");
+
+const escapeRegex = (value) =>
+  String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const buildOrderSearchFilter = async (searchTerm) => {
+  const trimmed = String(searchTerm || "").trim();
+  if (!trimmed) return null;
+
+  const safe = escapeRegex(trimmed);
+  const orClauses = [
+    { orderNumber: { $regex: safe, $options: "i" } },
+    { paystackReference: { $regex: safe, $options: "i" } },
+    { transactionId: { $regex: safe, $options: "i" } },
+    { originalPaystackReference: { $regex: safe, $options: "i" } },
+    { originalTransactionId: { $regex: safe, $options: "i" } },
+  ];
+
+  if (/^[a-f0-9]{24}$/i.test(trimmed)) {
+    orClauses.push({ _id: trimmed });
+  }
+
+  const [matchingUsers, matchingPayments] = await Promise.all([
+    User.find({
+      $or: [
+        { fullName: { $regex: safe, $options: "i" } },
+        { email: { $regex: safe, $options: "i" } },
+      ],
+    })
+      .select("_id")
+      .lean(),
+    Payment.find({
+      paymentFor: "ORDER",
+      isDeleted: { $ne: true },
+      order: { $ne: null },
+      $or: [
+        { reference: { $regex: safe, $options: "i" } },
+        { transactionId: { $regex: safe, $options: "i" } },
+        { paymentId: { $regex: safe, $options: "i" } },
+      ],
+    })
+      .select("order")
+      .lean(),
+  ]);
+
+  if (matchingUsers.length) {
+    orClauses.push({ user: { $in: matchingUsers.map((u) => u._id) } });
+  }
+
+  const paymentOrderIds = matchingPayments.map((p) => p.order).filter(Boolean);
+  if (paymentOrderIds.length) {
+    orClauses.push({ _id: { $in: paymentOrderIds } });
+  }
+
+  return { $or: orClauses };
+};
 
 const ORDER_STATUS_TRANSITIONS = {
   PLACED: new Set(["PROCESSING", "CANCELLED"]),
@@ -353,7 +409,8 @@ const listAllOrders = async (query = {}) => {
   if (query.paymentStatus) filter.paymentStatus = query.paymentStatus;
   if (query.user) filter.user = query.user;
   if (query.search) {
-    filter.orderNumber = { $regex: String(query.search).trim(), $options: "i" };
+    const searchFilter = await buildOrderSearchFilter(query.search);
+    if (searchFilter) Object.assign(filter, searchFilter);
   }
 
   const [orders, total] = await Promise.all([

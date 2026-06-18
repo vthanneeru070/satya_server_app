@@ -45,6 +45,10 @@ router.use(authenticate, adminMiddleware);
  *         schema:
  *           type: string
  *           enum: [REQUESTED, APPROVED, REJECTED, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *         description: Matches requestNumber, request _id, orderNumber, order _id, user fullName, or user email
  *     responses:
  *       200: { description: OK }
  */

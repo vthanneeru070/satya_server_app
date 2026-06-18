@@ -6,6 +6,20 @@ const { usesProductQuantity } = require("../validations/productValidation");
 
 const notDeleted = { isDeleted: { $ne: true } };
 
+const escapeRegex = (value) =>
+  String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const findMatchingInventoryCategoryCodes = (searchTerm) => {
+  const needle = String(searchTerm || "").trim().toLowerCase();
+  if (!needle) return [];
+
+  return inventoryMaster.categories.INVENTORY_CATEGORIES.filter(
+    (row) =>
+      row.code.toLowerCase().includes(needle) ||
+      row.label.toLowerCase().includes(needle)
+  ).map((row) => row.code);
+};
+
 const slugify = (input) =>
   String(input || "")
     .toLowerCase()
@@ -506,11 +520,20 @@ const listInventoryItems = async (query = {}) => {
   if (query.status) filter.status = query.status;
   if (query.category) filter.category = query.category;
   if (query.search) {
-    const safe = String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    filter.$or = [
+    const trimmed = String(query.search).trim();
+    const safe = escapeRegex(trimmed);
+    const orClauses = [
       { name: { $regex: safe, $options: "i" } },
       { description: { $regex: safe, $options: "i" } },
+      { category: { $regex: safe, $options: "i" } },
     ];
+
+    const matchingCategoryCodes = findMatchingInventoryCategoryCodes(trimmed);
+    if (matchingCategoryCodes.length) {
+      orClauses.push({ category: { $in: matchingCategoryCodes } });
+    }
+
+    filter.$or = orClauses;
   }
   const lowStock = query.lowStock === true || query.lowStock === "true";
   if (lowStock) {

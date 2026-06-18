@@ -20,10 +20,6 @@ const errorHandler = (err, _req, res, _next) => {
     return sendError(res, err.message, 400);
   }
 
-  if (err?.message?.startsWith("CORS blocked for origin:")) {
-    return sendError(res, err.message, 403);
-  }
-
   const statusCode = err.statusCode || 500;
   const message = err.message || "Internal server error";
 

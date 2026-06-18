@@ -1,15 +1,13 @@
 const DEFAULT_ORIGINS = [
   "https://admin-test.sathya.co.za",
-  "https://admin-test.satya.co.za",
-  "https://admin.sathya.co.za",
   "https://admin.sathya.co.za",
   "http://localhost:3000",
   "http://localhost:8080",
 ];
 
-/** https://admin-test.sathya.co.za, https://admin.sathya.co.za, etc. (both spellings) */
+/** https://admin-test.sathya.co.za, https://admin.sathya.co.za, etc. */
 const SATYA_ORIGIN_PATTERN =
-  /^https:\/\/([a-z0-9-]+\.)*(satya|sathya)\.co\.za$/i;
+  /^https:\/\/([a-z0-9-]+\.)*satya\.co\.za$/i;
 
 const LOCALHOST_ORIGIN_PATTERN = /^http:\/\/localhost(:\d+)?$/i;
 
@@ -54,7 +52,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  // Omit allowedHeaders so cors reflects Access-Control-Request-Headers from the client.
+  allowedHeaders: ["Content-Type", "Authorization", "Accept", "X-Requested-With"],
   optionsSuccessStatus: 204,
   maxAge: 86400,
 };

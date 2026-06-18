@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const ReplacementRequest = require("../models/ReplacementRequest");
 const Order = require("../models/Order");
+const User = require("../models/User");
 const Counter = require("../models/Counter");
 const HttpError = require("../utils/httpError");
 const orderService = require("./orderService");
@@ -9,6 +10,54 @@ const fcmReplacementNotifyService = require("./fcmReplacementNotifyService");
 const adminNotificationService = require("./adminNotificationService");
 
 const notDeleted = { isDeleted: { $ne: true } };
+
+const escapeRegex = (value) =>
+  String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const buildReplacementSearchFilter = async (searchTerm) => {
+  const trimmed = String(searchTerm || "").trim();
+  if (!trimmed) return null;
+
+  const safe = escapeRegex(trimmed);
+  const orClauses = [{ requestNumber: { $regex: safe, $options: "i" } }];
+
+  if (/^[a-f0-9]{24}$/i.test(trimmed)) {
+    orClauses.push({ _id: trimmed });
+  }
+
+  const orderOrClauses = [{ orderNumber: { $regex: safe, $options: "i" } }];
+  if (/^[a-f0-9]{24}$/i.test(trimmed)) {
+    orderOrClauses.push({ _id: trimmed });
+  }
+
+  const [matchingUsers, matchingOrders] = await Promise.all([
+    User.find({
+      $or: [
+        { fullName: { $regex: safe, $options: "i" } },
+        { email: { $regex: safe, $options: "i" } },
+      ],
+    })
+      .select("_id")
+      .lean(),
+    Order.find({
+      isDeleted: { $ne: true },
+      $or: orderOrClauses,
+    })
+      .select("_id")
+      .lean(),
+  ]);
+
+  if (matchingUsers.length) {
+    orClauses.push({ user: { $in: matchingUsers.map((u) => u._id) } });
+  }
+
+  const orderIds = matchingOrders.map((o) => o._id);
+  if (orderIds.length) {
+    orClauses.push({ order: { $in: orderIds } }, { replacementOrder: { $in: orderIds } });
+  }
+
+  return { $or: orClauses };
+};
 
 /** ReplacementRequest rows that block opening another request for the same order. */
 const BLOCKING_REPLACEMENT_REQUEST_STATUSES = [
@@ -203,6 +252,10 @@ const listAllForAdmin = async (q = {}) => {
   const skip = (page - 1) * limit;
   const filter = { ...notDeleted };
   if (q.status) filter.status = q.status;
+  if (q.search) {
+    const searchFilter = await buildReplacementSearchFilter(q.search);
+    if (searchFilter) Object.assign(filter, searchFilter);
+  }
 
   const [items, total] = await Promise.all([
     ReplacementRequest.find(filter)
