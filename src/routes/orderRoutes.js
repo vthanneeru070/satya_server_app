@@ -171,7 +171,7 @@ router.get(
  *         schema: { type: string, description: User ObjectId }
  *       - in: query
  *         name: search
- *         schema: { type: string, description: Substring match against orderNumber }
+ *         schema: { type: string, description: Matches orderNumber, order _id, paystackReference, transactionId, Payment reference, or user fullName / email }
  *     responses:
  *       200: { description: Orders fetched successfully }
  *       403: { description: Admin role required }

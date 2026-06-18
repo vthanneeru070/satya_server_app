@@ -11,6 +11,43 @@ const {
   resolveProductQuantityInput,
 } = require("../validations/productValidation");
 
+const PRODUCT_CATEGORY_LABELS = {
+  ayurvedic: "Ayurvedic",
+  pujakit: "Pooja Kit",
+  book: "Book",
+};
+
+const escapeRegex = (value) =>
+  String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const findMatchingProductCategories = (searchTerm) => {
+  const needle = String(searchTerm || "").trim().toLowerCase();
+  if (!needle) return [];
+
+  return PRODUCT_CATEGORIES.filter((code) => {
+    const label = PRODUCT_CATEGORY_LABELS[code] || code;
+    return code.includes(needle) || label.toLowerCase().includes(needle);
+  });
+};
+
+const buildProductSearchFilter = (searchTerm) => {
+  const trimmed = String(searchTerm || "").trim();
+  if (!trimmed) return null;
+
+  const safe = escapeRegex(trimmed);
+  const orClauses = [
+    { title: { $regex: safe, $options: "i" } },
+    { category: { $regex: safe, $options: "i" } },
+  ];
+
+  const matchingCategories = findMatchingProductCategories(trimmed);
+  if (matchingCategories.length) {
+    orClauses.push({ category: { $in: matchingCategories } });
+  }
+
+  return { $or: orClauses };
+};
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const slugify = (input) =>
@@ -464,8 +501,7 @@ const buildListFilter = (query, viewer) => {
   }
 
   if (query.search) {
-    const safe = String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    filter.title = { $regex: safe, $options: "i" };
+    Object.assign(filter, buildProductSearchFilter(query.search) || {});
   }
 
   return filter;
@@ -540,8 +576,7 @@ const listAllProducts = async (query = {}) => {
   if (query.status) filter.status = query.status;
   if (query.productStatus) filter.productStatus = query.productStatus;
   if (query.search) {
-    const safe = String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    filter.title = { $regex: safe, $options: "i" };
+    Object.assign(filter, buildProductSearchFilter(query.search) || {});
   }
   return paginatedFind(filter, query);
 };
@@ -556,8 +591,7 @@ const listMyProducts = async (userId, query = {}) => {
   if (query.status) filter.status = query.status;
   if (query.productStatus) filter.productStatus = query.productStatus;
   if (query.search) {
-    const safe = String(query.search).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    filter.title = { $regex: safe, $options: "i" };
+    Object.assign(filter, buildProductSearchFilter(query.search) || {});
   }
   return paginatedFind(filter, query);
 };

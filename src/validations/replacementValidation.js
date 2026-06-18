@@ -27,6 +27,7 @@ const adminListReplacementQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(20),
   status: Joi.string().valid(...REPLACEMENT_REQUEST_STATUSES).optional(),
+  search: Joi.string().trim().max(120).optional(),
 });
 
 const adminDecideReplacementSchema = Joi.object({
