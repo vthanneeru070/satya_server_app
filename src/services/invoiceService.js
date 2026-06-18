@@ -420,7 +420,7 @@ const drawProductRow = (doc, line, imageBuffer) => {
   doc.y = rowTop + rowHeight;
 };
 
-const drawTotals = (doc, { subtotal, total }) => {
+const drawTotals = (doc, { subtotal, deliveryCharge = 0, total }) => {
   let y = doc.y + 12;
   const labelX = COL_X.price;
   const valueX = COL_X.total;
@@ -435,6 +435,9 @@ const drawTotals = (doc, { subtotal, total }) => {
   };
 
   drawRow("Sub-Total", formatZar(subtotal));
+  if (Number(deliveryCharge) > 0) {
+    drawRow("Delivery Charge", formatZar(deliveryCharge));
+  }
   drawRow("Total", formatZar(total), true);
   doc.y = y;
 };
@@ -471,6 +474,32 @@ const enrichOrderItems = (orderItems, productDetails) =>
     };
   });
 
+const resolveInvoiceTotals = (order, itemsSubtotal) => {
+  const linesSubtotal = Math.round(Number(itemsSubtotal) * 100) / 100;
+  const storedSubtotal = Number(order?.subtotal);
+  const storedDelivery = Number(order?.deliveryCharge);
+  const storedTotal = Number(order?.totalAmount);
+
+  const subtotal =
+    Number.isFinite(storedSubtotal) && storedSubtotal > 0
+      ? Math.round(storedSubtotal * 100) / 100
+      : linesSubtotal;
+
+  let deliveryCharge = 0;
+  if (Number.isFinite(storedDelivery) && storedDelivery >= 0) {
+    deliveryCharge = Math.round(storedDelivery * 100) / 100;
+  } else if (Number.isFinite(storedTotal) && storedTotal > subtotal) {
+    deliveryCharge = Math.round((storedTotal - subtotal) * 100) / 100;
+  }
+
+  const total =
+    Number.isFinite(storedTotal) && storedTotal > 0
+      ? Math.round(storedTotal * 100) / 100
+      : Math.round((subtotal + deliveryCharge) * 100) / 100;
+
+  return { subtotal, deliveryCharge, total };
+};
+
 /**
  * Build an OpenCart-style order invoice PDF buffer.
  */
@@ -494,11 +523,11 @@ const buildInvoicePdf = async ({
     items.map((line) => loadImageBuffer(line.imageUrl))
   );
 
-  const subtotal = items.reduce(
+  const itemsSubtotal = items.reduce(
     (sum, line) => sum + Number(line.lineTotal || 0),
     0
   );
-  const total = Number(order.totalAmount) > 0 ? Number(order.totalAmount) : subtotal;
+  const { subtotal, deliveryCharge, total } = resolveInvoiceTotals(order, itemsSubtotal);
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "A4", margin: MARGIN });
@@ -527,7 +556,7 @@ const buildInvoicePdf = async ({
       doc.addPage();
     }
 
-    drawTotals(doc, { subtotal, total });
+    drawTotals(doc, { subtotal, deliveryCharge, total });
     drawInvoiceFooter(doc);
 
     doc.end();
@@ -585,5 +614,5 @@ const generateInvoice = async (order) => {
 module.exports = {
   generateInvoice,
   nextInvoiceNumber,
-  _internal: { buildInvoicePdf, formatZar, formatInvoiceDate },
+  _internal: { buildInvoicePdf, formatZar, formatInvoiceDate, resolveInvoiceTotals },
 };
