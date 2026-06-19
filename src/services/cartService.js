@@ -2,6 +2,7 @@ const Cart = require("../models/Cart");
 const Product = require("../models/Product");
 const HttpError = require("../utils/httpError");
 const inventoryService = require("./inventoryService");
+const ecommerceSettingsService = require("./ecommerceSettingsService");
 const { usesProductQuantity } = require("../validations/productValidation");
 
 const getOrCreateCart = async (userId) => {
@@ -51,14 +52,16 @@ const unitPrice = (product) =>
  */
 const serializeCart = async (cart) => {
   if (!cart || cart.items.length === 0) {
+    const totals = await ecommerceSettingsService.attachDeliveryTotals(
+      cart?.totalAmount || 0,
+      cart?.currency || "ZAR"
+    );
     return {
       _id: cart?._id || null,
       user: cart?.user || null,
       items: [],
       itemCount: 0,
-      totalAmount: cart?.totalAmount || 0,
-      subtotal: cart?.totalAmount || 0,
-      currency: cart?.currency || "ZAR",
+      ...totals,
       updatedAt: cart?.updatedAt || null,
     };
   }
@@ -112,14 +115,17 @@ const serializeCart = async (cart) => {
     await cart.save();
   }
 
+  const totals = await ecommerceSettingsService.attachDeliveryTotals(
+    cart.totalAmount,
+    currency
+  );
+
   return {
     _id: cart._id,
     user: cart.user,
     items: lineItems,
     itemCount: lineItems.reduce((sum, l) => sum + l.quantity, 0),
-    totalAmount: cart.totalAmount,
-    subtotal: cart.totalAmount,
-    currency,
+    ...totals,
     updatedAt: cart.updatedAt,
   };
 };

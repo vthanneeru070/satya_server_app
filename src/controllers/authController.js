@@ -376,6 +376,16 @@ const editProfile = async (req, res, next) => {
   }
 };
 
+/** Remove uploaded profile image (and clear OAuth avatar fallback). */
+const removeProfileImage = async (req, res, next) => {
+  try {
+    const data = await userProfileService.removeProfileImage(req.user.userId);
+    return sendSuccess(res, data, "Profile picture removed successfully");
+  } catch (error) {
+    return next(error);
+  }
+};
+
 /** Soft-delete account (requires comment) and revoke refresh tokens. */
 const deleteAccount = async (req, res, next) => {
   try {
@@ -394,5 +404,6 @@ module.exports = {
   getProfile,
   createProfile,
   editProfile,
+  removeProfileImage,
   deleteAccount,
 };

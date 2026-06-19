@@ -10,6 +10,7 @@ const {
   getProfile,
   createProfile,
   editProfile,
+  removeProfileImage,
   deleteAccount,
 } = require("../controllers/authController");
 const {
@@ -251,6 +252,34 @@ router.patch(
   validate(updateProfileSchema),
   editProfile
 );
+
+/**
+ * @swagger
+ * /auth/profile/image:
+ *   delete:
+ *     summary: Remove profile picture
+ *     description: |
+ *       Deletes the user's uploaded S3 profile image and clears the OAuth avatar URL.
+ *       Returns 404 if the user has no profile picture.
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Profile picture removed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { $ref: "#/components/schemas/UserProfilePayload" }
+ *       404:
+ *         description: No profile picture to remove
+ *       403:
+ *         description: Admin accounts cannot use this endpoint
+ */
+router.delete("/profile/image", authenticate, removeProfileImage);
 
 /**
  * @swagger

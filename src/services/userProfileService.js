@@ -186,6 +186,30 @@ const getProfile = async (userId) => {
   return { user: payload, isRegistered: payload.isRegistered, streak };
 };
 
+const removeProfileImage = async (userId) => {
+  const user = await loadUser(userId);
+  const hadUploaded = Boolean(toTrimmedOrNull(user.profileImageUrl));
+  const hadOAuth = Boolean(toTrimmedOrNull(user.photoUrl));
+
+  if (!hadUploaded && !hadOAuth) {
+    throw new HttpError("No profile picture to remove", 404);
+  }
+
+  if (hadUploaded) {
+    await deleteFile(user.profileImageUrl).catch(() => {});
+    user.profileImageUrl = null;
+  }
+
+  if (hadOAuth) {
+    user.photoUrl = null;
+  }
+
+  user.lastActiveAt = new Date();
+  await user.save();
+
+  return formatProfileResponse(user);
+};
+
 const deleteAccount = async (userId, { refreshToken, comment } = {}) => {
   const user = await loadUser(userId);
 
@@ -294,6 +318,7 @@ module.exports = {
   createProfile,
   editProfile,
   getProfile,
+  removeProfileImage,
   deleteAccount,
   markProfileRegistered,
   formatProfileResponse,

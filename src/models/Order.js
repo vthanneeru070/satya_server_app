@@ -146,6 +146,19 @@ const orderSchema = new mongoose.Schema(
       min: 0,
     },
 
+    /** Product lines total before delivery charge */
+    subtotal: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    deliveryCharge: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
     currency: {
       type: String,
       default: "ZAR",
