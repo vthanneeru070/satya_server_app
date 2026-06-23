@@ -148,8 +148,10 @@ const adminInitiateRefund = async (req, res, next) => {
         ? "Refund processed successfully"
         : result.refund.outcome === "PENDING"
           ? result.refund.manual
-            ? "Refund initiated — complete in PayFast merchant portal"
-            : "Refund initiated — awaiting gateway confirmation"
+            ? result.refund.apiAttempted
+              ? "PayFast API refund unavailable in sandbox — complete in PayFast merchant portal"
+              : "Refund initiated — complete in PayFast merchant portal"
+            : "Refund initiated via PayFast — awaiting gateway confirmation"
           : "Refund failed — see order.refund.lastError";
     return sendSuccess(res, result, msg);
   } catch (error) {

@@ -800,27 +800,6 @@ const attemptGatewayRefund = async (
   if (paymentMethod === "PAYFAST") {
     const pfConfig = payfastService.readConfig();
 
-    if (pfConfig.sandbox) {
-      order.refund = {
-        ...(order.refund || {}),
-        status: "PENDING",
-        paystackRefundId: "",
-        amount: order.totalAmount,
-        currency: order.currency,
-        attemptedAt: new Date(),
-        processedAt: null,
-        lastError: "",
-        manualNote:
-          "PayFast REST refunds are not available in sandbox. Complete the refund in the PayFast sandbox merchant portal, then mark the order REFUNDED.",
-      };
-      if (refundAudit) mergeRefundAudit(order, refundAudit);
-      return {
-        outcome: "PENDING",
-        manual: true,
-        error: null,
-      };
-    }
-
     const pfPaymentId = await resolvePayfastPaymentId(order);
     if (!pfPaymentId) {
       if (refundAudit) mergeRefundAudit(order, refundAudit);
@@ -828,6 +807,7 @@ const attemptGatewayRefund = async (
         outcome: "FAILED",
         error:
           "Order has no PayFast transaction id (pf_payment_id). Cannot auto-refund via API.",
+        apiAttempted: false,
       };
     }
 
@@ -877,9 +857,43 @@ const attemptGatewayRefund = async (
         manualNote: "",
       };
       if (refundAudit) mergeRefundAudit(order, refundAudit);
-      return { outcome: isTerminalSuccess ? "REFUNDED" : "PENDING", manual: false };
+      return {
+        outcome: isTerminalSuccess ? "REFUNDED" : "PENDING",
+        manual: false,
+        apiAttempted: true,
+        payfastEnvironment: pfConfig.sandbox ? "sandbox" : "live",
+      };
     } catch (err) {
       const message = err?.message || String(err);
+      console.error(
+        "[orderService] PayFast createRefund failed:",
+        message,
+        pfConfig.sandbox ? "(sandbox)" : "(live)"
+      );
+
+      if (pfConfig.sandbox) {
+        order.refund = {
+          ...(order.refund || {}),
+          status: "PENDING",
+          paystackRefundId: "",
+          amount: order.totalAmount,
+          currency: order.currency,
+          attemptedAt: new Date(),
+          processedAt: null,
+          lastError: message.slice(0, 500),
+          manualNote:
+            "PayFast sandbox REST refund failed or is unavailable. Complete the refund in the PayFast sandbox merchant portal, then mark the order REFUNDED.",
+        };
+        if (refundAudit) mergeRefundAudit(order, refundAudit);
+        return {
+          outcome: "PENDING",
+          manual: true,
+          apiAttempted: true,
+          error: message,
+          payfastEnvironment: "sandbox",
+        };
+      }
+
       order.refund = {
         ...(order.refund || {}),
         status: "FAILED",
@@ -889,7 +903,7 @@ const attemptGatewayRefund = async (
           "PayFast API refund failed. Complete manually in the PayFast merchant portal if needed.",
       };
       if (refundAudit) mergeRefundAudit(order, refundAudit);
-      return { outcome: "FAILED", error: message };
+      return { outcome: "FAILED", error: message, apiAttempted: true };
     }
   }
 
@@ -1243,7 +1257,10 @@ const adminInitiateRefund = async (
     refund: {
       outcome: refundOutcome.outcome,
       manual: refundOutcome.manual || false,
+      apiAttempted: refundOutcome.apiAttempted ?? false,
+      payfastEnvironment: refundOutcome.payfastEnvironment || null,
       error: refundOutcome.error || null,
+      manualNote: order.refund?.manualNote || "",
       paystackRefundId: order.refund?.paystackRefundId || null,
     },
   };
