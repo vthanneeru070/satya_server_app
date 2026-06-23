@@ -21,6 +21,7 @@ const CUSTOMER_INBOX_NOTIFY_STATUSES = new Set([
   ...Object.keys(ORDER_INBOX_TYPE_BY_STATUS),
 ]);
 const paystackService = require("./paystackService");
+const payfastService = require("./payfastService");
 const ecommerceSettingsService = require("./ecommerceSettingsService");
 
 const escapeRegex = (value) =>
@@ -764,8 +765,31 @@ const confirmDelivery = async (id, userId, { satisfied, feedback = "" } = {}) =>
  * Restocks items if inventory was deducted; sets paymentStatus from Paystack outcome.
  */
 /**
- * Attempt a gateway refund for a paid order. Paystack uses the API; PayFast
- * refunds are processed manually in the merchant portal.
+ * Resolve PayFast pf_payment_id from order or linked Payment record.
+ */
+const resolvePayfastPaymentId = async (order) => {
+  const fromOrder = order?.transactionId ? String(order.transactionId).trim() : "";
+  if (fromOrder) return fromOrder;
+
+  const payment = await Payment.findOne({
+    order: order._id,
+    gateway: "PAYFAST",
+    status: "SUCCESS",
+    isDeleted: { $ne: true },
+  })
+    .select("paymentId transactionId")
+    .lean();
+
+  return (
+    (payment?.paymentId ? String(payment.paymentId).trim() : "") ||
+    (payment?.transactionId ? String(payment.transactionId).trim() : "") ||
+    null
+  );
+};
+
+/**
+ * Attempt a gateway refund for a paid order.
+ * PayFast uses the REST Refunds API (live); sandbox falls back to manual portal refund.
  */
 const attemptGatewayRefund = async (
   order,
@@ -774,24 +798,99 @@ const attemptGatewayRefund = async (
   const paymentMethod = String(order.paymentMethod || "PAYFAST").toUpperCase();
 
   if (paymentMethod === "PAYFAST") {
-    order.refund = {
-      ...(order.refund || {}),
-      status: "PENDING",
-      paystackRefundId: "",
-      amount: order.totalAmount,
-      currency: order.currency,
-      attemptedAt: new Date(),
-      processedAt: null,
-      lastError: "",
-      manualNote:
-        "PayFast refund must be completed in the PayFast merchant portal, then mark order REFUNDED.",
-    };
-    if (refundAudit) mergeRefundAudit(order, refundAudit);
-    return {
-      outcome: "PENDING",
-      manual: true,
-      error: null,
-    };
+    const pfConfig = payfastService.readConfig();
+
+    if (pfConfig.sandbox) {
+      order.refund = {
+        ...(order.refund || {}),
+        status: "PENDING",
+        paystackRefundId: "",
+        amount: order.totalAmount,
+        currency: order.currency,
+        attemptedAt: new Date(),
+        processedAt: null,
+        lastError: "",
+        manualNote:
+          "PayFast REST refunds are not available in sandbox. Complete the refund in the PayFast sandbox merchant portal, then mark the order REFUNDED.",
+      };
+      if (refundAudit) mergeRefundAudit(order, refundAudit);
+      return {
+        outcome: "PENDING",
+        manual: true,
+        error: null,
+      };
+    }
+
+    const pfPaymentId = await resolvePayfastPaymentId(order);
+    if (!pfPaymentId) {
+      if (refundAudit) mergeRefundAudit(order, refundAudit);
+      return {
+        outcome: "FAILED",
+        error:
+          "Order has no PayFast transaction id (pf_payment_id). Cannot auto-refund via API.",
+      };
+    }
+
+    const refundReason = reason
+      ? String(reason).slice(0, 255)
+      : "Admin-initiated refund";
+
+    try {
+      await payfastService.queryRefund(pfPaymentId).catch((err) => {
+        console.warn(
+          "[orderService] PayFast refund query failed (continuing):",
+          err?.message || err
+        );
+      });
+
+      const refundData = await payfastService.createRefund(pfPaymentId, {
+        amountInMajor: order.totalAmount,
+        reason: refundReason,
+        notifyBuyer: true,
+        notifyMerchant: false,
+      });
+
+      const responsePayload = refundData?.data?.response;
+      const refundStatus = String(
+        (typeof responsePayload === "object" && responsePayload?.status) ||
+          refundData?.data?.status ||
+          "pending"
+      ).toLowerCase();
+      const refundId =
+        (typeof responsePayload === "object" &&
+          (responsePayload?.refund_id || responsePayload?.id)) ||
+        refundData?.data?.refund_id ||
+        "";
+      const isTerminalSuccess = ["completed", "processed", "success"].includes(
+        refundStatus
+      );
+
+      order.refund = {
+        ...(order.refund || {}),
+        status: isTerminalSuccess ? "PROCESSED" : "PENDING",
+        paystackRefundId: refundId != null ? String(refundId) : "",
+        amount: order.totalAmount,
+        currency: order.currency,
+        attemptedAt: new Date(),
+        processedAt: isTerminalSuccess ? new Date() : null,
+        lastError: "",
+        manualNote: "",
+      };
+      if (refundAudit) mergeRefundAudit(order, refundAudit);
+      return { outcome: isTerminalSuccess ? "REFUNDED" : "PENDING", manual: false };
+    } catch (err) {
+      const message = err?.message || String(err);
+      order.refund = {
+        ...(order.refund || {}),
+        status: "FAILED",
+        attemptedAt: new Date(),
+        lastError: message.slice(0, 500),
+        manualNote:
+          "PayFast API refund failed. Complete manually in the PayFast merchant portal if needed.",
+      };
+      if (refundAudit) mergeRefundAudit(order, refundAudit);
+      return { outcome: "FAILED", error: message };
+    }
   }
 
   if (!order.paystackReference) {
@@ -1094,12 +1193,12 @@ const adminInitiateRefund = async (
   const trimmedAdminNote = String(adminNote || "").trim().slice(0, 2000);
   const refundedBy = await buildRefundedBy(actorUserId);
   const parts = [trimmedAdminNote, trimmedReason].filter(Boolean);
-  const paystackNote = parts.length
+  const refundNote = parts.length
     ? `Admin refund — ${parts.join(" — ")}`.slice(0, 300)
     : "Admin-initiated refund";
 
-  const refundOutcome = await attemptPaystackRefund(order, {
-    reason: paystackNote,
+  const refundOutcome = await attemptGatewayRefund(order, {
+    reason: refundNote,
     refundAudit: {
       reason: trimmedReason,
       adminNote: trimmedAdminNote,
@@ -1117,11 +1216,11 @@ const adminInitiateRefund = async (
 
   const refundNoteBase =
     refundOutcome.outcome === "REFUNDED"
-      ? `Admin refund processed (${order.refund?.paystackRefundId || "gateway"})`
+      ? `Admin PayFast refund processed (${order.refund?.paystackRefundId || "gateway"})`
       : refundOutcome.outcome === "PENDING"
         ? refundOutcome.manual
-          ? "Admin refund initiated — complete in PayFast merchant portal"
-          : "Admin refund initiated, awaiting gateway confirmation"
+          ? "Admin refund initiated — complete in PayFast merchant portal (sandbox)"
+          : "Admin PayFast refund initiated, awaiting gateway confirmation"
         : `Admin refund FAILED: ${refundOutcome.error || "unknown"} — settle manually`;
 
   appendHistory(
@@ -1193,6 +1292,7 @@ module.exports = {
   confirmDelivery,
   adminCancelOrder,
   adminInitiateRefund,
+  attemptGatewayRefund,
   attemptPaystackRefund,
   _internal: {
     nextOrderNumber,

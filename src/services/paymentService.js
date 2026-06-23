@@ -704,8 +704,14 @@ const settlePaymentInTransaction = async ({
 
 /**
  * Server-side verify by payment reference. Idempotent for both ORDER and
- * DONATION payments. PayFast relies on ITN for settlement; this endpoint returns
- * the current DB state or verifies legacy Paystack transactions via API.
+ * DONATION payments.
+ *
+ * PayFast:
+ *   1. Process ITN/return payload when the client includes PayFast fields (validates
+ *      with PayFast eng/query/validate — not DB-only).
+ *   2. Poll local DB briefly for ITN settlement.
+ *   3. If still pending, query PayFast Transaction History API (merchant dashboard
+ *      data) by m_payment_id and settle when found.
  */
 const verifyPaymentByReference = async (
   reference,
@@ -741,6 +747,80 @@ const verifyPaymentByReference = async (
 
     if (!payment) {
       throw new HttpError("No payment record matches this reference", 404);
+    }
+
+    if (payment.status === "PENDING") {
+      try {
+        const lookup = await payfastService.lookupTransactionByMerchantPaymentId(
+          reference,
+          {
+            fromDate: payment.createdAt,
+            expectedAmountMajor: payment.amount,
+          }
+        );
+
+        if (lookup.found && lookup.status === "success") {
+          const gatewayData = normalizeGatewayData("PAYFAST", lookup.data);
+          const gatewayStatus = gatewayData.status;
+
+          const session = await mongoose.startSession();
+          let out;
+          let shouldNotify = false;
+
+          try {
+            await session.withTransaction(async () => {
+              const lockedPayment = await Payment.findOne({
+                reference,
+                isDeleted: { $ne: true },
+              }).session(session);
+              if (!lockedPayment) {
+                throw new HttpError("No payment record matches this reference", 404);
+              }
+
+              lockedPayment.response = {
+                ...(lockedPayment.response || {}),
+                payfastHistoryLookup: lookup.row,
+              };
+
+              const r = await settlePaymentInTransaction({
+                payment: lockedPayment,
+                gatewayData,
+                gatewayStatus,
+                session,
+                userId,
+                isAdmin,
+              });
+              shouldNotify = r.shouldNotify;
+              if (kind === "DONATION") {
+                out = {
+                  payment: r.payment,
+                  contribution: r.contribution,
+                  status: r.status,
+                  alreadyPaid: r.alreadyPaid,
+                  verifiedVia: "payfast-transaction-history",
+                };
+              } else {
+                out = {
+                  payment: r.payment,
+                  order: r.order,
+                  status: r.status,
+                  alreadyPaid: r.alreadyPaid,
+                  verifiedVia: "payfast-transaction-history",
+                };
+              }
+            });
+          } finally {
+            await session.endSession();
+          }
+
+          return finalizeVerifiedPayment(out, { shouldNotify, kind, reference });
+        }
+      } catch (err) {
+        console.warn(
+          "[paymentService] PayFast transaction-history verify failed:",
+          err?.message || err
+        );
+      }
     }
 
     return buildPayfastVerifyResult(payment, kind);

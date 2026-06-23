@@ -23,6 +23,8 @@ const PAYFAST_HOSTS = {
   sandbox: "sandbox.payfast.co.za",
 };
 
+const PAYFAST_API_BASE = "https://api.payfast.co.za";
+
 const VALID_NOTIFY_HOSTS = [
   "www.payfast.co.za",
   "w1w.payfast.co.za",
@@ -342,6 +344,313 @@ const processItnNotification = async (
   return { valid: true, data: normalizeItnPayload(posted) };
 };
 
+// ── REST API (refunds, subscriptions, …) ───────────────────────────────────
+
+const phpUrlEncode = (value) =>
+  encodeURIComponent(String(value)).replace(/%20/g, "+");
+
+/** Matches PayFast PHP SDK `date("Y-m-d\TH:i:sO")` e.g. 2026-06-23T11:02:00+0200 */
+const formatApiTimestamp = (date = new Date()) => {
+  const pad = (n) => String(n).padStart(2, "0");
+  const offsetMinutes = -date.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const abs = Math.abs(offsetMinutes);
+  const hours = pad(Math.floor(abs / 60));
+  const mins = pad(abs % 60);
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}` +
+    `${sign}${hours}${mins}`
+  );
+};
+
+/**
+ * PayFast REST API signature — alphabetically sorted header + body (+ passphrase).
+ * The `testing` query param is sent in sandbox but excluded from the signature.
+ */
+const generateApiSignature = (fields, passphrase = null) => {
+  const data = { ...(fields || {}) };
+  delete data.signature;
+  if (passphrase != null && String(passphrase).trim() !== "") {
+    data.passphrase = String(passphrase).trim();
+  }
+  const keys = Object.keys(data).sort();
+  const paramString = keys
+    .filter((key) => data[key] !== "" && data[key] != null)
+    .map((key) => `${key}=${phpUrlEncode(data[key])}`)
+    .join("&");
+  return crypto.createHash("md5").update(paramString).digest("hex");
+};
+
+const sendApiRequest = async (
+  method,
+  path,
+  { query = null, body = null, responseType = "json" } = {}
+) => {
+  assertConfigured();
+  const config = readConfig();
+  const timestamp = formatApiTimestamp();
+  const headers = {
+    "merchant-id": config.merchantId,
+    version: "v1",
+    timestamp,
+  };
+
+  const queryParams =
+    query && typeof query === "object"
+      ? Object.fromEntries(
+          Object.entries(query).filter(([, v]) => v !== "" && v != null)
+        )
+      : {};
+
+  const bodyPayload =
+    body && typeof body === "object"
+      ? Object.fromEntries(
+          Object.entries(body).filter(([, v]) => v !== "" && v != null)
+        )
+      : null;
+
+  // `testing` is sent in sandbox but excluded from the signature (PayFast PHP SDK).
+  const signature = generateApiSignature(
+    { ...headers, ...queryParams, ...(bodyPayload || {}) },
+    config.passphrase || null
+  );
+
+  const url = `${PAYFAST_API_BASE}/${String(path).replace(/^\//, "")}`;
+  const axiosParams = { ...queryParams };
+  if (config.sandbox) axiosParams.testing = "true";
+
+  try {
+    const response = await axios({
+      method,
+      url,
+      params: axiosParams,
+      data: bodyPayload || undefined,
+      headers: {
+        ...headers,
+        signature,
+        accept: responseType === "text" ? "text/csv, text/plain, */*" : "application/json",
+        ...(bodyPayload ? { "Content-Type": "application/json" } : {}),
+      },
+      timeout: 20_000,
+      validateStatus: () => true,
+      responseType,
+    });
+
+    if (responseType === "text") {
+      if (response.status >= 400) {
+        throw new HttpError(
+          `PayFast API failed (HTTP ${response.status})`,
+          response.status
+        );
+      }
+      return response.data;
+    }
+
+    const data = response.data;
+    const httpOk = data?.code === 200 || data?.status === "success";
+    const apiOk = data?.data?.response === true || httpOk;
+    if (!httpOk && !apiOk) {
+      const reason =
+        data?.data?.message ||
+        data?.message ||
+        (typeof data?.data?.response === "string" ? data.data.response : null) ||
+        `PayFast API error (HTTP ${data?.code || response.status || "unknown"})`;
+      const err = new HttpError(String(reason), data?.code || response.status || 502);
+      err.payfastResponse = data;
+      throw err;
+    }
+    return data;
+  } catch (err) {
+    if (err instanceof HttpError) throw err;
+    const status = err?.response?.status;
+    const bodyData = err?.response?.data;
+    const reason =
+      bodyData?.data?.message ||
+      bodyData?.message ||
+      err?.message ||
+      "PayFast API request failed";
+    const wrapped = new HttpError(
+      `PayFast API failed${status ? ` (HTTP ${status})` : ""}: ${reason}`,
+      status || 502
+    );
+    wrapped.payfastResponse = bodyData;
+    throw wrapped;
+  }
+};
+
+/** GET /refunds/:pf_payment_id — refund eligibility and balance. */
+const queryRefund = async (pfPaymentId) => {
+  if (!pfPaymentId) {
+    throw new HttpError("PayFast pf_payment_id is required to query a refund", 400);
+  }
+  return sendApiRequest("GET", `refunds/${encodeURIComponent(pfPaymentId)}`);
+};
+
+/**
+ * POST /refunds/:pf_payment_id — create a refund (card refunds to original source).
+ * Amount is sent in cents (ZAR). PayFast REST refunds are not supported in sandbox.
+ */
+const createRefund = async (
+  pfPaymentId,
+  { amountInMajor, reason, notifyBuyer = true, notifyMerchant = false } = {}
+) => {
+  if (!pfPaymentId) {
+    throw new HttpError("PayFast pf_payment_id is required to create a refund", 400);
+  }
+  const trimmedReason = String(reason || "Order refund").trim();
+  if (trimmedReason.length < 3) {
+    throw new HttpError("Refund reason must be at least 3 characters for PayFast", 400);
+  }
+
+  const amountCents = Math.round(Number(amountInMajor) * 100);
+  if (!Number.isFinite(amountCents) || amountCents <= 0) {
+    throw new HttpError("Refund amount must be a positive number", 400);
+  }
+
+  const body = {
+    amount: amountCents,
+    reason: trimmedReason.slice(0, 255),
+    notify_buyer: notifyBuyer ? 1 : 0,
+    notify_merchant: notifyMerchant ? 1 : 0,
+  };
+
+  return sendApiRequest("POST", `refunds/${encodeURIComponent(pfPaymentId)}`, { body });
+};
+
+// ── Transaction history (merchant dashboard data via REST API) ───────────────
+
+const formatApiDate = (date = new Date()) => {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) {
+    throw new HttpError("Invalid date for PayFast transaction history", 400);
+  }
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+const parseCsvLine = (line) => {
+  const out = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (ch === "," && !inQuotes) {
+      out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out.map((cell) => cell.replace(/^"|"$/g, "").trim());
+};
+
+/** Parse PayFast `GET /transactions/history` CSV into row objects. */
+const parseTransactionHistoryCsv = (csvText) => {
+  const lines = String(csvText || "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length < 2) return [];
+
+  const headers = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
+  const idx = (name) => headers.indexOf(name.toLowerCase());
+
+  const iType = idx("type");
+  const iSign = idx("sign");
+  const iGross = idx("gross");
+  const iCurrency = idx("currency");
+  const iMPaymentId = idx("m payment id");
+  const iPfPaymentId = idx("pf payment id");
+  const iDate = idx("date");
+
+  return lines.slice(1).map((line) => {
+    const cols = parseCsvLine(line);
+    const get = (i) => (i >= 0 && cols[i] != null ? cols[i] : "");
+    return {
+      date: get(iDate),
+      type: get(iType),
+      sign: get(iSign),
+      gross: get(iGross).replace(/,/g, ""),
+      currency: get(iCurrency) || "ZAR",
+      mPaymentId: get(iMPaymentId),
+      pfPaymentId: get(iPfPaymentId),
+      rawLine: line,
+    };
+  });
+};
+
+/**
+ * Fetch merchant transaction history for a date range (PayFast dashboard data).
+ * @see https://developers.payfast.co.za/api#transaction-history
+ */
+const getTransactionHistoryRange = async ({
+  from,
+  to,
+  offset = 0,
+  limit = 1000,
+} = {}) => {
+  if (!from || !to) {
+    throw new HttpError("from and to dates are required for transaction history", 400);
+  }
+  const csv = await sendApiRequest("GET", "transactions/history", {
+    query: { from, to, offset, limit },
+    responseType: "text",
+  });
+  return parseTransactionHistoryCsv(csv);
+};
+
+/**
+ * Look up a payment by m_payment_id in PayFast transaction history (not local DB).
+ * Used when ITN has not arrived yet but the customer completed checkout.
+ */
+const lookupTransactionByMerchantPaymentId = async (
+  mPaymentId,
+  { fromDate, toDate, expectedAmountMajor = null } = {}
+) => {
+  if (!mPaymentId) {
+    throw new HttpError("m_payment_id is required for PayFast lookup", 400);
+  }
+
+  const from = formatApiDate(fromDate || new Date());
+  const to = formatApiDate(toDate || new Date());
+  const rows = await getTransactionHistoryRange({ from, to });
+  const ref = String(mPaymentId).trim();
+
+  const match = rows.find((row) => {
+    if (String(row.mPaymentId).trim() !== ref) return false;
+    if (String(row.type).toUpperCase() !== "FUNDS_RECEIVED") return false;
+    if (expectedAmountMajor != null) {
+      const gross = Number(row.gross);
+      if (Math.abs(gross - Number(expectedAmountMajor)) > 0.01) return false;
+    }
+    return true;
+  });
+
+  if (!match) {
+    return { found: false, reason: "no matching transaction in PayFast history" };
+  }
+
+  return {
+    found: true,
+    status: "success",
+    row: match,
+    data: {
+      status: "success",
+      amountMajor: Number(match.gross),
+      currency: String(match.currency || "ZAR").toUpperCase(),
+      id: match.pfPaymentId || null,
+      reference: match.mPaymentId,
+      raw: match,
+    },
+  };
+};
+
 module.exports = {
   readConfig,
   assertConfigured,
@@ -356,4 +665,13 @@ module.exports = {
   initializeTransaction,
   normalizeItnPayload,
   processItnNotification,
+  formatApiTimestamp,
+  generateApiSignature,
+  sendApiRequest,
+  queryRefund,
+  createRefund,
+  formatApiDate,
+  parseTransactionHistoryCsv,
+  getTransactionHistoryRange,
+  lookupTransactionByMerchantPaymentId,
 };
