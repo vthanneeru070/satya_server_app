@@ -14,6 +14,7 @@ const stepSchema = new mongoose.Schema(
     stepNumber: Number,
     title: String,
     description: String,
+    images: [String],
     subSteps: [String], // for detailed instructions
   },
   { _id: false }

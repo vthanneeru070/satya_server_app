@@ -5,7 +5,7 @@ const { uploadFile } = require("../services/s3Service");
 const { sendSuccess } = require("../utils/response");
 
 const router = express.Router();
-const ALLOWED_FOLDERS = new Set(["donations", "rituals", "festivals", "general"]);
+const ALLOWED_FOLDERS = new Set(["donations", "rituals", "festivals", "poojas", "general"]);
 
 router.post("/upload", authenticate, upload.any(), async (req, res, next) => {
   try {

@@ -64,6 +64,7 @@ router.post(
     { name: "image", maxCount: 1 },
     { name: "audio", maxCount: 1 },
     { name: "video", maxCount: 1 },
+    { name: "stepImage", maxCount: 30 },
   ]),
   validate(createPoojaSchema),
   createPooja
@@ -234,6 +235,7 @@ router.patch(
     { name: "image", maxCount: 1 },
     { name: "audio", maxCount: 1 },
     { name: "video", maxCount: 1 },
+    { name: "stepImage", maxCount: 30 },
   ]),
   validate(poojaIdParamsSchema, "params"),
   validate(updatePoojaSchema),

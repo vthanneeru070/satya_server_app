@@ -10,6 +10,62 @@ const getUploadedMediaUrls = async (files = {}) => ({
   videos: await Promise.all((files.video || []).map((file) => uploadFile(file, "general"))),
 });
 
+const normalizeSteps = (steps) => {
+  if (!Array.isArray(steps)) return [];
+  return steps.map((step) => ({
+    stepNumber: Number(step.stepNumber),
+    title: step.title ?? "",
+    description: step.description ?? "",
+    subSteps: Array.isArray(step.subSteps) ? step.subSteps : [],
+    images: Array.isArray(step.images)
+      ? step.images.map((url) => String(url).trim()).filter(Boolean)
+      : [],
+  }));
+};
+
+const collectStepImageUrls = (steps = []) =>
+  normalizeSteps(steps).flatMap((step) => step.images || []);
+
+const removedStepImageUrls = (previousSteps = [], nextSteps = []) => {
+  const nextUrls = new Set(collectStepImageUrls(nextSteps));
+  return collectStepImageUrls(previousSteps).filter((url) => !nextUrls.has(url));
+};
+
+const mergeStepImageUploads = async (steps, files = [], stepImageMetaRaw) => {
+  const normalized = normalizeSteps(steps);
+  const stepFiles = files || [];
+
+  if (!stepFiles.length) {
+    return normalized;
+  }
+
+  const meta = parseJsonField(stepImageMetaRaw, "stepImageMeta");
+  if (!Array.isArray(meta) || meta.length !== stepFiles.length) {
+    throw new HttpError(
+      "stepImageMeta must be a JSON array with one { stepNumber } entry per stepImage file",
+      400
+    );
+  }
+
+  const uploaded = await Promise.all(stepFiles.map((file) => uploadFile(file, "poojas")));
+
+  meta.forEach((entry, index) => {
+    const stepNumber = Number(entry?.stepNumber);
+    if (!Number.isFinite(stepNumber) || stepNumber < 1) {
+      throw new HttpError("Each stepImageMeta entry must include a valid stepNumber", 400);
+    }
+
+    const step = normalized.find((row) => Number(row.stepNumber) === stepNumber);
+    if (!step) {
+      throw new HttpError(`Step ${stepNumber} not found for stepImage upload`, 400);
+    }
+
+    step.images.push(uploaded[index]);
+  });
+
+  return normalized;
+};
+
 const parseStringArrayField = (value, fieldName) => {
   if (value === undefined) {
     return undefined;
@@ -158,7 +214,12 @@ const createPooja = async (req, res, next) => {
     const parsedDate = parseDdMmYyyyDate(date, "date");
     const deitySummary = parseJsonField(req.body.deitySummary, "deitySummary");
     const preparation = parseJsonField(req.body.preparation, "preparation");
-    const steps = parseJsonField(req.body.steps, "steps") ?? [];
+    const parsedSteps = parseJsonField(req.body.steps, "steps") ?? [];
+    const steps = await mergeStepImageUploads(
+      parsedSteps,
+      req.files?.stepImage || [],
+      req.body.stepImageMeta
+    );
     const mantra = parseJsonField(req.body.mantra, "mantra");
     const spiritualMeaning = parseJsonField(req.body.spiritualMeaning, "spiritualMeaning");
     const guidance = parseJsonField(req.body.guidance, "guidance");
@@ -377,7 +438,7 @@ const updatePooja = async (req, res, next) => {
     const parsedDate = parseDdMmYyyyDate(date, "date");
     const deitySummary = parseJsonField(req.body.deitySummary, "deitySummary");
     const preparation = parseJsonField(req.body.preparation, "preparation");
-    const steps = parseJsonField(req.body.steps, "steps");
+    const parsedSteps = parseJsonField(req.body.steps, "steps");
     const mantra = parseJsonField(req.body.mantra, "mantra");
     const spiritualMeaning = parseJsonField(req.body.spiritualMeaning, "spiritualMeaning");
     const guidance = parseJsonField(req.body.guidance, "guidance");
@@ -385,8 +446,12 @@ const updatePooja = async (req, res, next) => {
     const mediaFromBody = parseJsonField(req.body.media, "media");
     const festivalIds = parseObjectIdArrayField(festivalIdsRaw, "festivalIds");
     const uploadedMedia = await getUploadedMediaUrls(req.files);
+    const hasUploadedStepImages = (req.files?.stepImage || []).length > 0;
     const hasUploadedMedia =
-      uploadedMedia.images.length > 0 || uploadedMedia.audio.length > 0 || uploadedMedia.videos.length > 0;
+      uploadedMedia.images.length > 0 ||
+      uploadedMedia.audio.length > 0 ||
+      uploadedMedia.videos.length > 0 ||
+      hasUploadedStepImages;
     const hasBodyUpdates =
       title !== undefined ||
       date !== undefined ||
@@ -407,6 +472,8 @@ const updatePooja = async (req, res, next) => {
       blessings !== undefined ||
       rating !== undefined ||
       steps !== undefined ||
+      hasUploadedStepImages ||
+      req.body.stepImageMeta !== undefined ||
       festivalIds !== undefined ||
       accessType !== undefined ||
       price !== undefined ||
@@ -463,8 +530,19 @@ const updatePooja = async (req, res, next) => {
       }
     }
 
-    if (steps !== undefined) {
-      pooja.steps = steps;
+    if (parsedSteps !== undefined || hasUploadedStepImages || req.body.stepImageMeta !== undefined) {
+      const baseSteps =
+        parsedSteps !== undefined ? parsedSteps : normalizeSteps(pooja.steps || []);
+      const nextSteps = await mergeStepImageUploads(
+        baseSteps,
+        req.files?.stepImage || [],
+        req.body.stepImageMeta
+      );
+      const orphanedStepImages = removedStepImageUrls(pooja.steps || [], nextSteps);
+      if (orphanedStepImages.length) {
+        await Promise.all(orphanedStepImages.map((url) => deleteFile(url).catch(() => {})));
+      }
+      pooja.steps = nextSteps;
     }
 
     if (mantra !== undefined) {
@@ -576,6 +654,7 @@ const deletePooja = async (req, res, next) => {
       ...((pooja.media?.images || []).map((url) => deleteFile(url).catch(() => {}))),
       ...((pooja.media?.audio || []).map((url) => deleteFile(url).catch(() => {}))),
       ...((pooja.media?.videos || []).map((url) => deleteFile(url).catch(() => {}))),
+      ...collectStepImageUrls(pooja.steps || []).map((url) => deleteFile(url).catch(() => {})),
     ]);
 
     // Remove from Deity.pujas

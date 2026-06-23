@@ -24,6 +24,7 @@ const stepSchema = Joi.object({
   stepNumber: Joi.number().integer().min(1).required(),
   title: Joi.string().trim().allow("").required(),
   description: Joi.string().trim().allow("").required(),
+  images: Joi.array().items(Joi.string().trim().min(1)).default([]),
   subSteps: Joi.array().items(Joi.string().trim()).default([]),
 });
 
@@ -82,6 +83,16 @@ const accessTypeField = Joi.string().trim().valid("FREE", "PAID");
 const priceField = Joi.number().min(0);
 const currencyField = Joi.string().trim().min(1).max(10);
 
+const stepImageMetaField = jsonArrayOrStringField(
+  Joi.array()
+    .items(
+      Joi.object({
+        stepNumber: Joi.number().integer().min(1).required(),
+      })
+    )
+    .min(1)
+);
+
 const createPoojaSchema = Joi.object({
   title: Joi.string().trim().min(2).max(150).required(),
   date: Joi.string().trim().pattern(ddmmyyyyPattern).required(),
@@ -112,6 +123,7 @@ const createPoojaSchema = Joi.object({
   deitySummary: jsonObjectOrStringField(deitySummarySchema).optional(),
   preparation: jsonObjectOrStringField(preparationSchema).optional(),
   steps: jsonArrayOrStringField(Joi.array().items(stepSchema)).optional(),
+  stepImageMeta: stepImageMetaField.optional(),
   mantra: jsonObjectOrStringField(mantraSchema).optional(),
   spiritualMeaning: jsonObjectOrStringField(spiritualMeaningSchema).optional(),
   guidance: jsonObjectOrStringField(guidanceSchema).optional(),
@@ -156,6 +168,7 @@ const updatePoojaSchema = Joi.object({
   deitySummary: jsonObjectOrStringField(deitySummarySchema),
   preparation: jsonObjectOrStringField(preparationSchema),
   steps: jsonArrayOrStringField(Joi.array().items(stepSchema)),
+  stepImageMeta: stepImageMetaField.optional(),
   mantra: jsonObjectOrStringField(mantraSchema),
   spiritualMeaning: jsonObjectOrStringField(spiritualMeaningSchema),
   guidance: jsonObjectOrStringField(guidanceSchema),

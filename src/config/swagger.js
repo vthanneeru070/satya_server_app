@@ -427,6 +427,11 @@ const options = {
             stepNumber: { type: "integer", example: 1 },
             title: { type: "string", example: "Sankalpa" },
             description: { type: "string", example: "Set your intention." },
+            images: {
+              type: "array",
+              items: { type: "string", format: "uri" },
+              description: "Step image URLs (S3 or pre-uploaded)",
+            },
             subSteps: {
               type: "array",
               items: { type: "string" },
@@ -478,7 +483,16 @@ const options = {
             purpose: { type: "string", description: "JSON string" },
             deitySummary: { type: "string", description: "JSON string" },
             preparation: { type: "string", description: "JSON string" },
-            steps: { type: "string", description: "JSON string array of step objects" },
+            steps: {
+              type: "string",
+              description:
+                'JSON array of step objects. Each step may include images URL array. Example: [{"stepNumber":1,"title":"Sankalpa","description":"...","images":["https://..."],"subSteps":[]}]',
+            },
+            stepImageMeta: {
+              type: "string",
+              description:
+                'Optional JSON array mapping each uploaded stepImage file to a stepNumber. Example: [{"stepNumber":1},{"stepNumber":1},{"stepNumber":2}]',
+            },
             mantra: { type: "string", description: "JSON string" },
             spiritualMeaning: { type: "string", description: "JSON string" },
             guidance: { type: "string", description: "JSON string" },
@@ -493,6 +507,11 @@ const options = {
               enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"],
             },
             image: { type: "string", format: "binary" },
+            stepImage: {
+              type: "array",
+              items: { type: "string", format: "binary" },
+              description: "Optional step images; pair with stepImageMeta",
+            },
             audio: { type: "string", format: "binary" },
             video: { type: "string", format: "binary" },
             festivalIds: { type: "string", description: "ObjectId, comma list, or JSON array string" },
