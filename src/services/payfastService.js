@@ -39,9 +39,9 @@ const readConfig = () => {
   const host = sandbox ? PAYFAST_HOSTS.sandbox : PAYFAST_HOSTS.live;
 
   return {
-    merchantId: process.env.PAYFAST_MERCHANT_ID || "",
-    merchantKey: process.env.PAYFAST_MERCHANT_KEY || "",
-    passphrase: process.env.PAYFAST_PASSPHRASE || "",
+    merchantId: String(process.env.PAYFAST_MERCHANT_ID || "").trim(),
+    merchantKey: String(process.env.PAYFAST_MERCHANT_KEY || "").trim(),
+    passphrase: String(process.env.PAYFAST_PASSPHRASE || "").trim(),
     sandbox,
     host,
     processUrl: `https://${host}/eng/process`,
@@ -61,13 +61,28 @@ const readConfig = () => {
 };
 
 const assertConfigured = () => {
-  const { merchantId, merchantKey } = readConfig();
+  const { merchantId, merchantKey, sandbox, host } = readConfig();
   if (!merchantId || !merchantKey) {
     throw new HttpError(
-      "PayFast is not configured on the server (PAYFAST_MERCHANT_ID / PAYFAST_MERCHANT_KEY missing).",
+      "PayFast is not configured on the server. Set PAYFAST_MERCHANT_ID and PAYFAST_MERCHANT_KEY in the server environment.",
       500
     );
   }
+  if (!/^\d{5,10}$/.test(merchantId)) {
+    throw new HttpError(
+      `PayFast merchant ID "${merchantId}" looks invalid. Use the numeric Merchant ID from your PayFast ${sandbox ? "sandbox" : "live"} dashboard (Settings → Integration).`,
+      500
+    );
+  }
+  if (/^(your_|xxx|test|placeholder)/i.test(merchantId)) {
+    throw new HttpError(
+      "PayFast merchant ID is still a placeholder. Copy the real Merchant ID from your PayFast dashboard.",
+      500
+    );
+  }
+  console.log(
+    `[payfast] checkout configured for ${sandbox ? "SANDBOX" : "LIVE"} (${host}), merchant_id=${merchantId}`
+  );
 };
 
 /** PayFast expects a decimal string with exactly two fractional digits. */
@@ -265,6 +280,7 @@ const initializeTransaction = async ({
     paymentUrl: config.processUrl,
     formFields: fields,
     method: "POST",
+    payfastEnvironment: config.sandbox ? "sandbox" : "live",
     authorization_url: `${config.processUrl}?${query}`,
     authorizationUrl: `${config.processUrl}?${query}`,
     returnUrl: effectiveReturnUrl,
