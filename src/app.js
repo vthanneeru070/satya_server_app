@@ -27,8 +27,7 @@ app.options(/.*/, cors(corsOptions));
 app.use(helmet());
 // app.use(rateLimiter);
 
-// IMPORTANT: payment webhooks MUST receive the raw body so HMAC signatures can
-// be verified bit-for-bit against what Paystack sent. Mount BEFORE express.json().
+// Payment webhooks / ITN — mounted BEFORE express.json() for raw-body signature checks.
 app.use("/api/v1/payments", paymentWebhookRoutes);
 
 app.use(express.json({ limit: BODY_LIMIT }));
@@ -38,7 +37,7 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use("/api/v1", routes);
 app.use("/api", uploadRoutes);
 
-// Public Paystack redirect landing pages (PAYSTACK_CALLBACK_URL lands here).
+// Public PayFast redirect landing pages (PAYFAST_RETURN_URL lands here).
 // Mounted at the root — outside /api/v1 — so the browser/WebView sees a page
 // instead of the JSON 404. Settlement is handled separately via the webhook
 // and the authenticated GET /api/v1/payments/verify/:reference call.

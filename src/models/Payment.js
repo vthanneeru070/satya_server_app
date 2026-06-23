@@ -35,12 +35,12 @@ const paymentSchema = new mongoose.Schema(
 
     gateway: {
       type: String,
-      enum: ["PAYSTACK"],
-      default: "PAYSTACK",
+      enum: ["PAYSTACK", "PAYFAST"],
+      default: "PAYFAST",
       required: true,
     },
 
-    /** Paystack transaction id (numeric in API, stored as string) */
+  /** PayFast (or legacy Paystack) transaction id */
     paymentId: { type: String, default: null, index: true },
     transactionId: { type: String, default: null, index: true },
     reference: {
@@ -57,7 +57,7 @@ const paymentSchema = new mongoose.Schema(
       index: true,
     },
 
-    /** Full Paystack initialize + verify payloads for audit */
+    /** Full gateway initialize + verify / ITN payloads for audit */
     response: { type: mongoose.Schema.Types.Mixed, default: null },
 
     isDeleted: { type: Boolean, default: false, index: true },

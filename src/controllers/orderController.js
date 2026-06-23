@@ -147,7 +147,9 @@ const adminInitiateRefund = async (req, res, next) => {
       result.refund.outcome === "REFUNDED"
         ? "Refund processed successfully"
         : result.refund.outcome === "PENDING"
-          ? "Refund initiated — awaiting Paystack confirmation"
+          ? result.refund.manual
+            ? "Refund initiated — complete in PayFast merchant portal"
+            : "Refund initiated — awaiting gateway confirmation"
           : "Refund failed — see order.refund.lastError";
     return sendSuccess(res, result, msg);
   } catch (error) {
@@ -155,22 +157,30 @@ const adminInitiateRefund = async (req, res, next) => {
   }
 };
 
-/** @deprecated Use POST /api/v1/payments/initialize with body { orderId } */
+/** @deprecated Use POST /api/v1/payments/initialize or /orders/:id/payments/payfast/initialize */
 const initializePaystack = async (req, res, next) => {
+  return initializePayfast(req, res, next);
+};
+
+const initializePayfast = async (req, res, next) => {
   try {
     const data = await paymentService.initializePayment(req.params.id, {
       userId: req.user.userId,
       isAdmin: isAdminRole(req),
       callbackUrl: req.body?.callbackUrl,
     });
-    return sendSuccess(res, data, "Paystack transaction initialized");
+    return sendSuccess(res, data, "PayFast transaction initialized");
   } catch (error) {
     return next(error);
   }
 };
 
-/** @deprecated Use GET /api/v1/payments/verify/:reference */
+/** @deprecated Use GET /api/v1/payments/verify/:reference or /orders/:id/payments/payfast/verify */
 const verifyPaystack = async (req, res, next) => {
+  return verifyPayfast(req, res, next);
+};
+
+const verifyPayfast = async (req, res, next) => {
   try {
     const reference =
       req.body?.reference || req.query?.reference || req.params?.reference;
@@ -204,6 +214,8 @@ module.exports = {
   confirmDelivery,
   adminCancelPaidOrder,
   adminInitiateRefund,
+  initializePayfast,
+  verifyPayfast,
   initializePaystack,
   verifyPaystack,
 };

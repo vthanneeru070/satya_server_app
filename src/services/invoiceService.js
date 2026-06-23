@@ -66,6 +66,7 @@ const formatInvoiceDate = (date) => {
 
 const mapPaymentMethod = (method) => {
   switch (method) {
+    case "PAYFAST":
     case "PAYSTACK":
       return "Pay now using";
     case "COD":

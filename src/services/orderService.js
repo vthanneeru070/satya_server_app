@@ -302,7 +302,7 @@ const persistOrder = async (
         currency,
         paymentStatus: "PENDING",
         orderStatus: "PLACED",
-        paymentMethod: paymentMethod || "PAYSTACK",
+        paymentMethod: paymentMethod || "PAYFAST",
         orderType: "NORMAL",
         shippingAddress,
         inventoryReserved: false,
@@ -332,7 +332,7 @@ const checkoutFromCart = async (userId, { shippingAddress } = {}) => {
       order = await persistOrder(userId, {
         shippingAddress: addr,
         ...checkoutTotals,
-        paymentMethod: "PAYSTACK",
+        paymentMethod: "PAYFAST",
         session,
       });
     });
@@ -350,7 +350,7 @@ const createOrder = async (
   {
     items,
     shippingAddress,
-    paymentMethod = "PAYSTACK",
+    paymentMethod = "PAYFAST",
     useCart = true,
   } = {}
 ) => {
@@ -764,24 +764,42 @@ const confirmDelivery = async (id, userId, { satisfied, feedback = "" } = {}) =>
  * Restocks items if inventory was deducted; sets paymentStatus from Paystack outcome.
  */
 /**
- * Attempt a full-amount Paystack refund for a paid order. Pure side-effect on
- * the in-memory `order.refund` sub-doc — caller is responsible for `.save()`.
- *
- * Returns:
- *   { outcome: "REFUNDED" } — Paystack returned a terminal `processed` state.
- *   { outcome: "PENDING"  } — Paystack accepted the refund; awaiting webhook.
- *   { outcome: "FAILED", error } — Paystack rejected; admin must retry / settle manually.
+ * Attempt a gateway refund for a paid order. Paystack uses the API; PayFast
+ * refunds are processed manually in the merchant portal.
  */
-const attemptPaystackRefund = async (
+const attemptGatewayRefund = async (
   order,
   { reason = "", refundAudit = null } = {}
 ) => {
+  const paymentMethod = String(order.paymentMethod || "PAYFAST").toUpperCase();
+
+  if (paymentMethod === "PAYFAST") {
+    order.refund = {
+      ...(order.refund || {}),
+      status: "PENDING",
+      paystackRefundId: "",
+      amount: order.totalAmount,
+      currency: order.currency,
+      attemptedAt: new Date(),
+      processedAt: null,
+      lastError: "",
+      manualNote:
+        "PayFast refund must be completed in the PayFast merchant portal, then mark order REFUNDED.",
+    };
+    if (refundAudit) mergeRefundAudit(order, refundAudit);
+    return {
+      outcome: "PENDING",
+      manual: true,
+      error: null,
+    };
+  }
+
   if (!order.paystackReference) {
     if (refundAudit) mergeRefundAudit(order, refundAudit);
     return {
       outcome: "FAILED",
       error:
-        "Order has no paystackReference; cannot auto-refund. Settle manually in Paystack.",
+        "Order has no payment reference; cannot auto-refund. Settle manually in the gateway.",
     };
   }
   try {
@@ -819,6 +837,9 @@ const attemptPaystackRefund = async (
     return { outcome: "FAILED", error: message };
   }
 };
+
+/** @deprecated use attemptGatewayRefund */
+const attemptPaystackRefund = attemptGatewayRefund;
 
 /**
  * Replacement shipments reuse the original Paystack charge (`paymentStatus: PAID`
@@ -901,6 +922,7 @@ const executeOrderCancellation = async (
   let refundOutcome = null;
   if (wasPaid) {
     const tmp = {
+      paymentMethod: preCheck.paymentMethod,
       paystackReference: preCheck.paystackReference,
       totalAmount: preCheck.totalAmount,
       currency: preCheck.currency,
@@ -981,14 +1003,16 @@ const executeOrderCancellation = async (
       const defaultNote = mode === "user" ? "Cancelled by user" : "Cancelled by admin";
       const baseNote = trimmedReason || defaultNote;
       const replacementNote = isReplacementShipment
-        ? `${baseNote} | Replacement shipment cancelled — no Paystack refund (no separate charge)`
+        ? `${baseNote} | Replacement shipment cancelled — no separate charge to refund`
         : baseNote;
       const noteWithRefund = wasPaid
         ? refundOutcome.outcome === "REFUNDED"
-          ? `${replacementNote} | Paystack refund processed (${order.refund.paystackRefundId || "no-id"})`
+          ? `${replacementNote} | Refund processed (${order.refund.paystackRefundId || "gateway"})`
           : refundOutcome.outcome === "PENDING"
-            ? `${replacementNote} | Paystack refund initiated, awaiting confirmation (${order.refund.paystackRefundId || "no-id"})`
-            : `${replacementNote} | Paystack refund FAILED: ${refundError || "unknown"} — settle manually`
+            ? refundOutcome.manual
+              ? `${replacementNote} | PayFast refund initiated — complete in merchant portal`
+              : `${replacementNote} | Refund initiated, awaiting confirmation`
+            : `${replacementNote} | Refund FAILED: ${refundError || "unknown"} — settle manually`
         : replacementNote;
       const noteWithRefundAndState =
         wasPaid && refundOutcome
@@ -1093,10 +1117,12 @@ const adminInitiateRefund = async (
 
   const refundNoteBase =
     refundOutcome.outcome === "REFUNDED"
-      ? `Admin refund processed (paystack ${order.refund?.paystackRefundId || "no-id"})`
+      ? `Admin refund processed (${order.refund?.paystackRefundId || "gateway"})`
       : refundOutcome.outcome === "PENDING"
-        ? "Admin refund initiated, awaiting Paystack confirmation"
-        : `Admin refund FAILED via Paystack: ${refundOutcome.error || "unknown"} — settle manually`;
+        ? refundOutcome.manual
+          ? "Admin refund initiated — complete in PayFast merchant portal"
+          : "Admin refund initiated, awaiting gateway confirmation"
+        : `Admin refund FAILED: ${refundOutcome.error || "unknown"} — settle manually`;
 
   appendHistory(
     order,
@@ -1117,6 +1143,7 @@ const adminInitiateRefund = async (
     order,
     refund: {
       outcome: refundOutcome.outcome,
+      manual: refundOutcome.manual || false,
       error: refundOutcome.error || null,
       paystackRefundId: order.refund?.paystackRefundId || null,
     },

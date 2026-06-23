@@ -9,6 +9,7 @@ const Counter = require("../models/Counter");
 const DonationContribution = require("../models/DonationContribution");
 const HttpError = require("../utils/httpError");
 const paystackService = require("./paystackService");
+const payfastService = require("./payfastService");
 const {
   notifyOrderPlaced,
   notifyDonationReceived,
@@ -45,18 +46,47 @@ const nextDonationContributionNumber = async (session) => {
 };
 
 /**
- * Resolve the final Paystack redirect URL for this transaction. Client-supplied
- * `callbackUrl` wins; otherwise we fall back to the server-wide
- * `PAYSTACK_CALLBACK_URL` env value so every payment ends up on the success page
- * the deployment is configured for.
+ * Resolve the PayFast return URL for this transaction. Client-supplied
+ * `callbackUrl` wins; otherwise we fall back to PAYFAST_RETURN_URL or the legacy
+ * PAYSTACK_CALLBACK_URL env value.
  */
-const resolveCallbackUrl = (callbackUrl) =>
-  callbackUrl || process.env.PAYSTACK_CALLBACK_URL || null;
+const resolveReturnUrl = (callbackUrl) => {
+  const { returnUrl } = payfastService.readConfig();
+  return callbackUrl || returnUrl || null;
+};
+
+/** Normalize Paystack verify payload or PayFast ITN into a common settlement shape. */
+const normalizeGatewayData = (gateway, rawData) => {
+  if (gateway === "PAYFAST") {
+    const normalized =
+      rawData?.status && rawData?.amountMajor != null
+        ? rawData
+        : payfastService.normalizeItnPayload(rawData);
+    return {
+      status: normalized.status,
+      amountMajor: Number(normalized.amountMajor),
+      currency: String(normalized.currency || "ZAR").toUpperCase(),
+      transactionId: normalized.id,
+      reference: normalized.reference,
+      raw: normalized.raw || rawData,
+    };
+  }
+
+  const paystackStatus = rawData?.status;
+  return {
+    status: paystackStatus,
+    amountMajor: paystackService.fromSubunit(rawData?.amount, rawData?.currency),
+    currency: String(rawData?.currency || "ZAR").toUpperCase(),
+    transactionId: rawData?.id != null ? String(rawData.id) : null,
+    reference: rawData?.reference || null,
+    raw: rawData,
+  };
+};
 
 // ── ORDER: initialize ───────────────────────────────────────────────────────
 
 /**
- * Initialize Paystack for an order; persists Payment (PENDING) + order.paystackReference.
+ * Initialize PayFast for an order; persists Payment (PENDING) + order.paystackReference.
  */
 const initializePayment = async (orderId, { userId, isAdmin = false, callbackUrl } = {}) => {
   const order = await Order.findOne({ _id: orderId, isDeleted: { $ne: true } });
@@ -81,26 +111,33 @@ const initializePayment = async (orderId, { userId, isAdmin = false, callbackUrl
   const email = user?.email;
   if (!email) {
     throw new HttpError(
-      "An email is required on the user account to start a Paystack payment.",
+      "An email is required on the user account to start a PayFast payment.",
       400
     );
   }
 
-  const reference = `PSK-${order.orderNumber}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
-  const resolvedCallbackUrl = resolveCallbackUrl(callbackUrl);
+  const reference = `PF-${order.orderNumber}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+  const resolvedReturnUrl = resolveReturnUrl(callbackUrl);
+  const nameParts = String(user?.fullName || "").trim().split(/\s+/);
+  const nameFirst = nameParts[0] || "";
+  const nameLast = nameParts.slice(1).join(" ") || "";
 
-  const initData = await paystackService.initializeTransaction({
+  const initData = await payfastService.initializeTransaction({
     email,
     amountInMajor: order.totalAmount,
     currency: order.currency,
     reference,
-    callbackUrl: resolvedCallbackUrl,
+    returnUrl: resolvedReturnUrl,
+    itemName: `Order ${order.orderNumber}`,
+    itemDescription: `Sathya order ${order.orderNumber}`,
+    nameFirst,
+    nameLast,
     metadata: {
       kind: "ORDER",
       orderId: String(order._id),
       orderNumber: order.orderNumber,
       userId: String(order.user),
-      callbackUrl: resolvedCallbackUrl,
+      callbackUrl: resolvedReturnUrl,
     },
   });
 
@@ -110,24 +147,27 @@ const initializePayment = async (orderId, { userId, isAdmin = false, callbackUrl
     paymentFor: "ORDER",
     amount: order.totalAmount,
     currency: order.currency,
-    gateway: "PAYSTACK",
+    gateway: "PAYFAST",
     reference: initData.reference,
     status: "PENDING",
     response: { initialize: initData },
   });
 
-  order.paymentMethod = "PAYSTACK";
+  order.paymentMethod = "PAYFAST";
   order.paystackReference = initData.reference;
   await order.save();
 
   return {
     paymentId: payment._id,
     reference: initData.reference,
-    accessCode: initData.access_code,
+    paymentUrl: initData.paymentUrl,
+    formFields: initData.formFields,
+    method: initData.method,
     authorization_url: initData.authorization_url,
-    authorizationUrl: initData.authorization_url,
-    callbackUrl: resolvedCallbackUrl,
-    publicKey: process.env.PAYSTACK_PUBLIC_KEY || null,
+    authorizationUrl: initData.authorizationUrl,
+    callbackUrl: resolvedReturnUrl,
+    returnUrl: initData.returnUrl,
+    cancelUrl: initData.cancelUrl,
     amount: order.totalAmount,
     currency: order.currency,
     email,
@@ -137,9 +177,9 @@ const initializePayment = async (orderId, { userId, isAdmin = false, callbackUrl
 // ── DONATION: initialize ────────────────────────────────────────────────────
 
 /**
- * Initialize a Paystack transaction for a donation. Creates DonationContribution +
- * Payment both in PENDING, returns the auth URL. The contribution is only
- * flipped to PAID by verifyPaymentByReference after server-side Paystack verify.
+ * Initialize a PayFast transaction for a donation. Creates DonationContribution +
+ * Payment both in PENDING, returns the checkout URL / form fields. The contribution
+ * is only flipped to PAID after ITN or server-side verify confirms settlement.
  */
 const initializeDonationPayment = async ({
   userId,
@@ -156,21 +196,24 @@ const initializeDonationPayment = async ({
   const email = user?.email;
   if (!email) {
     throw new HttpError(
-      "An email is required on your account to start a Paystack payment.",
+      "An email is required on your account to start a PayFast payment.",
       400
     );
   }
 
   const normalizedCurrency = String(currency || "ZAR").toUpperCase();
   const normalizedAmount = Math.round(Number(amount) * 100) / 100;
-  const resolvedCallbackUrl = resolveCallbackUrl(callbackUrl);
+  const resolvedReturnUrl = resolveReturnUrl(callbackUrl);
+  const nameParts = String(user?.fullName || "").trim().split(/\s+/);
+  const nameFirst = nameParts[0] || "";
+  const nameLast = nameParts.slice(1).join(" ") || "";
 
   const session = await mongoose.startSession();
   let result;
   try {
     await session.withTransaction(async () => {
       const contributionNumber = await nextDonationContributionNumber(session);
-      const reference = `PSK-DON-${contributionNumber.replace(
+      const reference = `PF-DON-${contributionNumber.replace(
         /^SATHYA-DON-/,
         ""
       )}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
@@ -183,7 +226,7 @@ const initializeDonationPayment = async ({
             amount: normalizedAmount,
             currency: normalizedCurrency,
             paymentStatus: "PENDING",
-            paymentMethod: "PAYSTACK",
+            paymentMethod: "PAYFAST",
             paystackReference: reference,
             note: note || "",
           },
@@ -191,21 +234,22 @@ const initializeDonationPayment = async ({
         { session }
       );
 
-      // Paystack HTTP call is intentionally inside the transaction window but
-      // is the LAST step before persistence so a failed network call rolls back
-      // the contribution row cleanly via abort.
-      const initData = await paystackService.initializeTransaction({
+      const initData = await payfastService.initializeTransaction({
         email,
         amountInMajor: normalizedAmount,
         currency: normalizedCurrency,
         reference,
-        callbackUrl: resolvedCallbackUrl,
+        returnUrl: resolvedReturnUrl,
+        itemName: `Donation ${contributionNumber}`,
+        itemDescription: note ? String(note).slice(0, 255) : "Sathya donation",
+        nameFirst,
+        nameLast,
         metadata: {
           kind: "DONATION",
           contributionId: String(contribution._id),
           contributionNumber,
           userId: String(userId),
-          callbackUrl: resolvedCallbackUrl,
+          callbackUrl: resolvedReturnUrl,
         },
       });
 
@@ -218,7 +262,7 @@ const initializeDonationPayment = async ({
             paymentFor: "DONATION",
             amount: normalizedAmount,
             currency: normalizedCurrency,
-            gateway: "PAYSTACK",
+            gateway: "PAYFAST",
             reference: initData.reference,
             status: "PENDING",
             response: { initialize: initData },
@@ -232,11 +276,14 @@ const initializeDonationPayment = async ({
         contributionId: contribution._id,
         contributionNumber,
         reference: initData.reference,
-        accessCode: initData.access_code,
+        paymentUrl: initData.paymentUrl,
+        formFields: initData.formFields,
+        method: initData.method,
         authorization_url: initData.authorization_url,
-        authorizationUrl: initData.authorization_url,
-        callbackUrl: resolvedCallbackUrl,
-        publicKey: process.env.PAYSTACK_PUBLIC_KEY || null,
+        authorizationUrl: initData.authorizationUrl,
+        callbackUrl: resolvedReturnUrl,
+        returnUrl: initData.returnUrl,
+        cancelUrl: initData.cancelUrl,
         amount: normalizedAmount,
         currency: normalizedCurrency,
         email,
@@ -259,8 +306,8 @@ const applyStockDecrement = async (order, session) => {
 
 const settleOrderInTransaction = async ({
   payment,
-  paystackData,
-  paystackStatus,
+  gatewayData,
+  gatewayStatus,
   session,
   userId,
   isAdmin,
@@ -274,46 +321,46 @@ const settleOrderInTransaction = async ({
   }
 
   if (order.paymentStatus === "PAID") {
-    if (paystackStatus === "success" && payment.status !== "SUCCESS") {
+    if (gatewayStatus === "success" && payment.status !== "SUCCESS") {
       payment.status = "SUCCESS";
       payment.paymentId =
-        paystackData.id != null ? String(paystackData.id) : payment.paymentId;
+        gatewayData.transactionId != null ? String(gatewayData.transactionId) : payment.paymentId;
       payment.transactionId =
-        paystackData.id != null ? String(paystackData.id) : payment.transactionId;
-      payment.response = { ...(payment.response || {}), verify: paystackData };
+        gatewayData.transactionId != null ? String(gatewayData.transactionId) : payment.transactionId;
+      payment.response = { ...(payment.response || {}), verify: gatewayData.raw };
       await payment.save({ session });
     }
     return { order, payment, status: "success", alreadyPaid: true, shouldNotify: false };
   }
 
   if (["REFUNDED", "REFUND_INITIATED", "REFUND_FAILED"].includes(order.paymentStatus)) {
-    if (paystackStatus === "success") {
+    if (gatewayStatus === "success") {
       if (payment.status !== "SUCCESS") {
         payment.status = "SUCCESS";
         payment.paymentId =
-          paystackData.id != null ? String(paystackData.id) : payment.paymentId;
+          gatewayData.transactionId != null ? String(gatewayData.transactionId) : payment.paymentId;
         payment.transactionId =
-          paystackData.id != null ? String(paystackData.id) : payment.transactionId;
-        payment.response = { ...(payment.response || {}), verify: paystackData };
+          gatewayData.transactionId != null ? String(gatewayData.transactionId) : payment.transactionId;
+        payment.response = { ...(payment.response || {}), verify: gatewayData.raw };
         await payment.save({ session });
       }
     }
     return { order, payment, status: "success", alreadyPaid: true, shouldNotify: false };
   }
-  if (paystackStatus === "success") {
-    const expected = paystackService.toSubunit(order.totalAmount, order.currency);
-    if (Number(paystackData.amount) !== expected) {
+  if (gatewayStatus === "success") {
+    const expected = Number(order.totalAmount);
+    if (Math.abs(Number(gatewayData.amountMajor) - expected) > 0.01) {
       throw new HttpError(
-        `Paystack amount mismatch (expected ${expected}, got ${paystackData.amount}).`,
+        `Payment amount mismatch (expected ${expected}, got ${gatewayData.amountMajor}).`,
         409
       );
     }
     if (
-      String(paystackData.currency).toUpperCase() !==
+      String(gatewayData.currency).toUpperCase() !==
       String(order.currency).toUpperCase()
     ) {
       throw new HttpError(
-        `Paystack currency mismatch (expected ${order.currency}, got ${paystackData.currency}).`,
+        `Payment currency mismatch (expected ${order.currency}, got ${gatewayData.currency}).`,
         409
       );
     }
@@ -321,15 +368,18 @@ const settleOrderInTransaction = async ({
     await applyStockDecrement(order, session);
 
     payment.status = "SUCCESS";
-    payment.paymentId = paystackData.id != null ? String(paystackData.id) : null;
-    payment.transactionId = paystackData.id != null ? String(paystackData.id) : null;
-    payment.response = { ...(payment.response || {}), verify: paystackData };
+    payment.paymentId =
+      gatewayData.transactionId != null ? String(gatewayData.transactionId) : null;
+    payment.transactionId =
+      gatewayData.transactionId != null ? String(gatewayData.transactionId) : null;
+    payment.response = { ...(payment.response || {}), verify: gatewayData.raw };
     await payment.save({ session });
 
     order.paymentStatus = "PAID";
-    order.transactionId = paystackData.id != null ? String(paystackData.id) : null;
+    order.transactionId =
+      gatewayData.transactionId != null ? String(gatewayData.transactionId) : null;
     order.inventoryReserved = true;
-    appendOrderHistory(order, order.orderStatus, `Paystack paid (ref: ${payment.reference})`);
+    appendOrderHistory(order, order.orderStatus, `PayFast paid (ref: ${payment.reference})`);
     await order.save({ session });
 
     await Cart.updateOne(
@@ -341,26 +391,26 @@ const settleOrderInTransaction = async ({
     return { order, payment, status: "success", alreadyPaid: false, shouldNotify: true };
   }
 
-  if (paystackStatus === "abandoned" || paystackStatus === "failed") {
+  if (gatewayStatus === "cancelled" || gatewayStatus === "abandoned" || gatewayStatus === "failed") {
     payment.status = "FAILED";
-    payment.response = { ...(payment.response || {}), verify: paystackData };
+    payment.response = { ...(payment.response || {}), verify: gatewayData.raw };
     await payment.save({ session });
 
     if (order.paymentStatus === "PENDING" || order.paymentStatus === "FAILED") {
       order.paymentStatus = "FAILED";
-      appendOrderHistory(order, order.orderStatus, `Paystack payment ${paystackStatus}`);
+      appendOrderHistory(order, order.orderStatus, `PayFast payment ${gatewayStatus}`);
       await order.save({ session });
     }
 
-    return { order, payment, status: paystackStatus, alreadyPaid: false, shouldNotify: false };
+    return { order, payment, status: gatewayStatus, alreadyPaid: false, shouldNotify: false };
   }
 
-  payment.response = { ...(payment.response || {}), verify: paystackData };
+  payment.response = { ...(payment.response || {}), verify: gatewayData.raw };
   await payment.save({ session });
   return {
     order,
     payment,
-    status: paystackStatus || "unknown",
+    status: gatewayStatus || "unknown",
     alreadyPaid: false,
     shouldNotify: false,
   };
@@ -370,8 +420,8 @@ const settleOrderInTransaction = async ({
 
 const settleDonationInTransaction = async ({
   payment,
-  paystackData,
-  paystackStatus,
+  gatewayData,
+  gatewayStatus,
   session,
   userId,
   isAdmin,
@@ -387,53 +437,55 @@ const settleDonationInTransaction = async ({
   }
 
   if (contribution.paymentStatus === "PAID") {
-    if (paystackStatus === "success" && payment.status !== "SUCCESS") {
+    if (gatewayStatus === "success" && payment.status !== "SUCCESS") {
       payment.status = "SUCCESS";
       payment.paymentId =
-        paystackData.id != null ? String(paystackData.id) : payment.paymentId;
+        gatewayData.transactionId != null ? String(gatewayData.transactionId) : payment.paymentId;
       payment.transactionId =
-        paystackData.id != null ? String(paystackData.id) : payment.transactionId;
-      payment.response = { ...(payment.response || {}), verify: paystackData };
+        gatewayData.transactionId != null ? String(gatewayData.transactionId) : payment.transactionId;
+      payment.response = { ...(payment.response || {}), verify: gatewayData.raw };
       await payment.save({ session });
     }
     return { contribution, payment, status: "success", alreadyPaid: true, shouldNotify: false };
   }
 
-  if (paystackStatus === "success") {
-    const expected = paystackService.toSubunit(contribution.amount, contribution.currency);
-    if (Number(paystackData.amount) !== expected) {
+  if (gatewayStatus === "success") {
+    const expected = Number(contribution.amount);
+    if (Math.abs(Number(gatewayData.amountMajor) - expected) > 0.01) {
       throw new HttpError(
-        `Paystack amount mismatch (expected ${expected}, got ${paystackData.amount}).`,
+        `Payment amount mismatch (expected ${expected}, got ${gatewayData.amountMajor}).`,
         409
       );
     }
     if (
-      String(paystackData.currency).toUpperCase() !==
+      String(gatewayData.currency).toUpperCase() !==
       String(contribution.currency).toUpperCase()
     ) {
       throw new HttpError(
-        `Paystack currency mismatch (expected ${contribution.currency}, got ${paystackData.currency}).`,
+        `Payment currency mismatch (expected ${contribution.currency}, got ${gatewayData.currency}).`,
         409
       );
     }
 
     payment.status = "SUCCESS";
-    payment.paymentId = paystackData.id != null ? String(paystackData.id) : null;
-    payment.transactionId = paystackData.id != null ? String(paystackData.id) : null;
-    payment.response = { ...(payment.response || {}), verify: paystackData };
+    payment.paymentId =
+      gatewayData.transactionId != null ? String(gatewayData.transactionId) : null;
+    payment.transactionId =
+      gatewayData.transactionId != null ? String(gatewayData.transactionId) : null;
+    payment.response = { ...(payment.response || {}), verify: gatewayData.raw };
     await payment.save({ session });
 
     contribution.paymentStatus = "PAID";
     contribution.transactionId =
-      paystackData.id != null ? String(paystackData.id) : null;
+      gatewayData.transactionId != null ? String(gatewayData.transactionId) : null;
     await contribution.save({ session });
 
     return { contribution, payment, status: "success", alreadyPaid: false, shouldNotify: true };
   }
 
-  if (paystackStatus === "abandoned" || paystackStatus === "failed") {
+  if (gatewayStatus === "cancelled" || gatewayStatus === "abandoned" || gatewayStatus === "failed") {
     payment.status = "FAILED";
-    payment.response = { ...(payment.response || {}), verify: paystackData };
+    payment.response = { ...(payment.response || {}), verify: gatewayData.raw };
     await payment.save({ session });
 
     if (contribution.paymentStatus !== "PAID") {
@@ -444,18 +496,18 @@ const settleDonationInTransaction = async ({
     return {
       contribution,
       payment,
-      status: paystackStatus,
+      status: gatewayStatus,
       alreadyPaid: false,
       shouldNotify: false,
     };
   }
 
-  payment.response = { ...(payment.response || {}), verify: paystackData };
+  payment.response = { ...(payment.response || {}), verify: gatewayData.raw };
   await payment.save({ session });
   return {
     contribution,
     payment,
-    status: paystackStatus || "unknown",
+    status: gatewayStatus || "unknown",
     alreadyPaid: false,
     shouldNotify: false,
   };
@@ -464,72 +516,9 @@ const settleDonationInTransaction = async ({
 // ── Verify dispatcher ───────────────────────────────────────────────────────
 
 /**
- * Server-side verify by Paystack reference. Idempotent for both ORDER and
- * DONATION payments. Paystack is called first; MongoDB transaction handles the
- * domain-specific settlement.
+ * Shared settlement path used by verify + ITN. Runs notifications after commit.
  */
-const verifyPaymentByReference = async (reference, { userId, isAdmin = false } = {}) => {
-  if (!reference) throw new HttpError("reference is required", 400);
-
-  const paystackData = await paystackService.verifyTransaction(reference);
-  const paystackStatus = paystackData?.status;
-
-  const session = await mongoose.startSession();
-  let out;
-  let shouldNotify = false;
-  let kind;
-
-  try {
-    await session.withTransaction(async () => {
-      const payment = await Payment.findOne({
-        reference,
-        isDeleted: { $ne: true },
-      }).session(session);
-      if (!payment) {
-        throw new HttpError("No payment record matches this reference", 404);
-      }
-      kind = resolvePaymentKind(payment);
-
-      if (kind === "DONATION") {
-        const r = await settleDonationInTransaction({
-          payment,
-          paystackData,
-          paystackStatus,
-          session,
-          userId,
-          isAdmin,
-        });
-        shouldNotify = r.shouldNotify;
-        out = {
-          payment: r.payment,
-          contribution: r.contribution,
-          status: r.status,
-          alreadyPaid: r.alreadyPaid,
-        };
-        return;
-      }
-
-      // Default / ORDER path
-      const r = await settleOrderInTransaction({
-        payment,
-        paystackData,
-        paystackStatus,
-        session,
-        userId,
-        isAdmin,
-      });
-      shouldNotify = r.shouldNotify;
-      out = {
-        payment: r.payment,
-        order: r.order,
-        status: r.status,
-        alreadyPaid: r.alreadyPaid,
-      };
-    });
-  } finally {
-    await session.endSession();
-  }
-
+const finalizeVerifiedPayment = async (out, { shouldNotify, kind, reference }) => {
   const paymentKind = kind || (out?.contribution ? "DONATION" : "ORDER");
   const donationPaid =
     out?.contribution &&
@@ -565,9 +554,6 @@ const verifyPaymentByReference = async (reference, { userId, isAdmin = false } =
     } else {
       await notifyOrderPlaced(out.order.user, { order: out.order });
 
-      // Best-effort invoice + email fan-out for ORDER payments. None of these
-      // should fail the verify API — invoice can be regenerated, emails can be
-      // resent. Every failure is logged for the operator.
       try {
         const inv = await invoiceService.generateInvoice(out.order);
         if (inv?.number || inv?.url) {
@@ -612,6 +598,144 @@ const verifyPaymentByReference = async (reference, { userId, isAdmin = false } =
   }
 
   return out;
+};
+
+const settlePaymentInTransaction = async ({
+  payment,
+  gatewayData,
+  gatewayStatus,
+  session,
+  userId,
+  isAdmin,
+}) => {
+  const kind = resolvePaymentKind(payment);
+  if (kind === "DONATION") {
+    return settleDonationInTransaction({
+      payment,
+      gatewayData,
+      gatewayStatus,
+      session,
+      userId,
+      isAdmin,
+    });
+  }
+  return settleOrderInTransaction({
+    payment,
+    gatewayData,
+    gatewayStatus,
+    session,
+    userId,
+    isAdmin,
+  });
+};
+
+/**
+ * Server-side verify by payment reference. Idempotent for both ORDER and
+ * DONATION payments. PayFast relies on ITN for settlement; this endpoint returns
+ * the current DB state or verifies legacy Paystack transactions via API.
+ */
+const verifyPaymentByReference = async (reference, { userId, isAdmin = false } = {}) => {
+  if (!reference) throw new HttpError("reference is required", 400);
+
+  const payment = await Payment.findOne({
+    reference,
+    isDeleted: { $ne: true },
+  });
+  if (!payment) {
+    throw new HttpError("No payment record matches this reference", 404);
+  }
+
+  const kind = resolvePaymentKind(payment);
+
+  if (payment.gateway === "PAYFAST") {
+    if (payment.status === "SUCCESS") {
+      const out =
+        kind === "DONATION"
+          ? {
+              payment,
+              contribution: await DonationContribution.findById(payment.donationContribution),
+              status: "success",
+              alreadyPaid: true,
+            }
+          : {
+              payment,
+              order: await Order.findById(payment.order),
+              status: "success",
+              alreadyPaid: true,
+            };
+      return out;
+    }
+    if (payment.status === "FAILED") {
+      const out =
+        kind === "DONATION"
+          ? {
+              payment,
+              contribution: await DonationContribution.findById(payment.donationContribution),
+              status: "failed",
+              alreadyPaid: false,
+            }
+          : {
+              payment,
+              order: await Order.findById(payment.order),
+              status: "failed",
+              alreadyPaid: false,
+            };
+      return out;
+    }
+    throw new HttpError(
+      "Payment is still pending PayFast confirmation. ITN settlement may take a few seconds.",
+      409
+    );
+  }
+
+  const paystackData = await paystackService.verifyTransaction(reference);
+  const gatewayData = normalizeGatewayData("PAYSTACK", paystackData);
+  const gatewayStatus = gatewayData.status;
+
+  const session = await mongoose.startSession();
+  let out;
+  let shouldNotify = false;
+
+  try {
+    await session.withTransaction(async () => {
+      const lockedPayment = await Payment.findOne({
+        reference,
+        isDeleted: { $ne: true },
+      }).session(session);
+      if (!lockedPayment) {
+        throw new HttpError("No payment record matches this reference", 404);
+      }
+
+      const r = await settlePaymentInTransaction({
+        payment: lockedPayment,
+        gatewayData,
+        gatewayStatus,
+        session,
+        userId,
+        isAdmin,
+      });
+      shouldNotify = r.shouldNotify;
+      if (kind === "DONATION") {
+        out = {
+          payment: r.payment,
+          contribution: r.contribution,
+          status: r.status,
+          alreadyPaid: r.alreadyPaid,
+        };
+      } else {
+        out = {
+          payment: r.payment,
+          order: r.order,
+          status: r.status,
+          alreadyPaid: r.alreadyPaid,
+        };
+      }
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  return finalizeVerifiedPayment(out, { shouldNotify, kind, reference });
 };
 
 // ── Webhook ────────────────────────────────────────────────────────────────
@@ -742,6 +866,102 @@ const handleRefundWebhook = async (event) => {
   return { ignored: true, reason: `unhandled refund event: ${event.event}` };
 };
 
+/**
+ * PayFast ITN (Instant Transaction Notification) handler.
+ * PayFast retries until it receives HTTP 200.
+ */
+const handlePayfastItn = async (posted) => {
+  const reference = posted?.m_payment_id;
+  if (!reference) {
+    return { ignored: true, reason: "no m_payment_id in ITN payload" };
+  }
+
+  const payment = await Payment.findOne({ reference, isDeleted: { $ne: true } });
+  if (!payment) {
+    return { ignored: true, reason: "no matching payment" };
+  }
+  if (payment.gateway !== "PAYFAST") {
+    return { ignored: true, reason: "payment is not a PayFast transaction" };
+  }
+
+  const itnResult = await payfastService.processItnNotification(posted, {
+    expectedAmountMajor: payment.amount,
+  });
+  if (!itnResult.valid) {
+    console.warn("[payfast] ITN rejected:", itnResult.reason, reference);
+    return { ignored: true, reason: itnResult.reason };
+  }
+
+  const gatewayData = itnResult.data;
+  const gatewayStatus = gatewayData.status;
+
+  if (gatewayStatus !== "success") {
+    return markPaymentFailedFromWebhook(reference, posted);
+  }
+
+  if (payment.status === "SUCCESS") {
+    return { processed: true, status: "success", alreadyPaid: true };
+  }
+
+  const session = await mongoose.startSession();
+  let out;
+  let shouldNotify = false;
+  const kind = resolvePaymentKind(payment);
+
+  try {
+    await session.withTransaction(async () => {
+      const lockedPayment = await Payment.findOne({
+        reference,
+        isDeleted: { $ne: true },
+      }).session(session);
+      if (!lockedPayment) {
+        throw new HttpError("No payment record matches this reference", 404);
+      }
+
+      lockedPayment.response = {
+        ...(lockedPayment.response || {}),
+        itn: posted,
+      };
+
+      const r = await settlePaymentInTransaction({
+        payment: lockedPayment,
+        gatewayData,
+        gatewayStatus,
+        session,
+        userId: String(lockedPayment.user),
+        isAdmin: true,
+      });
+      shouldNotify = r.shouldNotify;
+      if (kind === "DONATION") {
+        out = {
+          payment: r.payment,
+          contribution: r.contribution,
+          status: r.status,
+          alreadyPaid: r.alreadyPaid,
+        };
+      } else {
+        out = {
+          payment: r.payment,
+          order: r.order,
+          status: r.status,
+          alreadyPaid: r.alreadyPaid,
+        };
+      }
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  await finalizeVerifiedPayment(out, { shouldNotify, kind, reference });
+
+  return {
+    processed: true,
+    status: out?.status,
+    orderId: out?.order?._id,
+    contributionId: out?.contribution?._id,
+  };
+};
+
 const handlePaystackWebhook = async (event) => {
   if (!event || typeof event !== "object") return { ignored: true };
 
@@ -795,6 +1015,7 @@ const listAllPayments = async (query = {}) => {
   }
   if (query.status) filter.status = query.status;
   if (query.paymentFor) filter.paymentFor = query.paymentFor;
+  if (query.gateway) filter.gateway = query.gateway;
   if (query.user) filter.user = query.user;
   if (query.order) filter.order = query.order;
 
@@ -826,5 +1047,6 @@ module.exports = {
   initializeDonationPayment,
   verifyPaymentByReference,
   handlePaystackWebhook,
+  handlePayfastItn,
   listAllPayments,
 };

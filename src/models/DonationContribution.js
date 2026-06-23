@@ -1,9 +1,8 @@
 const mongoose = require("mongoose");
 
 /**
- * One Paystack attempt by one donor against one donation. Created in PENDING
- * status when the user initiates payment; flipped to PAID only via server-side
- * Paystack verify (`paymentService.verifyPaymentByReference`).
+ * One PayFast attempt by one donor against one donation. Created in PENDING
+ * status when the user initiates payment; flipped to PAID via ITN or verify.
  */
 const donationContributionSchema = new mongoose.Schema(
   {
@@ -43,10 +42,11 @@ const donationContributionSchema = new mongoose.Schema(
     },
     paymentMethod: {
       type: String,
-      enum: ["PAYSTACK"],
-      default: "PAYSTACK",
+      enum: ["PAYSTACK", "PAYFAST"],
+      default: "PAYFAST",
     },
 
+    /** PayFast or legacy gateway payment reference (legacy field name) */
     paystackReference: { type: String, default: null, index: true },
     transactionId: { type: String, default: null, index: true },
 

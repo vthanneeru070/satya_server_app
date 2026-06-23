@@ -937,30 +937,49 @@ const options = {
             shippingAddress: { $ref: "#/components/schemas/ShippingAddress" },
             paymentMethod: {
               type: "string",
-              enum: ["COD", "EFT", "PAYSTACK"],
-              default: "PAYSTACK",
+              enum: ["COD", "EFT", "PAYFAST", "PAYSTACK"],
+              default: "PAYFAST",
             },
           },
         },
-        PaystackInitResponse: {
+        PayfastInitResponse: {
           type: "object",
+          description: "PayFast checkout payload — POST formFields to paymentUrl.",
           properties: {
-            reference: { type: "string", example: "PSK-ORD-LXRZ4-A1B2C3-XYZ" },
-            accessCode: { type: "string", example: "abcd1234efgh5678" },
+            reference: { type: "string", example: "PF-SATYA-10001-A1B2C3" },
+            paymentUrl: {
+              type: "string",
+              format: "uri",
+              example: "https://www.payfast.co.za/eng/process",
+            },
+            formFields: {
+              type: "object",
+              description: "Signed fields to POST to paymentUrl (includes signature).",
+              additionalProperties: { type: "string" },
+            },
+            method: { type: "string", enum: ["POST"], example: "POST" },
             authorizationUrl: {
               type: "string",
               format: "uri",
-              example: "https://checkout.paystack.com/abcd1234efgh5678",
+              description: "Optional GET URL with query params (prefer POST formFields).",
+            },
+            returnUrl: {
+              type: "string",
+              format: "uri",
+              description: "PayFast return_url — intercept in WebView after payment.",
+            },
+            cancelUrl: {
+              type: "string",
+              format: "uri",
+              description: "PayFast cancel_url — intercept when user cancels.",
             },
             callbackUrl: {
               type: "string",
               format: "uri",
               nullable: true,
               description:
-                "Resolved Paystack redirect URL. Echoes the per-request callbackUrl when provided, otherwise the server-wide PAYSTACK_CALLBACK_URL.",
-              example: "https://satya-server-app-1.onrender.com/payment-success",
+                "Echo of resolved return URL (per-request callbackUrl or PAYFAST_RETURN_URL).",
             },
-            publicKey: { type: "string", nullable: true, example: "pk_test_..." },
             amount: { type: "number", example: 1647 },
             currency: { type: "string", example: "ZAR" },
             email: { type: "string", example: "user@example.com" },
@@ -997,8 +1016,11 @@ const options = {
               type: "string",
               enum: ["PENDING", "PAID", "FAILED", "REFUNDED"],
             },
-            paymentMethod: { type: "string", enum: ["PAYSTACK"] },
-            paystackReference: { type: "string" },
+            paymentMethod: { type: "string", enum: ["PAYFAST", "PAYSTACK"] },
+            paystackReference: {
+              type: "string",
+              description: "Payment gateway reference (m_payment_id for PayFast).",
+            },
             transactionId: { type: "string", nullable: true },
             note: { type: "string" },
             isDeleted: { type: "boolean" },
@@ -1021,8 +1043,8 @@ const options = {
             },
             amount: { type: "number", example: 999 },
             currency: { type: "string", example: "ZAR" },
-            gateway: { type: "string", enum: ["PAYSTACK"] },
-            reference: { type: "string", example: "PSK-DON-10001-A1B2C3" },
+            gateway: { type: "string", enum: ["PAYFAST", "PAYSTACK"] },
+            reference: { type: "string", example: "PF-SATYA-10001-A1B2C3" },
             paymentId: { type: "string", nullable: true },
             transactionId: { type: "string", nullable: true },
             status: {
@@ -1090,14 +1112,17 @@ const options = {
         OrderRefund: {
           type: "object",
           description:
-            "Paystack refund state. `PENDING` means the refund was accepted by Paystack and we're waiting on the `refund.processed` webhook. `FAILED` means the auto-refund call was rejected and admin must settle manually.",
+            "Refund state. PayFast refunds are initiated as PENDING and completed manually in the PayFast merchant portal. Legacy Paystack refunds may auto-settle via webhook.",
           properties: {
             status: {
               type: "string",
               enum: ["NONE", "PENDING", "PROCESSED", "FAILED"],
               default: "NONE",
             },
-            paystackRefundId: { type: "string" },
+            paystackRefundId: {
+              type: "string",
+              description: "Legacy Paystack refund id when applicable.",
+            },
             amount: { type: "number" },
             currency: { type: "string" },
             attemptedAt: { type: "string", format: "date-time", nullable: true },
@@ -1143,7 +1168,7 @@ const options = {
             },
             paymentMethod: {
               type: "string",
-              enum: ["COD", "EFT", "PAYSTACK"],
+              enum: ["COD", "EFT", "PAYFAST", "PAYSTACK"],
             },
             orderStatus: {
               type: "string",

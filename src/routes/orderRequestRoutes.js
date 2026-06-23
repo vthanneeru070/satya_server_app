@@ -125,8 +125,8 @@ router.get(
  *   post:
  *     summary: Approve an order request (admin)
  *     description: |
- *       - **CANCELLATION** → cancels the order (restocks; Paystack refund outcome sets `paymentStatus` to REFUNDED, REFUND_INITIATED, or REFUND_FAILED).
- *       - **REFUND** → same Paystack full refund; `paymentStatus` reflects immediate vs async vs failed outcome.
+ *       - **CANCELLATION** → cancels the order (restocks; PayFast refund sets `paymentStatus` to REFUND_INITIATED — complete in merchant portal).
+ *       - **REFUND** → same PayFast refund flow; admin completes in merchant portal.
  *       Product replacements use **PUT /admin/replacements/:id/approve** instead.
  *     tags: [Order Requests]
  *     security:

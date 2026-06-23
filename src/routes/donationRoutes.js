@@ -189,7 +189,7 @@ router.get(
  * /donations/contributions/my:
  *   get:
  *     summary: List my donation contributions
- *     description: Authenticated user. Returns Paystack-tracked donations made by the current user.
+ *     description: Authenticated user. Returns PayFast-tracked donation contributions.
  *     tags: [Donations]
  *     security:
  *       - bearerAuth: []
@@ -229,7 +229,7 @@ router.get(
  * /donations/contributions/all:
  *   get:
  *     summary: List all donation contributions
- *     description: Requires super admin. Returns Paystack-tracked donations across all users.
+ *     description: Requires super admin. Returns donation contributions across all users.
  *     tags: [Donations]
  *     security:
  *       - bearerAuth: []
@@ -273,14 +273,12 @@ router.get(
  * @swagger
  * /donations/donate:
  *   post:
- *     summary: Start a Paystack donation
+ *     summary: Start a PayFast donation
  *     description: |
- *       Initializes a direct Paystack donation transaction and returns an
- *       authorization_url for the client to open. If `callbackUrl` is omitted,
- *       the server falls back to `PAYSTACK_CALLBACK_URL`. The resolved
- *       `callbackUrl` is echoed in the response so the WebView knows which
- *       redirect host to intercept. Settlement only happens after server-side
- *       verify.
+ *       Initializes a PayFast donation checkout and returns `paymentUrl` +
+ *       `formFields` for the client WebView. If `callbackUrl` is omitted, the
+ *       server uses `PAYFAST_RETURN_URL`. Settlement via ITN and
+ *       `GET /payments/verify/:reference`.
  *     tags: [Donations]
  *     security:
  *       - bearerAuth: []
@@ -289,25 +287,19 @@ router.get(
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             required: [amount]
- *             properties:
- *               amount:
- *                 type: number
- *                 minimum: 10
- *                 example: 100
- *               currency:
- *                 type: string
- *                 default: ZAR
- *               note:
- *                 type: string
- *                 maxLength: 280
- *               callbackUrl:
- *                 type: string
- *                 format: uri
+ *             $ref: '#/components/schemas/InitiateDonationRequest'
  *     responses:
  *       201:
- *         description: Donation initialized; client should open authorization_url
+ *         description: Donation initialized — POST formFields to PayFast
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 message: { type: string }
+ *                 data:
+ *                   $ref: '#/components/schemas/PayfastInitResponse'
  *       404:
  *         description: Donation not found
  */

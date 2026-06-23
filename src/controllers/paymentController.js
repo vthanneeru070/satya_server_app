@@ -12,7 +12,7 @@ const initializePayment = async (req, res, next) => {
       isAdmin: isAdminRole(req),
       callbackUrl: req.body?.callbackUrl,
     });
-    return sendSuccess(res, data, "Paystack transaction initialized");
+    return sendSuccess(res, data, "PayFast transaction initialized");
   } catch (error) {
     return next(error);
   }
@@ -34,6 +34,18 @@ const verifyPayment = async (req, res, next) => {
     );
   } catch (error) {
     return next(error);
+  }
+};
+
+const payfastItn = async (req, res) => {
+  try {
+    const posted = req.body && typeof req.body === "object" ? req.body : {};
+    const result = await paymentService.handlePayfastItn(posted);
+    console.log("[payfast] ITN processed:", JSON.stringify(result));
+    return res.status(200).send("OK");
+  } catch (err) {
+    console.error("[payfast] ITN handler error:", err?.message);
+    return res.status(200).send("OK");
   }
 };
 
@@ -72,5 +84,6 @@ module.exports = {
   initializePayment,
   verifyPayment,
   paystackWebhook,
+  payfastItn,
   listAllPayments,
 };

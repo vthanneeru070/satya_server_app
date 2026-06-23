@@ -16,6 +16,8 @@ const {
   confirmDelivery,
   adminCancelPaidOrder,
   adminInitiateRefund,
+  initializePayfast,
+  verifyPayfast,
   initializePaystack,
   verifyPaystack,
 } = require("../controllers/orderController");
@@ -29,6 +31,8 @@ const {
   adminListOrdersQuerySchema,
   paystackInitSchema,
   paystackVerifySchema,
+  payfastInitSchema,
+  payfastVerifySchema,
   setTrackingSchema,
   dispatchOrderSchema,
   confirmDeliverySchema,
@@ -43,17 +47,17 @@ const router = express.Router();
  * @swagger
  * tags:
  *   name: Orders
- *   description: Pooja Kit product orders (checkout, Paystack, COD)
+ *   description: Pooja Kit product orders (checkout, PayFast, COD)
  */
 
 /**
  * @swagger
  * /orders/checkout:
  *   post:
- *     summary: Checkout current cart into an unpaid order (Paystack flow)
+ *     summary: Checkout current cart into an unpaid order (PayFast flow)
  *     description: |
  *       Creates order with paymentStatus PENDING from the user's cart.
- *       Does not change inventory until Paystack verification succeeds.
+ *       Does not change inventory until PayFast ITN / verify confirms payment.
  *     tags: [Orders]
  *     security:
  *       - bearerAuth: []
@@ -79,7 +83,7 @@ router.post("/checkout", authenticate, validate(checkoutOrderSchema), checkout);
  *     summary: Place an order (from cart or explicit items)
  *     description: |
  *       If `items` is omitted, the order is built from the user's current cart.
- *       Stock is reserved immediately only for COD; Paystack orders reserve stock after successful payment verification.
+ *       Stock is reserved immediately only for COD; PayFast orders reserve stock after ITN confirms payment.
  *     tags: [Orders]
  *     security:
  *       - bearerAuth: []
@@ -215,7 +219,7 @@ router.get(
  *     summary: Cancel my order before shipment (no admin approval)
  *     description: |
  *       Allowed only while `orderStatus` is **PLACED** or **PROCESSING** (not shipped).
- *       If `paymentStatus` is **PAID**, a full Paystack refund is initiated automatically
+ *       If `paymentStatus` is **PAID**, a PayFast refund is initiated (manual completion in merchant portal).
  *       (`REFUND_INITIATED` or `REFUNDED`). Unpaid orders are cancelled without a refund.
  *     tags: [Orders]
  *     security:
@@ -326,7 +330,7 @@ router.patch(
  *                 enum: [PENDING, PAID, FAILED, REFUNDED, REFUND_INITIATED, REFUND_FAILED]
  *               paymentMethod:
  *                 type: string
- *                 enum: [COD, EFT, PAYSTACK]
+ *                 enum: [COD, EFT, PAYFAST, PAYSTACK]
  *     responses:
  *       200: { description: Order payment updated }
  *       403: { description: Admin role required }
@@ -343,16 +347,14 @@ router.patch(
 
 /**
  * @swagger
- * /orders/{id}/payments/paystack/initialize:
+ * /orders/{id}/payments/payfast/initialize:
  *   post:
- *     summary: Initialize a Paystack transaction for this order
+ *     summary: Initialize PayFast checkout for this order
  *     description: |
- *       Creates a Paystack transaction tied to the order's `totalAmount` and
- *       `currency`, persists the returned reference / access code / authorization
- *       URL on the order, and returns them to the client. The frontend can then:
- *         - Use `accessCode` with the Flutter Paystack SDK / Inline popup, OR
- *         - Open `authorizationUrl` in a webview.
- *       Safe to call multiple times — the same reference is reused on retries.
+ *       Creates a PayFast transaction for the order's `totalAmount`, persists
+ *       the reference on the order, and returns signed `formFields` + `paymentUrl`.
+ *       The client POSTs the form to PayFast (WebView). Settlement via ITN +
+ *       `GET /payments/verify/:reference`.
  *     tags: [Orders]
  *     security:
  *       - bearerAuth: []
@@ -371,31 +373,32 @@ router.patch(
  *               callbackUrl:
  *                 type: string
  *                 format: uri
- *                 description: Override the global PAYSTACK_CALLBACK_URL for this transaction.
+ *                 description: Override PAYFAST_RETURN_URL for this checkout.
  *     responses:
  *       200:
- *         description: Paystack transaction initialized
+ *         description: PayFast checkout initialized
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 success: { type: boolean, example: true }
+ *                 success: { type: boolean }
  *                 message: { type: string }
  *                 data:
- *                   type: object
- *                   properties:
- *                     reference: { type: string }
- *                     accessCode: { type: string }
- *                     authorizationUrl: { type: string, format: uri }
- *                     publicKey: { type: string, nullable: true }
- *                     amount: { type: number }
- *                     currency: { type: string, example: ZAR }
- *                     email: { type: string }
- *       400: { description: Order already paid / unsupported currency / missing email }
+ *                   $ref: '#/components/schemas/PayfastInitResponse'
+ *       400: { description: Order already paid / missing email }
  *       404: { description: Order not found }
- *       500: { description: Paystack not configured on the server }
+ *       500: { description: PayFast not configured }
  */
+router.post(
+  "/:id/payments/payfast/initialize",
+  authenticate,
+  validate(orderIdParamsSchema, "params"),
+  validate(payfastInitSchema),
+  initializePayfast
+);
+
+/** @deprecated — use POST /orders/:id/payments/payfast/initialize */
 router.post(
   "/:id/payments/paystack/initialize",
   authenticate,
@@ -406,13 +409,12 @@ router.post(
 
 /**
  * @swagger
- * /orders/{id}/payments/paystack/verify:
+ * /orders/{id}/payments/payfast/verify:
  *   post:
- *     summary: Manually verify a Paystack transaction for this order
+ *     summary: Verify PayFast payment for this order
  *     description: |
- *       Call this after the user completes (or abandons) payment in the
- *       Paystack popup / webview. The server re-checks the transaction against
- *       Paystack's API and flips the order to PAID on success. Idempotent.
+ *       Poll after WebView return. Idempotent once ITN has marked the order PAID.
+ *       Body `{ "reference": "PF-..." }` required.
  *     tags: [Orders]
  *     security:
  *       - bearerAuth: []
@@ -431,12 +433,21 @@ router.post(
  *             properties:
  *               reference:
  *                 type: string
- *                 description: The Paystack reference returned by initialize.
+ *                 example: PF-SATYA-10001-A1B2C3
  *     responses:
  *       200: { description: Verification result }
- *       404: { description: No order matches reference }
- *       409: { description: Amount or currency mismatch }
+ *       404: { description: No payment matches reference }
+ *       409: { description: Payment still pending ITN }
  */
+router.post(
+  "/:id/payments/payfast/verify",
+  authenticate,
+  validate(orderIdParamsSchema, "params"),
+  validate(payfastVerifySchema),
+  verifyPayfast
+);
+
+/** @deprecated — use POST /orders/:id/payments/payfast/verify */
 router.post(
   "/:id/payments/paystack/verify",
   authenticate,
@@ -578,9 +589,9 @@ router.post(
  *     summary: Admin terminal cancel of a paid (or unshipped) order
  *     description: |
  *       Used when admin approves a CANCELLATION request out-of-band. Restocks
- *       items if inventory was deducted. For **NORMAL** paid orders, triggers a full
- *       Paystack refund. **REPLACEMENT** orders are cancelled without refund (they
- *       reuse the original charge; refund the original order only if needed).
+ *       items if inventory was deducted. For **NORMAL** paid orders, initiates a
+ *       PayFast refund (complete manually in merchant portal). **REPLACEMENT**
+ *       orders are cancelled without refund (they reuse the original charge).
  *       Disallowed once the order is SHIPPED or beyond.
  *     tags: [Orders]
  *     security:
@@ -617,12 +628,11 @@ router.post(
  * @swagger
  * /orders/{id}/refund:
  *   post:
- *     summary: Admin initiate Paystack refund (no user request)
+ *     summary: Admin initiate PayFast refund (no user request)
  *     description: |
- *       Full refund for a **PAID** order (or retry when `REFUND_FAILED`).
- *       Does not change `orderStatus`. For cancel + refund before ship, use
- *       `POST /orders/{id}/cancel-paid`. User-driven refunds can still use
- *       `POST /orders/requests/{requestId}/approve`.
+ *       Full refund for a **PAID** PayFast order. Sets `REFUND_INITIATED` — admin
+ *       must complete the refund in the PayFast merchant portal, then update order
+ *       payment status. Does not change `orderStatus`.
  *     tags: [Orders]
  *     security:
  *       - bearerAuth: []

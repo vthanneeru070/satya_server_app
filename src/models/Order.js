@@ -196,8 +196,8 @@ const orderSchema = new mongoose.Schema(
 
     paymentMethod: {
       type: String,
-      enum: ["PAYSTACK", "COD", "EFT"],
-      default: "PAYSTACK",
+      enum: ["PAYSTACK", "PAYFAST", "COD", "EFT"],
+      default: "PAYFAST",
     },
 
     shippingAddress: {
@@ -214,9 +214,7 @@ const orderSchema = new mongoose.Schema(
       index: true,
     },
 
-    /**
-     * Payment gateway reference
-     */
+  /** Payment gateway reference (PayFast m_payment_id; legacy field name) */
     paystackReference: {
       type: String,
       default: null,

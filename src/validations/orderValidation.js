@@ -38,7 +38,7 @@ const createOrderSchema = Joi.object({
     )
     .optional(),
   shippingAddress: shippingAddressSchema.required(),
-  paymentMethod: Joi.string().valid("COD", "EFT", "PAYSTACK").default("PAYSTACK"),
+  paymentMethod: Joi.string().valid("COD", "EFT", "PAYSTACK", "PAYFAST").default("PAYFAST"),
 });
 
 const orderIdParamsSchema = Joi.object({
@@ -63,7 +63,7 @@ const updatePaymentSchema = Joi.object({
       "REFUND_FAILED"
     )
     .optional(),
-  paymentMethod: Joi.string().valid("COD", "EFT", "PAYSTACK").optional(),
+  paymentMethod: Joi.string().valid("COD", "EFT", "PAYSTACK", "PAYFAST").optional(),
 }).min(1);
 
 const listOrdersQuerySchema = Joi.object({
@@ -92,13 +92,19 @@ const adminListOrdersQuerySchema = listOrdersQuerySchema.append({
   search: Joi.string().trim().max(60).optional(),
 });
 
-const paystackInitSchema = Joi.object({
+const payfastInitSchema = Joi.object({
   callbackUrl: Joi.string().uri().optional(),
 });
 
-const paystackVerifySchema = Joi.object({
+/** @deprecated use payfastInitSchema */
+const paystackInitSchema = payfastInitSchema;
+
+const payfastVerifySchema = Joi.object({
   reference: Joi.string().trim().min(3).max(200).required(),
 });
+
+/** @deprecated use payfastVerifySchema */
+const paystackVerifySchema = payfastVerifySchema;
 
 const setTrackingSchema = Joi.object({
   courier: Joi.string().trim().min(2).max(120).required(),
@@ -141,6 +147,8 @@ module.exports = {
   updatePaymentSchema,
   listOrdersQuerySchema,
   adminListOrdersQuerySchema,
+  payfastInitSchema,
+  payfastVerifySchema,
   paystackInitSchema,
   paystackVerifySchema,
   setTrackingSchema,

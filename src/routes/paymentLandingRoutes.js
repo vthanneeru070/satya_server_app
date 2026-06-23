@@ -1,17 +1,9 @@
 /**
- * Public Paystack redirect landing pages.
+ * Public payment redirect landing pages.
  *
- * Paystack redirects the browser/WebView to `PAYSTACK_CALLBACK_URL` after a
- * payment attempt. The actual settlement happens server-side via:
- *   - the webhook (charge.success) -> auto-verify and mark PAID
- *   - the Flutter client calling GET /api/v1/payments/verify/:reference
- *
- * These pages exist purely so the redirect URL renders something friendly when
- * opened in a browser. They DO NOT mutate any state.
- *
- * The Flutter WebView intercepts navigation to these URLs and never actually
- * loads the page, so this is mainly a safety net for browser testing and
- * direct-link follow-ups.
+ * PayFast redirects the browser/WebView to `PAYFAST_RETURN_URL` after a
+ * payment attempt. Settlement happens server-side via ITN and the client may
+ * call GET /api/v1/payments/verify/:reference once ITN has processed.
  */
 
 const express = require("express");
@@ -97,7 +89,8 @@ const renderPage = ({ title, headline, body, status }) => `<!doctype html>
 </html>`;
 
 router.get("/payment-success", (req, res) => {
-  const reference = req.query.reference || req.query.trxref || "";
+  const reference =
+    req.query.m_payment_id || req.query.reference || req.query.trxref || "";
   const body = `
     <p>Your payment was received.</p>
     ${reference ? `<p class="meta">Reference: ${escape(reference)}</p>` : ""}
@@ -116,7 +109,8 @@ router.get("/payment-success", (req, res) => {
 });
 
 router.get("/payment-failed", (req, res) => {
-  const reference = req.query.reference || req.query.trxref || "";
+  const reference =
+    req.query.m_payment_id || req.query.reference || req.query.trxref || "";
   const body = `
     <p>Your payment was not completed.</p>
     ${reference ? `<p class="meta">Reference: ${escape(reference)}</p>` : ""}

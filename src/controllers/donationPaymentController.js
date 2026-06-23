@@ -11,7 +11,7 @@ const initiateDonation = async (req, res, next) => {
       note: req.body.note,
       callbackUrl: req.body?.callbackUrl,
     });
-    return sendSuccess(res, data, "Donation initialized", 201);
+    return sendSuccess(res, data, "PayFast donation initialized", 201);
   } catch (error) {
     return next(error);
   }

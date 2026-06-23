@@ -20,6 +20,7 @@ const listAllPaymentsQuerySchema = Joi.object({
   paymentFor: Joi.string().valid("ORDER", "DONATION").optional(),
   user: objectIdHex.optional(),
   order: objectIdHex.optional(),
+  gateway: Joi.string().valid("PAYFAST", "PAYSTACK").optional(),
 });
 
 module.exports = {
