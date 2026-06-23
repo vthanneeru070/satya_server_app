@@ -101,7 +101,7 @@ const paystackInitSchema = payfastInitSchema;
 
 const payfastVerifySchema = Joi.object({
   reference: Joi.string().trim().min(3).max(200).required(),
-});
+}).unknown(true);
 
 /** @deprecated use payfastVerifySchema */
 const paystackVerifySchema = payfastVerifySchema;

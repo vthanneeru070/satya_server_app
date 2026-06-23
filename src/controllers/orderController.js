@@ -184,16 +184,26 @@ const verifyPayfast = async (req, res, next) => {
   try {
     const reference =
       req.body?.reference || req.query?.reference || req.params?.reference;
+    const payfastNotify = paymentService.extractPayfastItnFromVerifyPayload(
+      req.body,
+      reference
+    );
     const result = await paymentService.verifyPaymentByReference(reference, {
       userId: req.user.userId,
       isAdmin: isAdminRole(req),
+      payfastNotify,
     });
+    const msg =
+      result.status === "success"
+        ? "Payment verified successfully"
+        : result.status === "pending"
+          ? "Payment is still pending PayFast confirmation"
+          : `Payment verification returned status: ${result.status}`;
     return sendSuccess(
       res,
       result,
-      result.status === "success"
-        ? "Payment verified successfully"
-        : `Payment verification returned status: ${result.status}`
+      msg,
+      result.status === "pending" ? 202 : 200
     );
   } catch (error) {
     return next(error);

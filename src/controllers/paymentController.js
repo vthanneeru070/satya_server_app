@@ -21,16 +21,26 @@ const initializePayment = async (req, res, next) => {
 const verifyPayment = async (req, res, next) => {
   try {
     const { reference } = req.params;
+    const payfastNotify = paymentService.extractPayfastItnFromVerifyPayload(
+      { ...req.query, ...req.body },
+      reference
+    );
     const result = await paymentService.verifyPaymentByReference(reference, {
       userId: req.user.userId,
       isAdmin: isAdminRole(req),
+      payfastNotify,
     });
+    const msg =
+      result.status === "success"
+        ? "Payment verified successfully"
+        : result.status === "pending"
+          ? "Payment is still pending PayFast confirmation"
+          : `Payment verification returned status: ${result.status}`;
     return sendSuccess(
       res,
       result,
-      result.status === "success"
-        ? "Payment verified successfully"
-        : `Payment verification returned status: ${result.status}`
+      msg,
+      result.status === "pending" ? 202 : 200
     );
   } catch (error) {
     return next(error);
@@ -39,8 +49,19 @@ const verifyPayment = async (req, res, next) => {
 
 const payfastItn = async (req, res) => {
   try {
-    const posted = req.body && typeof req.body === "object" ? req.body : {};
-    const result = await paymentService.handlePayfastItn(posted);
+    const raw = req.rawItnBody || req.body;
+    const payfastService = require("../services/payfastService");
+    const parsed = Buffer.isBuffer(raw)
+      ? payfastService.parseItnRawBody(raw)
+      : {
+          data: req.body && typeof req.body === "object" ? req.body : {},
+          entries: Object.entries(req.body || {}),
+          paramString: null,
+        };
+    const result = await paymentService.handlePayfastItn(parsed.data, {
+      itnEntries: parsed.entries,
+      itnParamString: parsed.paramString,
+    });
     console.log("[payfast] ITN processed:", JSON.stringify(result));
     return res.status(200).send("OK");
   } catch (err) {

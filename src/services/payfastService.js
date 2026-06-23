@@ -94,22 +94,44 @@ const generateSignature = (fields, passphrase = null) => {
 };
 
 /**
- * Build the ITN param string from posted fields (order preserved until `signature`).
+ * Build the ITN param string from ordered [key, value] pairs (until `signature`).
  */
-const buildItnParamString = (posted) => {
+const buildItnParamStringFromEntries = (entries) => {
   let paramString = "";
-  for (const [key, rawVal] of Object.entries(posted)) {
+  for (const [key, val] of entries) {
     if (key === "signature") break;
-    const val = rawVal == null ? "" : String(rawVal);
-    paramString += `${key}=${encodeURIComponent(val).replace(/%20/g, "+")}&`;
+    const value = val == null ? "" : String(val);
+    paramString += `${key}=${encodeURIComponent(value).replace(/%20/g, "+")}&`;
   }
   return paramString.slice(0, -1);
 };
 
-const verifyItnSignature = (posted, passphrase = null) => {
+const buildItnParamString = (posted, orderedEntries = null) => {
+  if (orderedEntries?.length) {
+    return buildItnParamStringFromEntries(orderedEntries);
+  }
+  return buildItnParamStringFromEntries(Object.entries(posted || {}));
+};
+
+/** Parse raw application/x-www-form-urlencoded ITN body preserving field order. */
+const parseItnRawBody = (raw) => {
+  const body = typeof raw === "string" ? raw : raw?.toString?.("utf8") || "";
+  const entries = [];
+  const params = new URLSearchParams(body);
+  for (const [key, value] of params) {
+    entries.push([key, value]);
+  }
+  return {
+    entries,
+    data: Object.fromEntries(entries),
+    paramString: buildItnParamStringFromEntries(entries),
+  };
+};
+
+const verifyItnSignature = (posted, passphrase = null, orderedEntries = null) => {
   const signature = posted?.signature;
   if (!signature) return false;
-  const paramString = buildItnParamString(posted);
+  const paramString = buildItnParamString(posted, orderedEntries);
   const { passphrase: configuredPassphrase } = readConfig();
   const effectivePassphrase = passphrase ?? configuredPassphrase;
   let tempParamString = paramString;
@@ -117,14 +139,8 @@ const verifyItnSignature = (posted, passphrase = null) => {
     tempParamString += `&passphrase=${encodeURIComponent(String(effectivePassphrase).trim()).replace(/%20/g, "+")}`;
   }
   const expected = crypto.createHash("md5").update(tempParamString).digest("hex");
-  try {
-    return crypto.timingSafeEqual(
-      Buffer.from(expected, "utf8"),
-      Buffer.from(String(signature), "utf8")
-    );
-  } catch (_) {
-    return false;
-  }
+  const received = String(signature).trim().toLowerCase();
+  return expected === received;
 };
 
 const validateItnWithPayfast = async (paramString) => {
@@ -281,17 +297,21 @@ const normalizeItnPayload = (itnData) => {
 /**
  * Full ITN security pipeline: signature → optional IP → server validate → amount.
  */
-const processItnNotification = async (posted, { expectedAmountMajor } = {}) => {
+const processItnNotification = async (
+  posted,
+  { expectedAmountMajor, orderedEntries = null, paramString = null } = {}
+) => {
   if (!posted || typeof posted !== "object") {
     return { valid: false, reason: "empty payload" };
   }
 
-  if (!verifyItnSignature(posted)) {
+  if (!verifyItnSignature(posted, null, orderedEntries)) {
     return { valid: false, reason: "invalid signature" };
   }
 
-  const paramString = buildItnParamString(posted);
-  const serverValid = await validateItnWithPayfast(paramString);
+  const itnParamString =
+    paramString || buildItnParamString(posted, orderedEntries);
+  const serverValid = await validateItnWithPayfast(itnParamString);
   if (!serverValid) {
     return { valid: false, reason: "PayFast server validation failed" };
   }
@@ -312,6 +332,8 @@ module.exports = {
   formatAmount,
   generateSignature,
   buildItnParamString,
+  buildItnParamStringFromEntries,
+  parseItnRawBody,
   verifyItnSignature,
   validateItnWithPayfast,
   isValidNotifySource,

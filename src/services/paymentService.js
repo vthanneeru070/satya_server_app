@@ -55,6 +55,79 @@ const resolveReturnUrl = (callbackUrl) => {
   return callbackUrl || returnUrl || null;
 };
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** If verify body includes PayFast ITN/return fields, build an ITN payload. */
+const extractPayfastItnFromVerifyPayload = (payload = {}, reference) => {
+  if (!payload || typeof payload !== "object") return null;
+  const {
+    reference: _ref,
+    callbackUrl: _cb,
+    orderId: _orderId,
+    ...rest
+  } = payload;
+  const hasItnFields =
+    rest.payment_status ||
+    rest.pf_payment_id ||
+    rest.signature ||
+    rest.amount_gross;
+  if (!hasItnFields) return null;
+  return {
+    ...rest,
+    m_payment_id: rest.m_payment_id || reference,
+  };
+};
+
+const buildPayfastVerifyResult = async (payment, kind) => {
+  if (payment.status === "SUCCESS") {
+    return kind === "DONATION"
+      ? {
+          payment,
+          contribution: await DonationContribution.findById(payment.donationContribution),
+          status: "success",
+          alreadyPaid: true,
+        }
+      : {
+          payment,
+          order: await Order.findById(payment.order),
+          status: "success",
+          alreadyPaid: true,
+        };
+  }
+  if (payment.status === "FAILED") {
+    return kind === "DONATION"
+      ? {
+          payment,
+          contribution: await DonationContribution.findById(payment.donationContribution),
+          status: "failed",
+          alreadyPaid: false,
+        }
+      : {
+          payment,
+          order: await Order.findById(payment.order),
+          status: "failed",
+          alreadyPaid: false,
+        };
+  }
+  return kind === "DONATION"
+    ? {
+        payment,
+        contribution: await DonationContribution.findById(payment.donationContribution),
+        status: "pending",
+        alreadyPaid: false,
+        pendingReason:
+          "Awaiting PayFast ITN. Confirm PAYFAST_NOTIFY_URL is registered in PayFast and reachable.",
+      }
+    : {
+        payment,
+        order: await Order.findById(payment.order),
+        status: "pending",
+        alreadyPaid: false,
+        pendingReason:
+          "Awaiting PayFast ITN. Confirm PAYFAST_NOTIFY_URL is registered in PayFast and reachable.",
+      };
+};
+
 /** Normalize Paystack verify payload or PayFast ITN into a common settlement shape. */
 const normalizeGatewayData = (gateway, rawData) => {
   if (gateway === "PAYFAST") {
@@ -634,10 +707,13 @@ const settlePaymentInTransaction = async ({
  * DONATION payments. PayFast relies on ITN for settlement; this endpoint returns
  * the current DB state or verifies legacy Paystack transactions via API.
  */
-const verifyPaymentByReference = async (reference, { userId, isAdmin = false } = {}) => {
+const verifyPaymentByReference = async (
+  reference,
+  { userId, isAdmin = false, payfastNotify = null, waitForItnMs = 12000 } = {}
+) => {
   if (!reference) throw new HttpError("reference is required", 400);
 
-  const payment = await Payment.findOne({
+  let payment = await Payment.findOne({
     reference,
     isDeleted: { $ne: true },
   });
@@ -648,44 +724,26 @@ const verifyPaymentByReference = async (reference, { userId, isAdmin = false } =
   const kind = resolvePaymentKind(payment);
 
   if (payment.gateway === "PAYFAST") {
-    if (payment.status === "SUCCESS") {
-      const out =
-        kind === "DONATION"
-          ? {
-              payment,
-              contribution: await DonationContribution.findById(payment.donationContribution),
-              status: "success",
-              alreadyPaid: true,
-            }
-          : {
-              payment,
-              order: await Order.findById(payment.order),
-              status: "success",
-              alreadyPaid: true,
-            };
-      return out;
+    if (payfastNotify && typeof payfastNotify === "object") {
+      await handlePayfastItn(payfastNotify);
+      payment = await Payment.findOne({ reference, isDeleted: { $ne: true } });
     }
-    if (payment.status === "FAILED") {
-      const out =
-        kind === "DONATION"
-          ? {
-              payment,
-              contribution: await DonationContribution.findById(payment.donationContribution),
-              status: "failed",
-              alreadyPaid: false,
-            }
-          : {
-              payment,
-              order: await Order.findById(payment.order),
-              status: "failed",
-              alreadyPaid: false,
-            };
-      return out;
+
+    const pollUntil = Date.now() + Math.max(Number(waitForItnMs) || 0, 0);
+    while (
+      payment &&
+      payment.status === "PENDING" &&
+      Date.now() < pollUntil
+    ) {
+      await sleep(1000);
+      payment = await Payment.findOne({ reference, isDeleted: { $ne: true } });
     }
-    throw new HttpError(
-      "Payment is still pending PayFast confirmation. ITN settlement may take a few seconds.",
-      409
-    );
+
+    if (!payment) {
+      throw new HttpError("No payment record matches this reference", 404);
+    }
+
+    return buildPayfastVerifyResult(payment, kind);
   }
 
   const paystackData = await paystackService.verifyTransaction(reference);
@@ -870,7 +928,10 @@ const handleRefundWebhook = async (event) => {
  * PayFast ITN (Instant Transaction Notification) handler.
  * PayFast retries until it receives HTTP 200.
  */
-const handlePayfastItn = async (posted) => {
+const handlePayfastItn = async (
+  posted,
+  { itnEntries = null, itnParamString = null } = {}
+) => {
   const reference = posted?.m_payment_id;
   if (!reference) {
     return { ignored: true, reason: "no m_payment_id in ITN payload" };
@@ -886,6 +947,8 @@ const handlePayfastItn = async (posted) => {
 
   const itnResult = await payfastService.processItnNotification(posted, {
     expectedAmountMajor: payment.amount,
+    orderedEntries: itnEntries,
+    paramString: itnParamString,
   });
   if (!itnResult.valid) {
     console.warn("[payfast] ITN rejected:", itnResult.reason, reference);
@@ -1046,6 +1109,7 @@ module.exports = {
   initializePayment,
   initializeDonationPayment,
   verifyPaymentByReference,
+  extractPayfastItnFromVerifyPayload,
   handlePaystackWebhook,
   handlePayfastItn,
   listAllPayments,
