@@ -93,6 +93,7 @@ router.post(
  *       - in: query
  *         name: search
  *         schema: { type: string }
+ *         description: Matches admin fullName, email, or phone (partial, case-insensitive)
  *       - in: query
  *         name: includeDeleted
  *         schema: { type: boolean, default: false }

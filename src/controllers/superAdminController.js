@@ -428,7 +428,15 @@ const listAdmins = async (req, res, next) => {
 
     const filter = { role: { $in: ["admin", "superadmin"] } };
     if (!includeDeleted) filter.isDeleted = { $ne: true };
-    if (search) filter.email = { $regex: search, $options: "i" };
+
+    if (search) {
+      const safe = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      filter.$or = [
+        { email: { $regex: safe, $options: "i" } },
+        { fullName: { $regex: safe, $options: "i" } },
+        { phone: { $regex: safe, $options: "i" } },
+      ];
+    }
 
     const [admins, total] = await Promise.all([
       User.find(filter)

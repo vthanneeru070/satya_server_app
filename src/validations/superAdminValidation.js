@@ -18,7 +18,7 @@ const adminIdParamsSchema = Joi.object({
 const listAdminsQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(20),
-  search: Joi.string().trim().allow("").optional(),
+  search: Joi.string().trim().max(120).allow("").optional(),
   includeDeleted: Joi.boolean().truthy("true").falsy("false").default(false),
 });
 
