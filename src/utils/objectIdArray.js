@@ -1,10 +1,36 @@
 const HttpError = require("./httpError");
 
 const OBJECT_ID_REGEX = /^[a-fA-F0-9]{24}$/;
+const MAX_EXTRACT_DEPTH = 6;
 
-const extractObjectId = (value) => {
-  if (value === undefined || value === null || value === "") {
+const isObjectId = (value) => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  if (value._bsontype === "ObjectId") {
+    return true;
+  }
+
+  if (value.constructor?.name === "ObjectId") {
+    return true;
+  }
+
+  return (
+    typeof value.toHexString === "function" &&
+    typeof value.toString === "function" &&
+    OBJECT_ID_REGEX.test(String(value))
+  );
+};
+
+const extractObjectId = (value, depth = 0) => {
+  if (value === undefined || value === null || value === "" || depth > MAX_EXTRACT_DEPTH) {
     return null;
+  }
+
+  if (isObjectId(value)) {
+    const str = String(value);
+    return OBJECT_ID_REGEX.test(str) ? str : null;
   }
 
   if (typeof value === "string") {
@@ -14,7 +40,7 @@ const extractObjectId = (value) => {
 
     if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
       try {
-        return extractObjectId(JSON.parse(trimmed));
+        return extractObjectId(JSON.parse(trimmed), depth + 1);
       } catch (_error) {
         // fall through to regex extraction
       }
@@ -25,11 +51,18 @@ const extractObjectId = (value) => {
   }
 
   if (typeof value === "object") {
-    if (value._id !== undefined && value._id !== null) {
-      return extractObjectId(value._id);
+    if (value._id !== undefined && value._id !== null && value._id !== value) {
+      const fromId = extractObjectId(value._id, depth + 1);
+      if (fromId) return fromId;
     }
-    if (value.id !== undefined && value.id !== null) {
-      return extractObjectId(value.id);
+
+    if (
+      value.id !== undefined &&
+      value.id !== null &&
+      value.id !== value &&
+      !Buffer.isBuffer(value.id)
+    ) {
+      return extractObjectId(value.id, depth + 1);
     }
   }
 
