@@ -94,9 +94,13 @@ const ritualSchema = new mongoose.Schema(
     },
 
     deity: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Deity",
-      required: true,
+      type: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Deity",
+        },
+      ],
+      default: [],
     },
 
     category: {
@@ -219,6 +223,22 @@ const ritualSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+    toJSON: {
+      transform(_doc, ret) {
+        if (ret.deity && !Array.isArray(ret.deity)) {
+          ret.deity = [ret.deity];
+        }
+        return ret;
+      },
+    },
+    toObject: {
+      transform(_doc, ret) {
+        if (ret.deity && !Array.isArray(ret.deity)) {
+          ret.deity = [ret.deity];
+        }
+        return ret;
+      },
+    },
   }
 );
 

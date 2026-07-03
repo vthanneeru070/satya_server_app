@@ -144,7 +144,7 @@ const parseJsonField = (value, fieldName) => {
 };
 
 const parseDdMmYyyyDate = (value, fieldName) => {
-  if (value === undefined) {
+  if (value === undefined || value === null || String(value).trim() === "") {
     return undefined;
   }
 
@@ -162,6 +162,31 @@ const parseDdMmYyyyDate = (value, fieldName) => {
 
   return parsedDate;
 };
+
+const normalizeDeityIds = (deity) => {
+  if (!deity) return [];
+  if (Array.isArray(deity)) {
+    return deity.map((id) => String(id).trim()).filter(Boolean);
+  }
+  return [String(deity).trim()].filter(Boolean);
+};
+
+const syncDeityPujas = async (poojaId, previousDeityIds, nextDeityIds) => {
+  const previous = new Set(normalizeDeityIds(previousDeityIds));
+  const next = new Set(normalizeDeityIds(nextDeityIds));
+  const removed = [...previous].filter((id) => !next.has(id));
+  const added = [...next].filter((id) => !previous.has(id));
+
+  await Promise.all([
+    ...removed.map((id) => Deity.findByIdAndUpdate(id, { $pull: { pujas: poojaId } })),
+    ...added.map((id) => Deity.findByIdAndUpdate(id, { $addToSet: { pujas: poojaId } })),
+  ]);
+};
+
+const poojaPopulate = [
+  { path: "createdBy", select: "email role" },
+  { path: "deity", select: "name deity_color" },
+];
 
 // Normalize the trio (accessType, price, currency) into final, persistable values
 // and enforce the cross-field rule: PAID poojas must have a positive price and a
@@ -212,6 +237,10 @@ const createPooja = async (req, res, next) => {
     } = req.body;
     const purpose = parseJsonField(req.body.purpose, "purpose");
     const parsedDate = parseDdMmYyyyDate(date, "date");
+    const deityIds = parseObjectIdArrayField(deity, "deity") ?? [];
+    if (!deityIds.length) {
+      throw new HttpError("deity must contain at least one valid ObjectId", 400);
+    }
     const deitySummary = parseJsonField(req.body.deitySummary, "deitySummary");
     const preparation = parseJsonField(req.body.preparation, "preparation");
     const parsedSteps = parseJsonField(req.body.steps, "steps") ?? [];
@@ -238,8 +267,8 @@ const createPooja = async (req, res, next) => {
 
     const pooja = await Pooja.create({
       title,
-      date: parsedDate,
-      deity,
+      ...(parsedDate !== undefined && { date: parsedDate }),
+      deity: deityIds,
       category,
       difficulty,
       duration,
@@ -264,7 +293,9 @@ const createPooja = async (req, res, next) => {
     });
 
     // Keep Deity.pujas in sync with linked pooja
-    await Deity.findByIdAndUpdate(deity, { $addToSet: { pujas: pooja._id } });
+    await syncDeityPujas(pooja._id, [], deityIds);
+
+    await pooja.populate(poojaPopulate);
 
     return sendSuccess(res, { pooja }, "Pooja created successfully", 201);
   } catch (error) {
@@ -290,7 +321,7 @@ const getPoojas = async (req, res, next) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .populate("createdBy", "email role"),
+        .populate(poojaPopulate),
       Pooja.countDocuments(filter),
     ]);
 
@@ -328,7 +359,7 @@ const getAllPoojas = async (req, res, next) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .populate("createdBy", "email role"),
+        .populate(poojaPopulate),
       Pooja.countDocuments(filter),
     ]);
 
@@ -366,7 +397,7 @@ const getMyPoojas = async (req, res, next) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .populate("createdBy", "email role"),
+        .populate(poojaPopulate),
       Pooja.countDocuments(filter),
     ]);
 
@@ -396,7 +427,7 @@ const getPoojaById = async (req, res, next) => {
       filter.status = "APPROVED";
     }
 
-    const pooja = await Pooja.findOne(filter).populate("createdBy", "email role");
+    const pooja = await Pooja.findOne(filter).populate(poojaPopulate);
 
     if (!pooja) {
       throw new HttpError("Pooja not found", 404);
@@ -433,9 +464,13 @@ const updatePooja = async (req, res, next) => {
       rating,
     } = req.body;
 
-    const previousDeityId = pooja.deity ? pooja.deity.toString() : null;
+    const previousDeityIds = normalizeDeityIds(pooja.deity);
     const purpose = parseJsonField(req.body.purpose, "purpose");
     const parsedDate = parseDdMmYyyyDate(date, "date");
+    const parsedDeityIds = parseObjectIdArrayField(deity, "deity");
+    if (parsedDeityIds !== undefined && !parsedDeityIds.length) {
+      throw new HttpError("deity must contain at least one valid ObjectId", 400);
+    }
     const deitySummary = parseJsonField(req.body.deitySummary, "deitySummary");
     const preparation = parseJsonField(req.body.preparation, "preparation");
     const parsedSteps = parseJsonField(req.body.steps, "steps");
@@ -455,7 +490,7 @@ const updatePooja = async (req, res, next) => {
     const hasBodyUpdates =
       title !== undefined ||
       date !== undefined ||
-      deity !== undefined ||
+      parsedDeityIds !== undefined ||
       category !== undefined ||
       difficulty !== undefined ||
       duration !== undefined ||
@@ -488,12 +523,12 @@ const updatePooja = async (req, res, next) => {
       pooja.title = title;
     }
 
-    if (deity !== undefined) {
-      pooja.deity = deity;
+    if (parsedDeityIds !== undefined) {
+      pooja.deity = parsedDeityIds;
     }
 
     if (date !== undefined) {
-      pooja.date = parsedDate;
+      pooja.date = parsedDate ?? null;
     }
 
     if (category !== undefined) {
@@ -607,15 +642,10 @@ const updatePooja = async (req, res, next) => {
     }
 
     await pooja.save();
-    await pooja.populate("createdBy", "email role");
+    await pooja.populate(poojaPopulate);
 
-    // If deity changed, move pooja id from old deity to new deity
-    const newDeityId = pooja.deity ? pooja.deity.toString() : null;
-    if (deity !== undefined && previousDeityId && newDeityId && previousDeityId !== newDeityId) {
-      await Promise.all([
-        Deity.findByIdAndUpdate(previousDeityId, { $pull: { pujas: pooja._id } }),
-        Deity.findByIdAndUpdate(newDeityId, { $addToSet: { pujas: pooja._id } }),
-      ]);
+    if (parsedDeityIds !== undefined) {
+      await syncDeityPujas(pooja._id, previousDeityIds, pooja.deity);
     }
 
     return sendSuccess(res, { pooja }, "Pooja updated successfully");
@@ -634,7 +664,7 @@ const reviewPooja = async (req, res, next) => {
 
     pooja.status = req.body.status;
     await pooja.save();
-    await pooja.populate("createdBy", "email role");
+    await pooja.populate(poojaPopulate);
 
     return sendSuccess(res, { pooja }, "Pooja reviewed successfully");
   } catch (error) {
@@ -658,9 +688,7 @@ const deletePooja = async (req, res, next) => {
     ]);
 
     // Remove from Deity.pujas
-    if (pooja.deity) {
-      await Deity.findByIdAndUpdate(pooja.deity, { $pull: { pujas: pooja._id } });
-    }
+    await syncDeityPujas(pooja._id, pooja.deity, []);
 
     await pooja.deleteOne();
 

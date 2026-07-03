@@ -24,6 +24,64 @@ const parseJsonField = (value, fieldName) => {
   throw new HttpError(`${fieldName} must be a valid JSON object/array`, 400);
 };
 
+const parseStringArrayField = (value, fieldName) => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const trimmedValue = value.trim();
+
+    if (!trimmedValue) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(trimmedValue);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch (_error) {
+      // Keep handling as plain string below
+    }
+
+    if (trimmedValue.includes(",")) {
+      return trimmedValue
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+
+    return [trimmedValue];
+  }
+
+  throw new HttpError(`${fieldName} must be an array or JSON array string`, 400);
+};
+
+const parseObjectIdArrayField = (value, fieldName) => {
+  const parsed = parseStringArrayField(value, fieldName);
+  if (parsed === undefined) {
+    return undefined;
+  }
+
+  const objectIdRegex = /^[a-fA-F0-9]{24}$/;
+  const invalidId = parsed.find((id) => !objectIdRegex.test(String(id).trim()));
+  if (invalidId) {
+    throw new HttpError(`${fieldName} must contain valid ObjectId values`, 400);
+  }
+
+  return parsed.map((id) => String(id).trim());
+};
+
+const ritualPopulate = [
+  { path: "deity", select: "name deity_color" },
+  { path: "createdBy", select: "email role" },
+];
+
 const slugify = (str) =>
   String(str)
     .trim()
@@ -91,6 +149,10 @@ const createRitual = async (req, res, next) => {
     const sections = parseJsonField(req.body.sections, "sections") ?? [];
     const days = parseJsonField(req.body.days, "days") ?? [];
     const mediaFromBody = parseJsonField(req.body.media, "media") || {};
+    const deityIds = parseObjectIdArrayField(deity, "deity") ?? [];
+    if (!deityIds.length) {
+      throw new HttpError("deity must contain at least one valid ObjectId", 400);
+    }
 
     const uploadedMedia = await getUploadedMediaUrls(req.files);
     const images = [...(mediaFromBody.images || []), ...uploadedMedia.images];
@@ -107,7 +169,7 @@ const createRitual = async (req, res, next) => {
       title,
       slug,
       description: description ?? "",
-      deity,
+      deity: deityIds,
       category: category ?? "",
       purpose: purpose ?? "",
       ritualDays: Number(ritualDays),
@@ -126,6 +188,8 @@ const createRitual = async (req, res, next) => {
       status,
       createdBy: req.user.userId,
     });
+
+    await ritual.populate(ritualPopulate);
 
     return sendSuccess(res, { ritual }, "Ritual created successfully", 201);
   } catch (error) {
@@ -151,8 +215,7 @@ const getRituals = async (req, res, next) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .populate("deity", "name")
-        .populate("createdBy", "email role"),
+        .populate(ritualPopulate),
       Ritual.countDocuments(filter),
     ]);
 
@@ -190,8 +253,7 @@ const getAllRituals = async (req, res, next) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .populate("deity", "name")
-        .populate("createdBy", "email role"),
+        .populate(ritualPopulate),
       Ritual.countDocuments(filter),
     ]);
 
@@ -229,8 +291,7 @@ const getMyRituals = async (req, res, next) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .populate("deity", "name")
-        .populate("createdBy", "email role"),
+        .populate(ritualPopulate),
       Ritual.countDocuments(filter),
     ]);
 
@@ -260,9 +321,7 @@ const getRitualById = async (req, res, next) => {
       filter.status = "APPROVED";
     }
 
-    const ritual = await Ritual.findOne(filter)
-      .populate("deity", "name")
-      .populate("createdBy", "email role");
+    const ritual = await Ritual.findOne(filter).populate(ritualPopulate);
 
     if (!ritual) {
       throw new HttpError("Ritual not found", 404);
@@ -303,6 +362,10 @@ const updateRitual = async (req, res, next) => {
     const sections = req.body.sections !== undefined ? parseJsonField(req.body.sections, "sections") : undefined;
     const days = req.body.days !== undefined ? parseJsonField(req.body.days, "days") : undefined;
     const mediaFromBody = req.body.media !== undefined ? parseJsonField(req.body.media, "media") : undefined;
+    const parsedDeityIds = parseObjectIdArrayField(deity, "deity");
+    if (parsedDeityIds !== undefined && !parsedDeityIds.length) {
+      throw new HttpError("deity must contain at least one valid ObjectId", 400);
+    }
 
     const uploadedMedia = await getUploadedMediaUrls(req.files);
     const hasUploadedMedia =
@@ -318,7 +381,7 @@ const updateRitual = async (req, res, next) => {
       title !== undefined ||
       slugInput !== undefined ||
       description !== undefined ||
-      deity !== undefined ||
+      parsedDeityIds !== undefined ||
       category !== undefined ||
       purpose !== undefined ||
       ritualDays !== undefined ||
@@ -340,7 +403,7 @@ const updateRitual = async (req, res, next) => {
 
     if (title !== undefined) ritual.title = title;
     if (description !== undefined) ritual.description = description;
-    if (deity !== undefined) ritual.deity = deity;
+    if (parsedDeityIds !== undefined) ritual.deity = parsedDeityIds;
     if (category !== undefined) ritual.category = category;
     if (purpose !== undefined) ritual.purpose = purpose;
     if (ritualDays !== undefined) ritual.ritualDays = Number(ritualDays);
@@ -395,8 +458,7 @@ const updateRitual = async (req, res, next) => {
     }
 
     await ritual.save();
-    await ritual.populate("deity", "name");
-    await ritual.populate("createdBy", "email role");
+    await ritual.populate(ritualPopulate);
 
     return sendSuccess(res, { ritual }, "Ritual updated successfully");
   } catch (error) {
@@ -414,8 +476,7 @@ const reviewRitual = async (req, res, next) => {
 
     ritual.status = req.body.status;
     await ritual.save();
-    await ritual.populate("deity", "name");
-    await ritual.populate("createdBy", "email role");
+    await ritual.populate(ritualPopulate);
 
     return sendSuccess(res, { ritual }, "Ritual reviewed successfully");
   } catch (error) {

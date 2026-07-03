@@ -79,12 +79,15 @@ const poojaSchema = new mongoose.Schema(
     },
     date: {
       type: Date,
-      required: true,
     },
     deity: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Deity", // 🔥 changed to reference
-      required: true,
+      type: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Deity",
+        },
+      ],
+      default: [],
     },
     accessType: {
       type: String,
@@ -172,6 +175,22 @@ const poojaSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+    toJSON: {
+      transform(_doc, ret) {
+        if (ret.deity && !Array.isArray(ret.deity)) {
+          ret.deity = [ret.deity];
+        }
+        return ret;
+      },
+    },
+    toObject: {
+      transform(_doc, ret) {
+        if (ret.deity && !Array.isArray(ret.deity)) {
+          ret.deity = [ret.deity];
+        }
+        return ret;
+      },
+    },
   }
 );
 

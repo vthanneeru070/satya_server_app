@@ -34,11 +34,16 @@ const accessTypeField = Joi.string().trim().valid("FREE", "PAID");
 const priceField = Joi.number().min(0);
 const currencyField = Joi.string().trim().min(1).max(10);
 
+const deityField = Joi.alternatives().try(
+  Joi.array().items(Joi.string().trim().hex().length(24)).min(1),
+  Joi.string().trim().min(2)
+);
+
 const createRitualSchema = Joi.object({
   title: Joi.string().trim().min(2).max(200).required(),
   slug: Joi.string().trim().lowercase().max(200).optional(),
   description: Joi.string().trim().allow("").max(10000).optional(),
-  deity: Joi.string().trim().hex().length(24).required(),
+  deity: deityField.required(),
   category: Joi.string().trim().max(150).allow("").optional(),
   purpose: Joi.string().trim().max(2000).allow("").optional(),
   ritualDays: Joi.number().integer().min(1).required().messages({
@@ -77,7 +82,7 @@ const updateRitualSchema = Joi.object({
   title: Joi.string().trim().min(2).max(200),
   slug: Joi.string().trim().lowercase().max(200),
   description: Joi.string().trim().allow("").max(10000),
-  deity: Joi.string().trim().hex().length(24),
+  deity: deityField.optional(),
   category: Joi.string().trim().max(150).allow(""),
   purpose: Joi.string().trim().max(2000).allow(""),
   ritualDays: Joi.number().integer().min(1),

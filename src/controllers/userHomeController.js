@@ -28,7 +28,8 @@ const getUserHome = async (req, res, next) => {
       Pooja.find({ status: "APPROVED" })
         .sort({ createdAt: -1 })
         .limit(5)
-        .populate("createdBy", "email role"),
+        .populate("createdBy", "email role")
+        .populate("deity", "name deity_color"),
       Festival.find({
         date: { $gte: todayStartUtc },
         status: "APPROVED",

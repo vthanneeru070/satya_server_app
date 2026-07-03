@@ -455,11 +455,18 @@ const options = {
         },
         PoojaCreateMultipart: {
           type: "object",
-          required: ["title", "date", "deity"],
+          required: ["title", "deity"],
           properties: {
             title: { type: "string" },
-            date: { type: "string", example: "05-05-2026" },
-            deity: { type: "string", description: "Deity ObjectId" },
+            date: {
+              type: "string",
+              example: "05-05-2026",
+              description: "Optional schedule date in dd-mm-yyyy format",
+            },
+            deity: {
+              type: "string",
+              description: "One or more Deity ObjectIds (JSON array, comma-separated, or single id)",
+            },
             category: { type: "string" },
             difficulty: { type: "string" },
             duration: { type: "string" },
@@ -570,7 +577,13 @@ const options = {
             title: { type: "string" },
             slug: { type: "string" },
             description: { type: "string" },
-            deity: { oneOf: [{ type: "string" }, { type: "object" }] },
+            deity: {
+              type: "array",
+              items: {
+                oneOf: [{ type: "string" }, { type: "object" }],
+              },
+              description: "Populated Deity documents linked to this ritual",
+            },
             category: { type: "string" },
             purpose: { type: "string" },
             ritualDays: { type: "integer", minimum: 1, description: "Programme length in days" },
@@ -616,7 +629,11 @@ const options = {
               description: "Optional on create; generated from title if omitted",
             },
             description: { type: "string" },
-            deity: { type: "string", description: "Deity MongoDB ObjectId (24-char hex)" },
+            deity: {
+              type: "string",
+              description:
+                "One or more Deity ObjectIds (JSON array, comma-separated, or single id)",
+            },
             category: { type: "string" },
             purpose: { type: "string" },
             ritualDays: {
@@ -811,7 +828,11 @@ const options = {
                     type: "string",
                     enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"],
                   },
-                  deity: { type: "string", description: "Deity ObjectId" },
+                  deity: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Deity ObjectIds linked to this pooja",
+                  },
                 },
               },
             },

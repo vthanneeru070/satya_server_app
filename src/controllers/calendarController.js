@@ -38,7 +38,10 @@ const getCalendarItems = async (req, res, next) => {
 
     const [festivals, poojas, moonPhases] = await Promise.all([
       Festival.find(festivalFilter).sort({ date: 1 }).populate("createdBy", "email role"),
-      Pooja.find(poojaFilter).sort({ date: 1 }).populate("createdBy", "email role"),
+      Pooja.find(poojaFilter)
+        .sort({ date: 1 })
+        .populate("createdBy", "email role")
+        .populate("deity", "name deity_color"),
       getMoonPhasesForMonth(year, month, timezone),
     ]);
 

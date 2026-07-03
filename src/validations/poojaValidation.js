@@ -10,6 +10,10 @@ const festivalIdsField = Joi.alternatives().try(
   Joi.array().items(Joi.string().trim().hex().length(24)).default([]),
   Joi.string().trim().min(2)
 );
+const deityField = Joi.alternatives().try(
+  Joi.array().items(Joi.string().trim().hex().length(24)).min(1),
+  Joi.string().trim().min(2)
+);
 const blessingsField = Joi.alternatives().try(
   Joi.array().items(Joi.string().trim().min(1)).default([]),
   Joi.string().trim().min(1)
@@ -95,8 +99,8 @@ const stepImageMetaField = jsonArrayOrStringField(
 
 const createPoojaSchema = Joi.object({
   title: Joi.string().trim().min(2).max(150).required(),
-  date: Joi.string().trim().pattern(ddmmyyyyPattern).required(),
-  deity: Joi.string().trim().hex().length(24).required(),
+  date: Joi.string().trim().pattern(ddmmyyyyPattern).optional(),
+  deity: deityField.required(),
   category: Joi.string().trim().min(2).max(150).optional(),
   difficulty: Joi.string().trim().min(2).max(100).optional(),
   duration: Joi.string().trim().min(1).max(100).optional(),
@@ -141,8 +145,8 @@ const createPoojaSchema = Joi.object({
 // to catch cases like "flip to PAID without sending a price".
 const updatePoojaSchema = Joi.object({
   title: Joi.string().trim().min(2).max(150),
-  date: Joi.string().trim().pattern(ddmmyyyyPattern),
-  deity: Joi.string().trim().hex().length(24),
+  date: Joi.string().trim().pattern(ddmmyyyyPattern).optional(),
+  deity: deityField.optional(),
   category: Joi.string().trim().min(2).max(150),
   difficulty: Joi.string().trim().min(2).max(100),
   duration: Joi.string().trim().min(1).max(100),
