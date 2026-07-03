@@ -34,8 +34,16 @@ const accessTypeField = Joi.string().trim().valid("FREE", "PAID");
 const priceField = Joi.number().min(0);
 const currencyField = Joi.string().trim().min(1).max(10);
 
+const objectIdRefItem = Joi.alternatives().try(
+  Joi.string().trim().hex().length(24),
+  Joi.object({
+    _id: Joi.alternatives().try(Joi.string().trim().hex().length(24), Joi.any()),
+    id: Joi.string().trim().hex().length(24),
+  }).or("_id", "id")
+);
+
 const deityField = Joi.alternatives().try(
-  Joi.array().items(Joi.string().trim().hex().length(24)).min(1),
+  Joi.array().items(objectIdRefItem).min(1),
   Joi.string().trim().min(2)
 );
 

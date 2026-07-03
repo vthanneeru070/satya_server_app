@@ -2,6 +2,7 @@ const Ritual = require("../models/Ritual");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const { uploadFile, deleteFile } = require("../services/s3Service");
+const { parseObjectIdArrayField } = require("../utils/objectIdArray");
 
 const getUploadedMediaUrls = async (files = {}) => ({
   images: await Promise.all((files.image || []).map((file) => uploadFile(file, "rituals"))),
@@ -60,21 +61,6 @@ const parseStringArrayField = (value, fieldName) => {
   }
 
   throw new HttpError(`${fieldName} must be an array or JSON array string`, 400);
-};
-
-const parseObjectIdArrayField = (value, fieldName) => {
-  const parsed = parseStringArrayField(value, fieldName);
-  if (parsed === undefined) {
-    return undefined;
-  }
-
-  const objectIdRegex = /^[a-fA-F0-9]{24}$/;
-  const invalidId = parsed.find((id) => !objectIdRegex.test(String(id).trim()));
-  if (invalidId) {
-    throw new HttpError(`${fieldName} must contain valid ObjectId values`, 400);
-  }
-
-  return parsed.map((id) => String(id).trim());
 };
 
 const ritualPopulate = [

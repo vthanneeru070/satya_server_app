@@ -3,6 +3,10 @@ const Deity = require("../models/Deity");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const { uploadFile, deleteFile } = require("../services/s3Service");
+const {
+  normalizeObjectIdArray,
+  parseObjectIdArrayField,
+} = require("../utils/objectIdArray");
 
 const getUploadedMediaUrls = async (files = {}) => ({
   images: await Promise.all((files.image || []).map((file) => uploadFile(file, "general"))),
@@ -104,21 +108,6 @@ const parseStringArrayField = (value, fieldName) => {
   throw new HttpError(`${fieldName} must be an array or JSON array string`, 400);
 };
 
-const parseObjectIdArrayField = (value, fieldName) => {
-  const parsed = parseStringArrayField(value, fieldName);
-  if (parsed === undefined) {
-    return undefined;
-  }
-
-  const objectIdRegex = /^[a-fA-F0-9]{24}$/;
-  const invalidId = parsed.find((id) => !objectIdRegex.test(String(id).trim()));
-  if (invalidId) {
-    throw new HttpError(`${fieldName} must contain valid ObjectId values`, 400);
-  }
-
-  return parsed.map((id) => String(id).trim());
-};
-
 const parseJsonField = (value, fieldName) => {
   if (value === undefined) {
     return undefined;
@@ -163,17 +152,9 @@ const parseDdMmYyyyDate = (value, fieldName) => {
   return parsedDate;
 };
 
-const normalizeDeityIds = (deity) => {
-  if (!deity) return [];
-  if (Array.isArray(deity)) {
-    return deity.map((id) => String(id).trim()).filter(Boolean);
-  }
-  return [String(deity).trim()].filter(Boolean);
-};
-
 const syncDeityPujas = async (poojaId, previousDeityIds, nextDeityIds) => {
-  const previous = new Set(normalizeDeityIds(previousDeityIds));
-  const next = new Set(normalizeDeityIds(nextDeityIds));
+  const previous = new Set(normalizeObjectIdArray(previousDeityIds));
+  const next = new Set(normalizeObjectIdArray(nextDeityIds));
   const removed = [...previous].filter((id) => !next.has(id));
   const added = [...next].filter((id) => !previous.has(id));
 
@@ -464,7 +445,7 @@ const updatePooja = async (req, res, next) => {
       rating,
     } = req.body;
 
-    const previousDeityIds = normalizeDeityIds(pooja.deity);
+    const previousDeityIds = normalizeObjectIdArray(pooja.deity);
     const purpose = parseJsonField(req.body.purpose, "purpose");
     const parsedDate = parseDdMmYyyyDate(date, "date");
     const parsedDeityIds = parseObjectIdArrayField(deity, "deity");
@@ -642,11 +623,12 @@ const updatePooja = async (req, res, next) => {
     }
 
     await pooja.save();
-    await pooja.populate(poojaPopulate);
 
     if (parsedDeityIds !== undefined) {
-      await syncDeityPujas(pooja._id, previousDeityIds, pooja.deity);
+      await syncDeityPujas(pooja._id, previousDeityIds, parsedDeityIds);
     }
+
+    await pooja.populate(poojaPopulate);
 
     return sendSuccess(res, { pooja }, "Pooja updated successfully");
   } catch (error) {
@@ -688,7 +670,7 @@ const deletePooja = async (req, res, next) => {
     ]);
 
     // Remove from Deity.pujas
-    await syncDeityPujas(pooja._id, pooja.deity, []);
+    await syncDeityPujas(pooja._id, normalizeObjectIdArray(pooja.deity), []);
 
     await pooja.deleteOne();
 
