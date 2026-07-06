@@ -2,6 +2,9 @@ const Deity = require("../models/Deity");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const { uploadFile, deleteFile } = require("../services/s3Service");
+const { mergeSearchFilter } = require("../utils/textSearch");
+
+const DEITY_SEARCH_FIELDS = ["name", "description", "alternate_names", "roles"];
 
 const getUploadedMediaUrls = async (files = {}) => ({
   images: await Promise.all((files.image || []).map((file) => uploadFile(file, "deities"))),
@@ -166,6 +169,8 @@ const getAllDeities = async (req, res, next) => {
     if (req.query.status) {
       filter.status = req.query.status;
     }
+
+    mergeSearchFilter(filter, DEITY_SEARCH_FIELDS, req.query.search);
 
     const [deities, total] = await Promise.all([
       Deity.find(filter)

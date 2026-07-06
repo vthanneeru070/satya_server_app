@@ -163,6 +163,11 @@ router.get(
  *         schema:
  *           type: string
  *           enum: [DRAFT, PENDING, APPROVED, REJECTED]
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search by title, description, category, or purpose
  *     responses:
  *       200:
  *         description: All rituals fetched successfully

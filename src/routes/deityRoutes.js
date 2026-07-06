@@ -114,6 +114,11 @@ router.post(
  *         schema:
  *           type: string
  *           enum: [DRAFT, PENDING, APPROVED, REJECTED, QUEUED]
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search by name, description, alternate names, or roles
  *     responses:
  *       200:
  *         description: Deities fetched successfully

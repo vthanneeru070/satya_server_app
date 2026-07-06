@@ -2,6 +2,9 @@ const Festival = require("../models/Festival");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const { uploadFile, deleteFile } = require("../services/s3Service");
+const { mergeSearchFilter } = require("../utils/textSearch");
+
+const FESTIVAL_SEARCH_FIELDS = ["title", "description", "category"];
 
 const canModifyFestival = (festival, user) =>
   user.isSuperAdmin === true || festival.createdBy.toString() === user.userId;
@@ -175,6 +178,8 @@ const getMyFestivals = async (req, res, next) => {
       filter.status = req.query.status;
     }
 
+    mergeSearchFilter(filter, FESTIVAL_SEARCH_FIELDS, req.query.search);
+
     const [festivals, total] = await Promise.all([
       Festival.find(filter)
         .sort({ createdAt: -1 })
@@ -212,6 +217,8 @@ const getAllFestivals = async (req, res, next) => {
     if (req.query.status) {
       filter.status = req.query.status;
     }
+
+    mergeSearchFilter(filter, FESTIVAL_SEARCH_FIELDS, req.query.search);
 
     const [festivals, total] = await Promise.all([
       Festival.find(filter)
@@ -253,6 +260,8 @@ const getVisibleFestivals = async (req, res, next) => {
     } else if (req.query.status) {
       filter.status = req.query.status;
     }
+
+    mergeSearchFilter(filter, FESTIVAL_SEARCH_FIELDS, req.query.search);
 
     const [festivals, total] = await Promise.all([
       Festival.find(filter)

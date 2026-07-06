@@ -7,6 +7,9 @@ const {
   normalizeObjectIdArray,
   parseObjectIdArrayField,
 } = require("../utils/objectIdArray");
+const { mergeSearchFilter } = require("../utils/textSearch");
+
+const POOJA_SEARCH_FIELDS = ["title", "description", "category"];
 
 const getUploadedMediaUrls = async (files = {}) => ({
   images: await Promise.all((files.image || []).map((file) => uploadFile(file, "general"))),
@@ -297,6 +300,8 @@ const getPoojas = async (req, res, next) => {
       filter.status = req.query.status;
     }
 
+    mergeSearchFilter(filter, POOJA_SEARCH_FIELDS, req.query.search);
+
     const [poojas, total] = await Promise.all([
       Pooja.find(filter)
         .sort({ createdAt: -1 })
@@ -335,6 +340,8 @@ const getAllPoojas = async (req, res, next) => {
       filter.status = req.query.status;
     }
 
+    mergeSearchFilter(filter, POOJA_SEARCH_FIELDS, req.query.search);
+
     const [poojas, total] = await Promise.all([
       Pooja.find(filter)
         .sort({ createdAt: -1 })
@@ -372,6 +379,8 @@ const getMyPoojas = async (req, res, next) => {
     if (req.query.status) {
       filter.status = req.query.status;
     }
+
+    mergeSearchFilter(filter, POOJA_SEARCH_FIELDS, req.query.search);
 
     const [poojas, total] = await Promise.all([
       Pooja.find(filter)

@@ -114,6 +114,7 @@ const allDeitiesQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(10),
   status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED").optional(),
+  search: Joi.string().trim().max(100).optional(),
 });
 
 const reviewDeitySchema = Joi.object({

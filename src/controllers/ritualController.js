@@ -3,6 +3,9 @@ const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const { uploadFile, deleteFile } = require("../services/s3Service");
 const { parseObjectIdArrayField } = require("../utils/objectIdArray");
+const { mergeSearchFilter } = require("../utils/textSearch");
+
+const RITUAL_SEARCH_FIELDS = ["title", "description", "category", "purpose"];
 
 const getUploadedMediaUrls = async (files = {}) => ({
   images: await Promise.all((files.image || []).map((file) => uploadFile(file, "rituals"))),
@@ -196,6 +199,8 @@ const getRituals = async (req, res, next) => {
       filter.status = req.query.status;
     }
 
+    mergeSearchFilter(filter, RITUAL_SEARCH_FIELDS, req.query.search);
+
     const [rituals, total] = await Promise.all([
       Ritual.find(filter)
         .sort({ createdAt: -1 })
@@ -234,6 +239,8 @@ const getAllRituals = async (req, res, next) => {
       filter.status = req.query.status;
     }
 
+    mergeSearchFilter(filter, RITUAL_SEARCH_FIELDS, req.query.search);
+
     const [rituals, total] = await Promise.all([
       Ritual.find(filter)
         .sort({ createdAt: -1 })
@@ -271,6 +278,8 @@ const getMyRituals = async (req, res, next) => {
     if (req.query.status) {
       filter.status = req.query.status;
     }
+
+    mergeSearchFilter(filter, RITUAL_SEARCH_FIELDS, req.query.search);
 
     const [rituals, total] = await Promise.all([
       Ritual.find(filter)

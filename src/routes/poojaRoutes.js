@@ -164,6 +164,11 @@ router.get(
  *         schema:
  *           type: string
  *           enum: [DRAFT, PENDING, APPROVED, REJECTED, QUEUED]
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search by title, description, or category
  *     responses:
  *       200:
  *         description: All poojas fetched successfully
