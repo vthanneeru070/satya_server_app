@@ -111,7 +111,7 @@ const createPoojaSchema = Joi.object({
   category: Joi.string().trim().min(2).max(150).optional(),
   difficulty: Joi.string().trim().min(2).max(100).optional(),
   duration: Joi.string().trim().min(1).max(100).optional(),
-  description: Joi.string().trim().min(2).max(3000).optional(),
+  description: Joi.string().trim().allow("").max(3000).optional(),
   accessType: accessTypeField.default("FREE"),
   price: priceField.when("accessType", {
     is: "PAID",
@@ -157,7 +157,7 @@ const updatePoojaSchema = Joi.object({
   category: Joi.string().trim().min(2).max(150),
   difficulty: Joi.string().trim().min(2).max(100),
   duration: Joi.string().trim().min(1).max(100),
-  description: Joi.string().trim().min(2).max(3000),
+  description: Joi.string().trim().allow("").max(3000).optional(),
   accessType: accessTypeField,
   price: priceField.when("accessType", {
     is: "PAID",
