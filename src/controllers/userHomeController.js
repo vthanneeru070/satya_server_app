@@ -23,10 +23,14 @@ const getUserHome = async (req, res, next) => {
     const todayDateKey = getDdMmYyyyInTimeZone(now, timezone);
     const panchang = getTodayPanchang(timezone);
 
-    const [dailySloka, poojas, festivals, donations] = await Promise.all([
+    const [dailySloka, dailyPoojas, poojas, festivals, donations] = await Promise.all([
       DailySloka.findOne({ dateKey: todayDateKey }).populate("createdBy", "email role"),
-      Pooja.find({ status: "APPROVED" })
+      Pooja.find({ status: "APPROVED", daily: true })
         .sort({ createdAt: -1 })
+        .populate("createdBy", "email role")
+        .populate("deity", "name deity_color"),
+      Pooja.find({ status: "APPROVED" })
+        .sort({ daily: -1, createdAt: -1 })
         .limit(5)
         .populate("createdBy", "email role")
         .populate("deity", "name deity_color"),
@@ -52,6 +56,7 @@ const getUserHome = async (req, res, next) => {
         todayDateAndTithi: panchang.todayDateAndTithi,
         timezone,
         dailySloka,
+        dailyPoojas,
         poojas,
         festivals,
         donations,

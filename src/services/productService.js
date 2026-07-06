@@ -141,7 +141,7 @@ const buildAssociatePujaSnapshots = async (poojaIds) => {
   if (!poojaIds?.length) return [];
 
   const rows = await Pooja.find({ _id: { $in: poojaIds } })
-    .select("title date status deity")
+    .select("title schedules status deity")
     .lean();
 
   const byId = new Map(rows.map((row) => [String(row._id), row]));
@@ -154,7 +154,7 @@ const buildAssociatePujaSnapshots = async (poojaIds) => {
     return {
       id: row._id,
       title: row.title,
-      date: row.date,
+      schedules: row.schedules || (row.date ? [{ date: row.date, time: "" }] : []),
       status: row.status,
       deity: row.deity,
     };

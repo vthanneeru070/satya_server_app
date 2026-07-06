@@ -104,11 +104,24 @@ const stepImageMetaField = jsonArrayOrStringField(
     .min(1)
 );
 
+const scheduleSlotSchema = Joi.object({
+  date: Joi.string().trim().pattern(ddmmyyyyPattern).required(),
+  time: Joi.string().trim().max(20).allow("").optional(),
+});
+
+const schedulesField = Joi.alternatives().try(
+  Joi.array().items(scheduleSlotSchema),
+  Joi.string().trim().pattern(ddmmyyyyPattern),
+  Joi.string().trim().min(2)
+);
+
 const createPoojaSchema = Joi.object({
   title: Joi.string().trim().min(2).max(150).required(),
-  date: Joi.string().trim().pattern(ddmmyyyyPattern).optional(),
+  schedules: schedulesField.optional(),
+  date: schedulesField.optional(),
   deity: deityField.required(),
   category: Joi.string().trim().min(2).max(150).optional(),
+  daily: Joi.boolean().optional(),
   difficulty: Joi.string().trim().min(2).max(100).optional(),
   duration: Joi.string().trim().min(1).max(100).optional(),
   description: Joi.string().trim().allow("").max(3000).optional(),
@@ -152,9 +165,11 @@ const createPoojaSchema = Joi.object({
 // to catch cases like "flip to PAID without sending a price".
 const updatePoojaSchema = Joi.object({
   title: Joi.string().trim().min(2).max(150),
-  date: Joi.string().trim().pattern(ddmmyyyyPattern).optional(),
+  schedules: schedulesField.optional(),
+  date: schedulesField.optional(),
   deity: deityField.optional(),
   category: Joi.string().trim().min(2).max(150),
+  daily: Joi.boolean().optional(),
   difficulty: Joi.string().trim().min(2).max(100),
   duration: Joi.string().trim().min(1).max(100),
   description: Joi.string().trim().allow("").max(3000).optional(),
@@ -200,6 +215,7 @@ const allPoojasQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).default(10),
   status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED").optional(),
   search: Joi.string().trim().max(100).optional(),
+  daily: Joi.boolean().optional(),
 });
 
 const reviewPoojaSchema = Joi.object({

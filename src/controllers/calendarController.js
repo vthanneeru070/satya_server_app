@@ -1,6 +1,7 @@
 const Festival = require("../models/Festival");
 const Pooja = require("../models/Pooja");
 const { sendSuccess } = require("../utils/response");
+const { buildScheduledOrDailyPoojaFilter } = require("../utils/poojaDaily");
 const {
   getValidTimeZone,
   getMonthUtcRangeForTimeZone,
@@ -29,9 +30,10 @@ const getCalendarItems = async (req, res, next) => {
       festivalFilter.isVisible = true;
     }
 
-    const poojaFilter = {
-      date: { $gte: monthStartUtc, $lt: nextMonthStartUtc },
-    };
+    const poojaFilter = buildScheduledOrDailyPoojaFilter({
+      monthStartUtc,
+      nextMonthStartUtc,
+    });
     if (!isAdminUser) {
       poojaFilter.status = "APPROVED";
     }
@@ -39,7 +41,7 @@ const getCalendarItems = async (req, res, next) => {
     const [festivals, poojas, moonPhases] = await Promise.all([
       Festival.find(festivalFilter).sort({ date: 1 }).populate("createdBy", "email role"),
       Pooja.find(poojaFilter)
-        .sort({ date: 1 })
+        .sort({ daily: -1, "schedules.date": 1 })
         .populate("createdBy", "email role")
         .populate("deity", "name deity_color"),
       getMoonPhasesForMonth(year, month, timezone),

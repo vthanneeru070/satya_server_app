@@ -8,6 +8,7 @@ const {
   parseObjectIdArrayField,
 } = require("../utils/objectIdArray");
 const { mergeSearchFilter } = require("../utils/textSearch");
+const { resolveDailyFlag, normalizeBoolean } = require("../utils/poojaDaily");
 
 const POOJA_SEARCH_FIELDS = ["title", "description", "category"];
 
@@ -155,6 +156,54 @@ const parseDdMmYyyyDate = (value, fieldName) => {
   return parsedDate;
 };
 
+const resolveSchedulesInput = (body) => {
+  if (body.schedules !== undefined) return body.schedules;
+  if (body.date !== undefined) return body.date;
+  return undefined;
+};
+
+const parseSchedules = (value, fieldName) => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  let items;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return [];
+    }
+    if (/^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])-[0-9]{4}$/.test(trimmed)) {
+      items = [{ date: trimmed, time: "" }];
+    } else {
+      const parsed = parseJsonField(trimmed, fieldName);
+      items = Array.isArray(parsed) ? parsed : [parsed];
+    }
+  } else if (Array.isArray(value)) {
+    items = value;
+  } else if (typeof value === "object" && value !== null) {
+    items = [value];
+  } else {
+    throw new HttpError(`${fieldName} must be a schedule array or JSON array string`, 400);
+  }
+
+  return items.map((slot, index) => {
+    const label = `${fieldName}[${index}]`;
+    const rawDate = slot?.date;
+    if (rawDate === undefined || rawDate === null || String(rawDate).trim() === "") {
+      throw new HttpError(`${label}.date is required`, 400);
+    }
+
+    const parsedDate =
+      rawDate instanceof Date ? rawDate : parseDdMmYyyyDate(String(rawDate), `${label}.date`);
+
+    return {
+      date: parsedDate,
+      time: String(slot?.time ?? "").trim(),
+    };
+  });
+};
+
 const syncDeityPujas = async (poojaId, previousDeityIds, nextDeityIds) => {
   const previous = new Set(normalizeObjectIdArray(previousDeityIds));
   const next = new Set(normalizeObjectIdArray(nextDeityIds));
@@ -205,7 +254,6 @@ const createPooja = async (req, res, next) => {
   try {
     const {
       title,
-      date,
       deity,
       category,
       difficulty,
@@ -220,7 +268,7 @@ const createPooja = async (req, res, next) => {
       rating,
     } = req.body;
     const purpose = parseJsonField(req.body.purpose, "purpose");
-    const parsedDate = parseDdMmYyyyDate(date, "date");
+    const parsedSchedules = parseSchedules(resolveSchedulesInput(req.body), "schedules");
     const deityIds = parseObjectIdArrayField(deity, "deity") ?? [];
     if (!deityIds.length) {
       throw new HttpError("deity must contain at least one valid ObjectId", 400);
@@ -248,12 +296,14 @@ const createPooja = async (req, res, next) => {
     };
     const pricing = resolvePricing({ accessType, price, currency });
     const status = req.user.isSuperAdmin === true ? requestedStatus || "APPROVED" : "PENDING";
+    const daily = resolveDailyFlag({ daily: req.body.daily, category });
 
     const pooja = await Pooja.create({
       title,
-      ...(parsedDate !== undefined && { date: parsedDate }),
+      schedules: parsedSchedules ?? [],
       deity: deityIds,
       category,
+      daily,
       difficulty,
       duration,
       description,
@@ -302,9 +352,16 @@ const getPoojas = async (req, res, next) => {
 
     mergeSearchFilter(filter, POOJA_SEARCH_FIELDS, req.query.search);
 
+    if (req.query.daily !== undefined) {
+      const dailyFilter = normalizeBoolean(req.query.daily);
+      if (dailyFilter !== undefined) {
+        filter.daily = dailyFilter;
+      }
+    }
+
     const [poojas, total] = await Promise.all([
       Pooja.find(filter)
-        .sort({ createdAt: -1 })
+        .sort({ daily: -1, createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .populate(poojaPopulate),
@@ -342,9 +399,16 @@ const getAllPoojas = async (req, res, next) => {
 
     mergeSearchFilter(filter, POOJA_SEARCH_FIELDS, req.query.search);
 
+    if (req.query.daily !== undefined) {
+      const dailyFilter = normalizeBoolean(req.query.daily);
+      if (dailyFilter !== undefined) {
+        filter.daily = dailyFilter;
+      }
+    }
+
     const [poojas, total] = await Promise.all([
       Pooja.find(filter)
-        .sort({ createdAt: -1 })
+        .sort({ daily: -1, createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .populate(poojaPopulate),
@@ -382,9 +446,16 @@ const getMyPoojas = async (req, res, next) => {
 
     mergeSearchFilter(filter, POOJA_SEARCH_FIELDS, req.query.search);
 
+    if (req.query.daily !== undefined) {
+      const dailyFilter = normalizeBoolean(req.query.daily);
+      if (dailyFilter !== undefined) {
+        filter.daily = dailyFilter;
+      }
+    }
+
     const [poojas, total] = await Promise.all([
       Pooja.find(filter)
-        .sort({ createdAt: -1 })
+        .sort({ daily: -1, createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .populate(poojaPopulate),
@@ -439,7 +510,6 @@ const updatePooja = async (req, res, next) => {
 
     const {
       title,
-      date,
       deity,
       category,
       difficulty,
@@ -456,7 +526,11 @@ const updatePooja = async (req, res, next) => {
 
     const previousDeityIds = normalizeObjectIdArray(pooja.deity);
     const purpose = parseJsonField(req.body.purpose, "purpose");
-    const parsedDate = parseDdMmYyyyDate(date, "date");
+    const rawSchedulesInput = resolveSchedulesInput(req.body);
+    const parsedSchedules =
+      rawSchedulesInput !== undefined
+        ? parseSchedules(rawSchedulesInput, "schedules")
+        : undefined;
     const parsedDeityIds = parseObjectIdArrayField(deity, "deity");
     if (parsedDeityIds !== undefined && !parsedDeityIds.length) {
       throw new HttpError("deity must contain at least one valid ObjectId", 400);
@@ -479,9 +553,10 @@ const updatePooja = async (req, res, next) => {
       hasUploadedStepImages;
     const hasBodyUpdates =
       title !== undefined ||
-      date !== undefined ||
+      parsedSchedules !== undefined ||
       parsedDeityIds !== undefined ||
       category !== undefined ||
+      req.body.daily !== undefined ||
       difficulty !== undefined ||
       duration !== undefined ||
       description !== undefined ||
@@ -517,12 +592,20 @@ const updatePooja = async (req, res, next) => {
       pooja.deity = parsedDeityIds;
     }
 
-    if (date !== undefined) {
-      pooja.date = parsedDate ?? null;
+    if (parsedSchedules !== undefined) {
+      pooja.schedules = parsedSchedules;
     }
 
     if (category !== undefined) {
       pooja.category = category;
+    }
+
+    if (req.body.daily !== undefined || category !== undefined) {
+      pooja.daily = resolveDailyFlag({
+        daily: req.body.daily,
+        category: category !== undefined ? category : pooja.category,
+        fallback: pooja.daily,
+      });
     }
 
     if (difficulty !== undefined) {

@@ -70,6 +70,21 @@ const completionSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const scheduleSchema = new mongoose.Schema(
+  {
+    date: {
+      type: Date,
+      required: true,
+    },
+    time: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+  },
+  { _id: false }
+);
+
 const poojaSchema = new mongoose.Schema(
   {
     title: {
@@ -77,8 +92,9 @@ const poojaSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
-    date: {
-      type: Date,
+    schedules: {
+      type: [scheduleSchema],
+      default: [],
     },
     deity: {
       type: [
@@ -108,6 +124,11 @@ const poojaSchema = new mongoose.Schema(
     category: String,
     difficulty: String,
     duration: String,
+
+    daily: {
+      type: Boolean,
+      default: false,
+    },
 
     description: String,
 
@@ -180,6 +201,10 @@ const poojaSchema = new mongoose.Schema(
         if (ret.deity && !Array.isArray(ret.deity)) {
           ret.deity = [ret.deity];
         }
+        if ((!ret.schedules || !ret.schedules.length) && ret.date) {
+          ret.schedules = [{ date: ret.date, time: "" }];
+          delete ret.date;
+        }
         return ret;
       },
     },
@@ -187,6 +212,10 @@ const poojaSchema = new mongoose.Schema(
       transform(_doc, ret) {
         if (ret.deity && !Array.isArray(ret.deity)) {
           ret.deity = [ret.deity];
+        }
+        if ((!ret.schedules || !ret.schedules.length) && ret.date) {
+          ret.schedules = [{ date: ret.date, time: "" }];
+          delete ret.date;
         }
         return ret;
       },

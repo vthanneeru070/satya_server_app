@@ -458,16 +458,27 @@ const options = {
           required: ["title", "deity"],
           properties: {
             title: { type: "string" },
+            schedules: {
+              type: "string",
+              description:
+                'Optional JSON array of schedule slots. Example: [{"date":"15-07-2026","time":"09:30"},{"date":"16-07-2026","time":"18:00"}]',
+            },
             date: {
               type: "string",
-              example: "05-05-2026",
-              description: "Optional schedule date in dd-mm-yyyy format",
+              description:
+                "Alias for schedules — single dd-mm-yyyy string or same JSON array format as schedules",
             },
             deity: {
               type: "string",
               description: "One or more Deity ObjectIds (JSON array, comma-separated, or single id)",
             },
             category: { type: "string" },
+            daily: {
+              type: "boolean",
+              default: false,
+              description:
+                'Show pooja to users every day. Auto-set when category is "daily puja".',
+            },
             difficulty: { type: "string" },
             duration: { type: "string" },
             description: { type: "string" },
@@ -823,7 +834,16 @@ const options = {
                 properties: {
                   id: { type: "string", description: "Pooja ObjectId" },
                   title: { type: "string" },
-                  date: { type: "string", format: "date-time" },
+                  schedules: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        date: { type: "string", format: "date-time" },
+                        time: { type: "string", example: "09:30" },
+                      },
+                    },
+                  },
                   status: {
                     type: "string",
                     enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"],
