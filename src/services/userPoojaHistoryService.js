@@ -8,7 +8,7 @@ const notDeleted = { isDeleted: { $ne: true } };
 const POOJA_POPULATE = {
   path: "pooja",
   select:
-    "title schedules deity category difficulty duration description accessType price currency media status steps",
+    "title schedules deity category difficulty duration ideal_time description accessType price currency media status steps",
   populate: { path: "deity", select: "name media" },
 };
 

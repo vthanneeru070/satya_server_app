@@ -481,6 +481,11 @@ const options = {
             },
             difficulty: { type: "string" },
             duration: { type: "string" },
+            ideal_time: {
+              type: "string",
+              description:
+                'Ideal times for this pooja (JSON array string or comma-separated). Example: ["Morning","Brahma Muhurta"]',
+            },
             description: { type: "string" },
             accessType: {
               type: "string",

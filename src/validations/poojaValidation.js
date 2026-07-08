@@ -25,6 +25,10 @@ const blessingsField = Joi.alternatives().try(
   Joi.array().items(Joi.string().trim().min(1)).default([]),
   Joi.string().trim().min(1)
 );
+const idealTimeField = Joi.alternatives().try(
+  Joi.array().items(Joi.string().trim().min(1)).default([]),
+  Joi.string().trim().min(1)
+);
 
 const keyValueSchema = Joi.object({
   title: Joi.string().trim().allow("").required(),
@@ -124,6 +128,7 @@ const createPoojaSchema = Joi.object({
   daily: Joi.boolean().optional(),
   difficulty: Joi.string().trim().min(2).max(100).optional(),
   duration: Joi.string().trim().min(1).max(100).optional(),
+  ideal_time: idealTimeField.optional(),
   description: Joi.string().trim().allow("").max(3000).optional(),
   accessType: accessTypeField.default("FREE"),
   price: priceField.when("accessType", {
@@ -172,6 +177,7 @@ const updatePoojaSchema = Joi.object({
   daily: Joi.boolean().optional(),
   difficulty: Joi.string().trim().min(2).max(100),
   duration: Joi.string().trim().min(1).max(100),
+  ideal_time: idealTimeField.optional(),
   description: Joi.string().trim().allow("").max(3000).optional(),
   accessType: accessTypeField,
   price: priceField.when("accessType", {

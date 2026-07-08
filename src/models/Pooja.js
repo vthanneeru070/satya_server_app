@@ -125,6 +125,11 @@ const poojaSchema = new mongoose.Schema(
     difficulty: String,
     duration: String,
 
+    ideal_time: {
+      type: [String],
+      default: [],
+    },
+
     daily: {
       type: Boolean,
       default: false,
@@ -142,6 +147,8 @@ const poojaSchema = new mongoose.Schema(
       about: String,
       blessings: [String],
     },
+
+
 
     preparation: preparationSchema,
 

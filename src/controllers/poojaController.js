@@ -258,6 +258,7 @@ const createPooja = async (req, res, next) => {
       category,
       difficulty,
       duration,
+      ideal_time: idealTimeRaw,
       description,
       blessings,
       accessType,
@@ -287,6 +288,7 @@ const createPooja = async (req, res, next) => {
     const completion = parseJsonField(req.body.completion, "completion");
     const mediaFromBody = parseJsonField(req.body.media, "media") || {};
     const parsedBlessings = parseStringArrayField(blessings, "blessings");
+    const parsedIdealTime = parseStringArrayField(idealTimeRaw, "ideal_time");
     const festivalIds = parseObjectIdArrayField(festivalIdsRaw, "festivalIds") ?? [];
     const uploadedMedia = await getUploadedMediaUrls(req.files);
     const media = {
@@ -306,6 +308,7 @@ const createPooja = async (req, res, next) => {
       daily,
       difficulty,
       duration,
+      ideal_time: parsedIdealTime ?? [],
       description,
       accessType: pricing.accessType,
       price: pricing.price,
@@ -514,6 +517,7 @@ const updatePooja = async (req, res, next) => {
       category,
       difficulty,
       duration,
+      ideal_time: idealTimeRaw,
       description,
       blessings,
       accessType,
@@ -543,6 +547,7 @@ const updatePooja = async (req, res, next) => {
     const guidance = parseJsonField(req.body.guidance, "guidance");
     const completion = parseJsonField(req.body.completion, "completion");
     const mediaFromBody = parseJsonField(req.body.media, "media");
+    const parsedIdealTime = parseStringArrayField(idealTimeRaw, "ideal_time");
     const festivalIds = parseObjectIdArrayField(festivalIdsRaw, "festivalIds");
     const uploadedMedia = await getUploadedMediaUrls(req.files);
     const hasUploadedStepImages = (req.files?.stepImage || []).length > 0;
@@ -559,6 +564,7 @@ const updatePooja = async (req, res, next) => {
       req.body.daily !== undefined ||
       difficulty !== undefined ||
       duration !== undefined ||
+      parsedIdealTime !== undefined ||
       description !== undefined ||
       purpose !== undefined ||
       deitySummary !== undefined ||
@@ -614,6 +620,10 @@ const updatePooja = async (req, res, next) => {
 
     if (duration !== undefined) {
       pooja.duration = duration;
+    }
+
+    if (parsedIdealTime !== undefined) {
+      pooja.ideal_time = parsedIdealTime;
     }
 
     if (description !== undefined) {
