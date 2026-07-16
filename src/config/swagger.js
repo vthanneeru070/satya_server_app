@@ -234,6 +234,11 @@ const options = {
           type: "object",
           properties: {
             _id: { type: "string" },
+            scheduleId: {
+              type: "string",
+              nullable: true,
+              description: "Schedule occurrence id for multi-scheduled poojas",
+            },
             status: { type: "string", enum: ["PENDING", "FINISHED"] },
             currentStep: { type: "integer", example: 2 },
             totalSteps: { type: "integer", example: 5 },
@@ -461,7 +466,7 @@ const options = {
             schedules: {
               type: "string",
               description:
-                'Optional JSON array of schedule slots. Example: [{"date":"15-07-2026","time":"09:30"},{"date":"16-07-2026","time":"18:00"}]',
+                'Optional JSON array of schedule slots. Example: [{"id":"sch_15","date":"15-07-2026","time":"09:30"},{"id":"sch_16","date":"16-07-2026","time":"18:00"}]',
             },
             date: {
               type: "string",

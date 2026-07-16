@@ -10,6 +10,10 @@ const sessionIdParamsSchema = Joi.object({
   sessionId: objectIdHex.required(),
 });
 
+const scheduleIdQuerySchema = Joi.object({
+  scheduleId: Joi.string().trim().min(4).max(100).optional(),
+});
+
 const listPoojaHistoryQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(50).default(20),
@@ -31,6 +35,7 @@ const updateProgressSchema = Joi.object({
 module.exports = {
   poojaIdParamsSchema,
   sessionIdParamsSchema,
+  scheduleIdQuerySchema,
   listPoojaHistoryQuerySchema,
   poojaHistoryOverviewQuerySchema,
   updateProgressSchema,

@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const UserPoojaSession = require("../models/UserPoojaSession");
 const Pooja = require("../models/Pooja");
 const User = require("../models/User");
@@ -21,9 +22,43 @@ const assertMobileUser = async (userId) => {
 };
 
 const loadApprovedPooja = async (poojaId) => {
-  const pooja = await Pooja.findOne({ _id: poojaId, status: "APPROVED" }).select("_id title steps");
+  const pooja = await Pooja.findOne({ _id: poojaId, status: "APPROVED" }).select(
+    "_id title steps schedules"
+  );
   if (!pooja) throw new HttpError("Pooja not found or not available", 404);
+
+  // Backfill legacy schedules without ids so clients can consistently pass scheduleId.
+  if (Array.isArray(pooja.schedules) && pooja.schedules.some((s) => !s?.id)) {
+    pooja.schedules = pooja.schedules.map((slot) => ({
+      ...slot.toObject?.(),
+      id: slot?.id || `sch_${crypto.randomUUID()}`,
+    }));
+    await pooja.save();
+  }
+
   return pooja;
+};
+
+const resolveScheduleForSession = ({ pooja, scheduleId }) => {
+  const schedules = Array.isArray(pooja?.schedules) ? pooja.schedules : [];
+
+  if (!schedules.length) {
+    return null;
+  }
+
+  if (scheduleId) {
+    const matched = schedules.find((slot) => String(slot.id) === String(scheduleId).trim());
+    if (!matched) {
+      throw new HttpError("Invalid scheduleId for this pooja", 400);
+    }
+    return String(matched.id);
+  }
+
+  if (schedules.length === 1) {
+    return String(schedules[0].id);
+  }
+
+  throw new HttpError("scheduleId is required for poojas with multiple schedules", 400);
 };
 
 const totalStepsFor = (pooja) => {
@@ -139,13 +174,15 @@ const listHistory = async (userId, query = {}) => {
   };
 };
 
-const startPooja = async (userId, poojaId) => {
+const startPooja = async (userId, poojaId, { scheduleId } = {}) => {
   await assertMobileUser(userId);
-  await loadApprovedPooja(poojaId);
+  const pooja = await loadApprovedPooja(poojaId);
+  const resolvedScheduleId = resolveScheduleForSession({ pooja, scheduleId });
 
   let session = await UserPoojaSession.findOne({
     user: userId,
     pooja: poojaId,
+    scheduleId: resolvedScheduleId,
     status: "PENDING",
     ...notDeleted,
   }).populate(POOJA_POPULATE);
@@ -158,6 +195,7 @@ const startPooja = async (userId, poojaId) => {
     session = await UserPoojaSession.create({
       user: userId,
       pooja: poojaId,
+      scheduleId: resolvedScheduleId,
       status: "PENDING",
       currentStep: 0,
       startedAt: new Date(),
@@ -167,6 +205,7 @@ const startPooja = async (userId, poojaId) => {
       session = await UserPoojaSession.findOne({
         user: userId,
         pooja: poojaId,
+        scheduleId: resolvedScheduleId,
         status: "PENDING",
         ...notDeleted,
       }).populate(POOJA_POPULATE);
@@ -204,12 +243,15 @@ const updateProgress = async (userId, sessionId, { currentStep }) => {
   return { session: formatSession(session) };
 };
 
-const finishPooja = async (userId, poojaId) => {
+const finishPooja = async (userId, poojaId, { scheduleId } = {}) => {
   await assertMobileUser(userId);
+  const pooja = await loadApprovedPooja(poojaId);
+  const resolvedScheduleId = resolveScheduleForSession({ pooja, scheduleId });
 
   const session = await UserPoojaSession.findOne({
     user: userId,
     pooja: poojaId,
+    scheduleId: resolvedScheduleId,
     status: "PENDING",
     ...notDeleted,
   }).populate(POOJA_POPULATE);
@@ -242,7 +284,7 @@ const finishPoojaBySessionId = async (userId, sessionId) => {
   }
 
   const poojaId = session.pooja?._id || session.pooja;
-  return finishPooja(userId, poojaId);
+  return finishPooja(userId, poojaId, { scheduleId: session.scheduleId });
 };
 
 module.exports = {

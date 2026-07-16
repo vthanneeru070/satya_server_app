@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const Pooja = require("../models/Pooja");
 const Deity = require("../models/Deity");
 const HttpError = require("../utils/httpError");
@@ -198,6 +199,7 @@ const parseSchedules = (value, fieldName) => {
       rawDate instanceof Date ? rawDate : parseDdMmYyyyDate(String(rawDate), `${label}.date`);
 
     return {
+      id: String(slot?.id || "").trim() || `sch_${crypto.randomUUID()}`,
       date: parsedDate,
       time: String(slot?.time ?? "").trim(),
     };

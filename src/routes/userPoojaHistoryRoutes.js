@@ -13,6 +13,7 @@ const {
 const {
   poojaIdParamsSchema,
   sessionIdParamsSchema,
+  scheduleIdQuerySchema,
   listPoojaHistoryQuerySchema,
   poojaHistoryOverviewQuerySchema,
   updateProgressSchema,
@@ -153,6 +154,11 @@ router.get(
  *         name: poojaId
  *         required: true
  *         schema: { type: string }
+ *       - in: query
+ *         name: scheduleId
+ *         required: false
+ *         schema: { type: string }
+ *         description: Required when pooja has multiple schedules.
  *     responses:
  *       201:
  *         description: Pooja started
@@ -162,6 +168,7 @@ router.get(
 router.post(
   "/:poojaId/start",
   validate(poojaIdParamsSchema, "params"),
+  validate(scheduleIdQuerySchema, "query"),
   startPooja
 );
 
@@ -178,6 +185,11 @@ router.post(
  *         name: poojaId
  *         required: true
  *         schema: { type: string }
+ *       - in: query
+ *         name: scheduleId
+ *         required: false
+ *         schema: { type: string }
+ *         description: Required when pooja has multiple schedules.
  *     responses:
  *       200:
  *         description: Pooja completed
@@ -187,6 +199,7 @@ router.post(
 router.post(
   "/:poojaId/finish",
   validate(poojaIdParamsSchema, "params"),
+  validate(scheduleIdQuerySchema, "query"),
   finishPooja
 );
 

@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const crypto = require("crypto");
 
 const keyValueSchema = new mongoose.Schema(
   {
@@ -72,6 +73,11 @@ const completionSchema = new mongoose.Schema(
 
 const scheduleSchema = new mongoose.Schema(
   {
+    id: {
+      type: String,
+      default: () => `sch_${crypto.randomUUID()}`,
+      trim: true,
+    },
     date: {
       type: Date,
       required: true,

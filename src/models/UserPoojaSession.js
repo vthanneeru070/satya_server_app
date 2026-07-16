@@ -18,6 +18,11 @@ const userPoojaSessionSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    scheduleId: {
+      type: String,
+      default: null,
+      index: true,
+    },
     status: {
       type: String,
       enum: ["PENDING", "FINISHED"],
@@ -49,7 +54,7 @@ const userPoojaSessionSchema = new mongoose.Schema(
 
 userPoojaSessionSchema.index({ user: 1, status: 1, updatedAt: -1 });
 userPoojaSessionSchema.index(
-  { user: 1, pooja: 1 },
+  { user: 1, pooja: 1, scheduleId: 1 },
   {
     unique: true,
     partialFilterExpression: { status: "PENDING", isDeleted: { $ne: true } },

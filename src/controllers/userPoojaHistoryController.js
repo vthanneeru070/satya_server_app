@@ -45,7 +45,9 @@ const listFinishedPoojas = async (req, res, next) => {
 
 const startPooja = async (req, res, next) => {
   try {
-    const data = await userPoojaHistoryService.startPooja(req.user.userId, req.params.poojaId);
+    const data = await userPoojaHistoryService.startPooja(req.user.userId, req.params.poojaId, {
+      scheduleId: req.query.scheduleId,
+    });
     return sendSuccess(
       res,
       data,
@@ -72,7 +74,9 @@ const updateProgress = async (req, res, next) => {
 
 const finishPooja = async (req, res, next) => {
   try {
-    const data = await userPoojaHistoryService.finishPooja(req.user.userId, req.params.poojaId);
+    const data = await userPoojaHistoryService.finishPooja(req.user.userId, req.params.poojaId, {
+      scheduleId: req.query.scheduleId,
+    });
     return sendSuccess(res, data, "Pooja completed successfully");
   } catch (error) {
     return next(error);
