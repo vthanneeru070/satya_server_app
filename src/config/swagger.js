@@ -460,7 +460,7 @@ const options = {
         },
         PoojaCreateMultipart: {
           type: "object",
-          required: ["title", "deity"],
+          required: ["title"],
           properties: {
             title: { type: "string" },
             schedules: {

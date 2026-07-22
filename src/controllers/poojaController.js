@@ -273,9 +273,6 @@ const createPooja = async (req, res, next) => {
     const purpose = parseJsonField(req.body.purpose, "purpose");
     const parsedSchedules = parseSchedules(resolveSchedulesInput(req.body), "schedules");
     const deityIds = parseObjectIdArrayField(deity, "deity") ?? [];
-    if (!deityIds.length) {
-      throw new HttpError("deity must contain at least one valid ObjectId", 400);
-    }
     const deitySummary = parseJsonField(req.body.deitySummary, "deitySummary");
     const preparation = parseJsonField(req.body.preparation, "preparation");
     const parsedSteps = parseJsonField(req.body.steps, "steps") ?? [];
@@ -538,9 +535,6 @@ const updatePooja = async (req, res, next) => {
         ? parseSchedules(rawSchedulesInput, "schedules")
         : undefined;
     const parsedDeityIds = parseObjectIdArrayField(deity, "deity");
-    if (parsedDeityIds !== undefined && !parsedDeityIds.length) {
-      throw new HttpError("deity must contain at least one valid ObjectId", 400);
-    }
     const deitySummary = parseJsonField(req.body.deitySummary, "deitySummary");
     const preparation = parseJsonField(req.body.preparation, "preparation");
     const parsedSteps = parseJsonField(req.body.steps, "steps");

@@ -18,7 +18,7 @@ const festivalIdsField = Joi.alternatives().try(
   Joi.string().trim().min(2)
 );
 const deityField = Joi.alternatives().try(
-  Joi.array().items(objectIdRefItem).min(1),
+  Joi.array().items(objectIdRefItem),
   Joi.string().trim().min(2)
 );
 const blessingsField = Joi.alternatives().try(
@@ -123,7 +123,7 @@ const createPoojaSchema = Joi.object({
   title: Joi.string().trim().min(2).max(150).required(),
   schedules: schedulesField.optional(),
   date: schedulesField.optional(),
-  deity: deityField.required(),
+  deity: deityField.optional(),
   category: Joi.string().trim().min(2).max(150).optional(),
   daily: Joi.boolean().optional(),
   difficulty: Joi.string().trim().min(2).max(100).optional(),
