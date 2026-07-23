@@ -8,6 +8,11 @@ const startServer = async () => {
   // Scheduler must start AFTER DB connect so scheduled notifications can be
   // queried. Runs every 60s; safe across restarts thanks to atomic claim.
   notificationBroadcastService.startScheduler({ intervalMs: 60_000 });
+  try {
+    require("./jobs/tcgTrackingSyncJob").startTcgTrackingSyncJob();
+  } catch (err) {
+    console.warn("[server] TCG tracking sync job not started:", err?.message || err);
+  }
   app.listen(port, () => {
     console.log(`Server running on port ${port}`);
   });

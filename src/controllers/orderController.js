@@ -108,6 +108,17 @@ const dispatchOrder = async (req, res, next) => {
   }
 };
 
+const readyForPickup = async (req, res, next) => {
+  try {
+    const order = await orderService.readyForPickup(req.params.id, req.body, {
+      actorUserId: req.user.userId,
+    });
+    return sendSuccess(res, { order }, "Order marked ready for pickup");
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const confirmDelivery = async (req, res, next) => {
   try {
     const order = await orderService.confirmDelivery(
@@ -223,6 +234,7 @@ module.exports = {
   updatePayment,
   setTracking,
   dispatchOrder,
+  readyForPickup,
   confirmDelivery,
   adminCancelPaidOrder,
   adminInitiateRefund,

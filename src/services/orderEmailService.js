@@ -285,6 +285,56 @@ const sendDeliveryConfirmationPrompt = async (order) => {
 };
 
 /**
+ * Email when a pickup order is ready for customer collection.
+ */
+const sendReadyForPickup = async (order) => {
+  if (!order) return { delivered: false, reason: "no-order" };
+  const user = await loadRecipientEmail(order.user);
+  const to = user?.email;
+  if (!to) return { delivered: false, reason: "no-recipient-email" };
+
+  const loc = order.pickupLocation || {};
+  const addressLine = [
+    loc.company,
+    loc.streetAddress || loc.enteredAddress,
+    loc.localArea,
+    loc.city,
+    loc.postalCode,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  const subject = `Your ${appName()} order ${order.orderNumber} is ready for pickup`;
+  const body = `
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">Hi <strong>${escapeHtml(user.fullName || "there")}</strong>,</p>
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">
+      Your order <strong>${escapeHtml(order.orderNumber)}</strong> is ready for collection.
+    </p>
+    <div style="margin-top:18px;font-size:13px;color:#6b7280;text-transform:uppercase;letter-spacing:1px;">Pickup location</div>
+    <div style="margin-top:6px;font-size:14px;line-height:1.5;">${escapeHtml(addressLine || "See the app for details")}</div>
+    ${loc.hours ? `<p style="margin:12px 0 0;font-size:14px;line-height:1.5;"><strong>Hours:</strong> ${escapeHtml(loc.hours)}</p>` : ""}
+    ${loc.instructions ? `<p style="margin:8px 0 0;font-size:14px;line-height:1.5;">${escapeHtml(loc.instructions)}</p>` : ""}
+    <p style="margin:18px 0 0;font-size:14px;line-height:1.6;">
+      Please bring your order number and a valid ID. Confirm collection in the app once you have picked it up.
+    </p>`;
+
+  return safeSend({
+    to,
+    subject,
+    html: cardShell({
+      accent: "#d97706",
+      banner: "Ready for pickup",
+      title: subject,
+      body,
+    }),
+    text:
+      `Your order ${order.orderNumber} is ready for pickup` +
+      (addressLine ? ` at ${addressLine}.` : ".") +
+      (loc.hours ? ` Hours: ${loc.hours}.` : ""),
+  });
+};
+
+/**
  * Email to the buyer whenever their CANCELLATION / REFUND / REPLACEMENT request
  * transitions (APPROVED / REJECTED / COMPLETED).
  */
@@ -580,6 +630,7 @@ module.exports = {
   sendOrderAdminNotification,
   sendTrackingShared,
   sendDeliveryConfirmationPrompt,
+  sendReadyForPickup,
   sendRequestStatusUpdate,
   sendOrderCancelledByAdmin,
   sendRefundProcessed,

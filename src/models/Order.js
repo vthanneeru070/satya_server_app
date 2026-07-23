@@ -10,6 +10,9 @@ const shippingAddressSchema = new mongoose.Schema(
 
     city: { type: String, trim: true },
     state: { type: String, trim: true },
+    suburb: { type: String, trim: true, default: "" },
+    localArea: { type: String, trim: true, default: "" },
+    enteredAddress: { type: String, trim: true, default: "" },
 
     country: {
       type: String,
@@ -18,6 +21,66 @@ const shippingAddressSchema = new mongoose.Schema(
     },
 
     postalCode: { type: String, trim: true },
+
+    lat: { type: Number, default: null },
+    lng: { type: Number, default: null },
+  },
+  { _id: false }
+);
+
+const shippingQuoteSchema = new mongoose.Schema(
+  {
+    provider: { type: String, default: "TCG" },
+    serviceLevelCode: { type: String, trim: true, default: "" },
+    serviceLevelName: { type: String, trim: true, default: "" },
+    description: { type: String, trim: true, default: "" },
+    rate: { type: Number, min: 0, default: 0 },
+    rateExcludingVat: { type: Number, min: 0, default: 0 },
+    rateRevisionId: { type: mongoose.Schema.Types.Mixed, default: null },
+    serviceLevelId: { type: mongoose.Schema.Types.Mixed, default: null },
+    quotedAt: { type: Date, default: null },
+    expiresAt: { type: Date, default: null },
+    customerCharged: { type: Number, min: 0, default: 0 },
+    subsidized: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
+const deliverySchema = new mongoose.Schema(
+  {
+    provider: { type: String, default: "TCG" },
+    shipmentId: { type: String, default: "", index: true },
+    waybill: { type: String, default: "", index: true },
+    shortTrackingReference: { type: String, default: "" },
+    labelUrl: { type: String, default: "" },
+    stickerUrl: { type: String, default: "" },
+    status: { type: String, default: "" },
+    bookedAt: { type: Date, default: null },
+    lastSyncedAt: { type: Date, default: null },
+    bookedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+  },
+  { _id: false }
+);
+
+const pickupLocationSchema = new mongoose.Schema(
+  {
+    company: { type: String, default: "" },
+    streetAddress: { type: String, default: "" },
+    localArea: { type: String, default: "" },
+    city: { type: String, default: "" },
+    zone: { type: String, default: "" },
+    postalCode: { type: String, default: "" },
+    country: { type: String, default: "South Africa" },
+    enteredAddress: { type: String, default: "" },
+    contactName: { type: String, default: "" },
+    contactPhone: { type: String, default: "" },
+    contactEmail: { type: String, default: "" },
+    hours: { type: String, default: "" },
+    instructions: { type: String, default: "" },
   },
   { _id: false }
 );
@@ -184,6 +247,7 @@ const orderSchema = new mongoose.Schema(
       enum: [
         "PLACED",
         "PROCESSING",
+        "READY_FOR_PICKUP",
         "SHIPPED",
         "OUT_FOR_DELIVERY",
         "DELIVERED",
@@ -191,6 +255,14 @@ const orderSchema = new mongoose.Schema(
         "CANCELLED",
       ],
       default: "PLACED",
+      index: true,
+    },
+
+    /** How the customer receives the order. */
+    fulfillmentMethod: {
+      type: String,
+      enum: ["DELIVERY", "PICKUP"],
+      default: "DELIVERY",
       index: true,
     },
 
@@ -202,6 +274,24 @@ const orderSchema = new mongoose.Schema(
 
     shippingAddress: {
       type: shippingAddressSchema,
+      default: undefined,
+    },
+
+    /** Snapshot of The Courier Guy rate chosen at checkout (Delivery only). */
+    shippingQuote: {
+      type: shippingQuoteSchema,
+      default: undefined,
+    },
+
+    /** Live courier shipment / waybill details (Delivery only). */
+    delivery: {
+      type: deliverySchema,
+      default: undefined,
+    },
+
+    /** Warehouse snapshot for Pickup orders. */
+    pickupLocation: {
+      type: pickupLocationSchema,
       default: undefined,
     },
 

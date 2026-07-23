@@ -55,6 +55,7 @@ router.use("/deities", deityRoutes);
 router.use("/inventory", inventoryRoutes);
 router.use("/products", productRoutes);
 router.use("/cart", cartRoutes);
+router.use("/shipping", require("./shippingRoutes"));
 router.use("/replacements", replacementRoutes);
 // Mount request-specific routes BEFORE generic orderRoutes so paths like
 // `/orders/requests/my` are not eaten by `/orders/:id`.

@@ -23,6 +23,8 @@ const CUSTOMER_INBOX_NOTIFY_STATUSES = new Set([
 const paystackService = require("./paystackService");
 const payfastService = require("./payfastService");
 const ecommerceSettingsService = require("./ecommerceSettingsService");
+const shippingQuoteService = require("./shippingQuoteService");
+const shippingShipmentService = require("./shippingShipmentService");
 
 const escapeRegex = (value) =>
   String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -81,8 +83,10 @@ const buildOrderSearchFilter = async (searchTerm) => {
 
 const ORDER_STATUS_TRANSITIONS = {
   PLACED: new Set(["PROCESSING", "CANCELLED"]),
-  PROCESSING: new Set(["SHIPPED", "CANCELLED"]),
-  SHIPPED: new Set(["DELIVERED"]),
+  PROCESSING: new Set(["SHIPPED", "READY_FOR_PICKUP", "CANCELLED"]),
+  READY_FOR_PICKUP: new Set(["FULFILLED", "CANCELLED"]),
+  SHIPPED: new Set(["OUT_FOR_DELIVERY", "DELIVERED"]),
+  OUT_FOR_DELIVERY: new Set(["DELIVERED"]),
   // DELIVERED → FULFILLED is driven by user `confirmDelivery({ satisfied: true })`.
   DELIVERED: new Set(["FULFILLED"]),
   FULFILLED: new Set(),
@@ -92,6 +96,14 @@ const ORDER_STATUS_TRANSITIONS = {
 const TERMINAL_ORDER_STATUSES = new Set(["FULFILLED", "CANCELLED"]);
 
 const canTransitionOrderStatus = (fromStatus, toStatus, order) => {
+  const method = order?.fulfillmentMethod || "DELIVERY";
+
+  if (toStatus === "SHIPPED" && method === "PICKUP") {
+    return false;
+  }
+  if (toStatus === "READY_FOR_PICKUP" && method !== "PICKUP") {
+    return false;
+  }
   if (
     toStatus === "SHIPPED" &&
     fromStatus === "PLACED" &&
@@ -99,6 +111,7 @@ const canTransitionOrderStatus = (fromStatus, toStatus, order) => {
   ) {
     return true;
   }
+  // Pickup: allow PLACED → READY_FOR_PICKUP via PROCESSING hop in readyForPickup helper.
   return (ORDER_STATUS_TRANSITIONS[fromStatus] || new Set()).has(toStatus);
 };
 
@@ -140,14 +153,22 @@ const effectivePriceOf = (product) =>
 
 const normalizeShippingAddress = (raw) => {
   if (!raw || typeof raw !== "object") return null;
+  const lat = raw.lat != null ? Number(raw.lat) : null;
+  const lng = raw.lng != null ? Number(raw.lng) : null;
   return {
     fullName: raw.fullName,
     phone: raw.phone,
     addressLine1: raw.addressLine1 || raw.line1,
+    addressLine2: raw.addressLine2 || raw.line2 || "",
     city: raw.city,
     state: raw.state,
+    suburb: raw.suburb || raw.localArea || raw.local_area || "",
+    localArea: raw.localArea || raw.local_area || raw.suburb || "",
+    enteredAddress: raw.enteredAddress || raw.entered_address || "",
     country: raw.country || "South Africa",
     postalCode: raw.postalCode || raw.pincode,
+    lat: Number.isFinite(lat) ? lat : null,
+    lng: Number.isFinite(lng) ? lng : null,
   };
 };
 
@@ -157,6 +178,21 @@ const assertShippingComplete = (addr) => {
   if (missing.length) {
     throw new HttpError(`shippingAddress missing: ${missing.join(", ")}`, 400);
   }
+};
+
+const assertPickupContact = (contact = {}) => {
+  const fullName = contact.fullName || contact.name;
+  const phone = contact.phone || contact.mobile_number;
+  if (!fullName || !String(fullName).trim()) {
+    throw new HttpError("contact.fullName is required for pickup", 400);
+  }
+  if (!phone || !String(phone).trim()) {
+    throw new HttpError("contact.phone is required for pickup", 400);
+  }
+  return {
+    fullName: String(fullName).trim(),
+    phone: String(phone).trim(),
+  };
 };
 
 const nextOrderNumber = async (session) => {
@@ -288,7 +324,19 @@ const applyStockDeductionForOrder = async (order, session) => {
 
 const persistOrder = async (
   userId,
-  { shippingAddress, snapshots, subtotal, deliveryCharge, totalAmount, currency, paymentMethod, session }
+  {
+    shippingAddress,
+    snapshots,
+    subtotal,
+    deliveryCharge,
+    totalAmount,
+    currency,
+    paymentMethod,
+    fulfillmentMethod = "DELIVERY",
+    shippingQuote = undefined,
+    pickupLocation = undefined,
+    session,
+  }
 ) => {
   const orderNumber = await nextOrderNumber(session);
   const [order] = await Order.create(
@@ -304,8 +352,11 @@ const persistOrder = async (
         paymentStatus: "PENDING",
         orderStatus: "PLACED",
         paymentMethod: paymentMethod || "PAYFAST",
+        fulfillmentMethod,
         orderType: "NORMAL",
         shippingAddress,
+        shippingQuote,
+        pickupLocation,
         inventoryReserved: false,
         orderStatusHistory: [{ status: "PLACED", at: new Date(), note: "Order created" }],
       },
@@ -315,13 +366,90 @@ const persistOrder = async (
   return order;
 };
 
+const resolveFulfillmentCheckout = async ({
+  fulfillmentMethod,
+  shippingAddress,
+  shippingServiceLevelCode,
+  contact,
+  linePayload,
+}) => {
+  const method = String(fulfillmentMethod || "DELIVERY").toUpperCase();
+  if (method !== "DELIVERY" && method !== "PICKUP") {
+    throw new HttpError("fulfillmentMethod must be DELIVERY or PICKUP", 400);
+  }
+
+  if (method === "PICKUP") {
+    const pickupContact = assertPickupContact(
+      contact || {
+        fullName: shippingAddress?.fullName,
+        phone: shippingAddress?.phone,
+      }
+    );
+    const pickupLocation = shippingQuoteService.getPickupLocation();
+    const subtotal = linePayload.subtotal;
+    return {
+      fulfillmentMethod: "PICKUP",
+      shippingAddress: {
+        fullName: pickupContact.fullName,
+        phone: pickupContact.phone,
+        addressLine1: pickupLocation.streetAddress || "Pickup",
+        addressLine2: "",
+        city: pickupLocation.city || "—",
+        state: pickupLocation.zone || "—",
+        country: pickupLocation.country || "South Africa",
+        postalCode: pickupLocation.postalCode || "0000",
+        suburb: pickupLocation.localArea || "",
+        localArea: pickupLocation.localArea || "",
+        enteredAddress: pickupLocation.enteredAddress || "",
+        lat: pickupLocation.lat,
+        lng: pickupLocation.lng,
+      },
+      shippingQuote: undefined,
+      pickupLocation,
+      snapshots: linePayload.snapshots,
+      subtotal,
+      deliveryCharge: 0,
+      totalAmount: subtotal,
+      currency: linePayload.currency,
+    };
+  }
+
+  const addr = normalizeShippingAddress(shippingAddress);
+  assertShippingComplete(addr);
+  const declaredValue = linePayload.subtotal;
+  const totals = await shippingQuoteService.resolveCheckoutDeliveryTotals({
+    shippingAddress: addr,
+    serviceLevelCode: shippingServiceLevelCode,
+    subtotal: linePayload.subtotal,
+    currency: linePayload.currency,
+    declaredValue,
+  });
+
+  return {
+    fulfillmentMethod: "DELIVERY",
+    shippingAddress: addr,
+    shippingQuote: totals.shippingQuote,
+    pickupLocation: undefined,
+    snapshots: linePayload.snapshots,
+    subtotal: totals.subtotal,
+    deliveryCharge: totals.deliveryCharge,
+    totalAmount: totals.totalAmount,
+    currency: totals.currency,
+  };
+};
+
 /**
  * Checkout from cart only (canonical flow). Does not modify inventory or clear cart.
  */
-const checkoutFromCart = async (userId, { shippingAddress } = {}) => {
-  const addr = normalizeShippingAddress(shippingAddress);
-  assertShippingComplete(addr);
-
+const checkoutFromCart = async (
+  userId,
+  {
+    shippingAddress,
+    fulfillmentMethod = "DELIVERY",
+    shippingServiceLevelCode,
+    contact,
+  } = {}
+) => {
   const session = await mongoose.startSession();
   let order;
   try {
@@ -329,10 +457,15 @@ const checkoutFromCart = async (userId, { shippingAddress } = {}) => {
       const linePayload = await buildOrderPayload(userId, {
         useCart: true,
       });
-      const checkoutTotals = await applyDeliveryToCheckout(linePayload);
+      const fulfilled = await resolveFulfillmentCheckout({
+        fulfillmentMethod,
+        shippingAddress,
+        shippingServiceLevelCode,
+        contact,
+        linePayload,
+      });
       order = await persistOrder(userId, {
-        shippingAddress: addr,
-        ...checkoutTotals,
+        ...fulfilled,
         paymentMethod: "PAYFAST",
         session,
       });
@@ -353,11 +486,11 @@ const createOrder = async (
     shippingAddress,
     paymentMethod = "PAYFAST",
     useCart = true,
+    fulfillmentMethod = "DELIVERY",
+    shippingServiceLevelCode,
+    contact,
   } = {}
 ) => {
-  const addr = normalizeShippingAddress(shippingAddress);
-  assertShippingComplete(addr);
-
   const session = await mongoose.startSession();
   let order;
   try {
@@ -366,10 +499,15 @@ const createOrder = async (
         items,
         useCart: !items?.length && useCart,
       });
-      const checkoutTotals = await applyDeliveryToCheckout(linePayload);
+      const fulfilled = await resolveFulfillmentCheckout({
+        fulfillmentMethod,
+        shippingAddress,
+        shippingServiceLevelCode,
+        contact,
+        linePayload,
+      });
       order = await persistOrder(userId, {
-        shippingAddress: addr,
-        ...checkoutTotals,
+        ...fulfilled,
         paymentMethod,
         session,
       });
@@ -394,6 +532,7 @@ const listMyOrders = async (userId, query = {}) => {
   const st = query.orderStatus || query.status;
   if (st) filter.orderStatus = st;
   if (query.paymentStatus) filter.paymentStatus = query.paymentStatus;
+  if (query.fulfillmentMethod) filter.fulfillmentMethod = query.fulfillmentMethod;
 
   const [orders, total] = await Promise.all([
     Order.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
@@ -420,6 +559,7 @@ const listAllOrders = async (query = {}) => {
   const st = query.orderStatus || query.status;
   if (st) filter.orderStatus = st;
   if (query.paymentStatus) filter.paymentStatus = query.paymentStatus;
+  if (query.fulfillmentMethod) filter.fulfillmentMethod = query.fulfillmentMethod;
   if (query.user) filter.user = query.user;
   if (query.search) {
     const searchFilter = await buildOrderSearchFilter(query.search);
@@ -530,13 +670,16 @@ const updateStatus = async (
       }
 
       if (status === "SHIPPED") {
-        // BRS: "Courier company provides tracking details" must precede SHIPPED.
-        const tn = order?.tracking?.trackingNumber?.trim();
-        if (!tn) {
-          throw new HttpError(
-            "Tracking number is required before marking the order as SHIPPED. Set tracking via PATCH /orders/:id/tracking first.",
-            400
-          );
+        const method = order.fulfillmentMethod || "DELIVERY";
+        if (method === "DELIVERY") {
+          // BRS: "Courier company provides tracking details" must precede SHIPPED.
+          const tn = order?.tracking?.trackingNumber?.trim();
+          if (!tn) {
+            throw new HttpError(
+              "Tracking number is required before marking the order as SHIPPED. Set tracking via PATCH /orders/:id/tracking first, or use dispatch to book The Courier Guy.",
+              400
+            );
+          }
         }
         order.tracking.dispatchedAt = order.tracking.dispatchedAt || new Date();
         order.tracking.sharedWithUserAt = new Date();
@@ -670,19 +813,54 @@ const adminSetTracking = async (
 };
 
 /**
- * Admin "dispatch" convenience: set tracking + transition to SHIPPED in one
- * call. Wraps `adminSetTracking` followed by `updateStatus("SHIPPED")`.
+ * Admin "dispatch" convenience.
+ * - Delivery: book The Courier Guy (if not already booked) unless manual tracking
+ *   fields are provided, then transition to SHIPPED.
+ * - Pickup: rejected — use readyForPickup instead.
  */
 const dispatchOrder = async (
   id,
-  { courier, trackingNumber, trackingUrl = "", note = "" },
+  { courier, trackingNumber, trackingUrl = "", note = "", bookCourier = true } = {},
   { actorUserId }
 ) => {
-  await adminSetTracking(
-    id,
-    { courier, trackingNumber, trackingUrl },
-    { actorUserId }
-  );
+  const existing = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
+  if (!existing) throw new HttpError("Order not found", 404);
+
+  if (existing.fulfillmentMethod === "PICKUP") {
+    throw new HttpError(
+      "Pickup orders cannot be dispatched via courier. Use POST /orders/:id/ready-for-pickup.",
+      400
+    );
+  }
+
+  const hasManualTracking =
+    courier &&
+    String(courier).trim() &&
+    trackingNumber &&
+    String(trackingNumber).trim();
+
+  if (hasManualTracking) {
+    await adminSetTracking(
+      id,
+      { courier, trackingNumber, trackingUrl },
+      { actorUserId }
+    );
+  } else if (bookCourier !== false) {
+    await shippingShipmentService.bookShipmentForOrder(existing, { actorUserId });
+    existing.orderStatusHistory = existing.orderStatusHistory || [];
+    appendHistory(
+      existing,
+      existing.orderStatus,
+      `Courier Guy booked: ${existing.delivery?.waybill || existing.tracking?.trackingNumber}`,
+      actorUserId
+    );
+    await existing.save();
+  } else {
+    throw new HttpError(
+      "Provide courier + trackingNumber for manual dispatch, or omit them to book The Courier Guy automatically.",
+      400
+    );
+  }
 
   const current = await Order.findOne({ _id: id, isDeleted: { $ne: true } })
     .select("orderStatus")
@@ -706,10 +884,48 @@ const dispatchOrder = async (
 };
 
 /**
- * Customer-side: confirm receipt after DELIVERED. If `satisfied === true` the
- * order moves to terminal FULFILLED. If false we record dissatisfaction but
- * keep the order in DELIVERED so the user can still file a request — the
- * mobile client should prompt them to open `/orders/:id/requests`.
+ * Admin marks a pickup order ready for customer collection.
+ */
+const readyForPickup = async (id, { note = "" } = {}, { actorUserId }) => {
+  const order = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
+  if (!order) throw new HttpError("Order not found", 404);
+  if (order.fulfillmentMethod !== "PICKUP") {
+    throw new HttpError("Only pickup orders can be marked ready for pickup", 400);
+  }
+
+  if (order.orderStatus === "PLACED") {
+    await updateStatus(
+      id,
+      {
+        status: "PROCESSING",
+        note: note || "Preparing for pickup",
+        skipNotify: true,
+      },
+      { actorUserId }
+    );
+  }
+
+  const updated = await updateStatus(
+    id,
+    {
+      status: "READY_FOR_PICKUP",
+      note: note || "Order is ready for collection",
+    },
+    { actorUserId }
+  );
+
+  orderEmailService
+    .sendReadyForPickup(updated)
+    .catch((err) =>
+      console.error("[orderService] sendReadyForPickup failed:", err?.message || err)
+    );
+
+  return updated;
+};
+
+/**
+ * Customer-side: confirm receipt after DELIVERED, or confirm collection after READY_FOR_PICKUP.
+ * If `satisfied === true` the order moves to terminal FULFILLED.
  */
 const confirmDelivery = async (id, userId, { satisfied, feedback = "" } = {}) => {
   if (typeof satisfied !== "boolean") {
@@ -721,7 +937,13 @@ const confirmDelivery = async (id, userId, { satisfied, feedback = "" } = {}) =>
     isDeleted: { $ne: true },
   });
   if (!order) throw new HttpError("Order not found", 404);
-  if (!["DELIVERED", "FULFILLED"].includes(order.orderStatus)) {
+
+  const isPickupReady =
+    order.fulfillmentMethod === "PICKUP" &&
+    order.orderStatus === "READY_FOR_PICKUP";
+  const isDelivered = ["DELIVERED", "FULFILLED"].includes(order.orderStatus);
+
+  if (!isPickupReady && !isDelivered) {
     throw new HttpError(
       `Cannot confirm delivery while order is ${order.orderStatus}`,
       400
@@ -738,12 +960,19 @@ const confirmDelivery = async (id, userId, { satisfied, feedback = "" } = {}) =>
   };
   if (satisfied) {
     order.orderStatus = "FULFILLED";
-    appendHistory(order, "FULFILLED", "Customer confirmed receipt", userId);
+    appendHistory(
+      order,
+      "FULFILLED",
+      isPickupReady ? "Customer confirmed collection" : "Customer confirmed receipt",
+      userId
+    );
   } else {
     appendHistory(
       order,
       order.orderStatus,
-      "Customer reported a problem with the delivery",
+      isPickupReady
+        ? "Customer reported a problem at pickup"
+        : "Customer reported a problem with the delivery",
       userId
     );
   }
@@ -752,7 +981,9 @@ const confirmDelivery = async (id, userId, { satisfied, feedback = "" } = {}) =>
   if (satisfied) {
     notifyCustomerOrderStatus(order._id, {
       newStatus: "FULFILLED",
-      note: "Customer confirmed receipt",
+      note: isPickupReady
+        ? "Customer confirmed collection"
+        : "Customer confirmed receipt",
     });
   }
 
@@ -1007,13 +1238,17 @@ const executeOrderCancellation = async (
   if (!preCheck) throw new HttpError("Order not found", 404);
 
   if (mode === "user") {
-    if (!["PLACED", "PROCESSING"].includes(preCheck.orderStatus)) {
+    if (!["PLACED", "PROCESSING", "READY_FOR_PICKUP"].includes(preCheck.orderStatus)) {
       throw new HttpError(
         `You can only cancel before the order ships (current status: ${preCheck.orderStatus}).`,
         400
       );
     }
-  } else if (["SHIPPED", "DELIVERED", "FULFILLED", "CANCELLED"].includes(preCheck.orderStatus)) {
+  } else if (
+    ["SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED", "FULFILLED", "CANCELLED"].includes(
+      preCheck.orderStatus
+    )
+  ) {
     throw new HttpError(
       `Order is ${preCheck.orderStatus}; cancel is no longer possible.`,
       400
@@ -1073,17 +1308,25 @@ const executeOrderCancellation = async (
       if (!order) throw new HttpError("Order not found", 404);
 
       if (mode === "user") {
-        if (!["PLACED", "PROCESSING"].includes(order.orderStatus)) {
+        if (!["PLACED", "PROCESSING", "READY_FOR_PICKUP"].includes(order.orderStatus)) {
           throw new HttpError(
             `You can only cancel before the order ships (current status: ${order.orderStatus}).`,
             400
           );
         }
-      } else if (["SHIPPED", "DELIVERED", "FULFILLED", "CANCELLED"].includes(order.orderStatus)) {
+      } else if (
+        ["SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED", "FULFILLED", "CANCELLED"].includes(
+          order.orderStatus
+        )
+      ) {
         throw new HttpError(
           `Order is ${order.orderStatus}; cancel is no longer possible.`,
           400
         );
+      }
+
+      if (order.delivery?.shipmentId || order.delivery?.waybill) {
+        await shippingShipmentService.cancelShipmentForOrder(order);
       }
 
       await restockOrderItems(order, session);
@@ -1306,6 +1549,7 @@ module.exports = {
   updatePayment,
   adminSetTracking,
   dispatchOrder,
+  readyForPickup,
   confirmDelivery,
   adminCancelOrder,
   adminInitiateRefund,

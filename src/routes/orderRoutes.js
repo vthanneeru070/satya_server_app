@@ -13,6 +13,7 @@ const {
   updatePayment,
   setTracking,
   dispatchOrder,
+  readyForPickup,
   confirmDelivery,
   adminCancelPaidOrder,
   adminInitiateRefund,
@@ -35,6 +36,7 @@ const {
   payfastVerifySchema,
   setTrackingSchema,
   dispatchOrderSchema,
+  readyForPickupSchema,
   confirmDeliverySchema,
   adminCancelPaidSchema,
   adminInitiateRefundSchema,
@@ -540,6 +542,24 @@ router.post(
   validate(orderIdParamsSchema, "params"),
   validate(dispatchOrderSchema),
   dispatchOrder
+);
+
+/**
+ * @swagger
+ * /orders/{id}/ready-for-pickup:
+ *   post:
+ *     summary: Mark a pickup order ready for customer collection (admin)
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post(
+  "/:id/ready-for-pickup",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(orderIdParamsSchema, "params"),
+  validate(readyForPickupSchema),
+  readyForPickup
 );
 
 /**
