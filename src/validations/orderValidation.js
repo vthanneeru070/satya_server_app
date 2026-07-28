@@ -30,6 +30,25 @@ const shippingAddressSchema = Joi.object({
   return { ...value, addressLine1, postalCode };
 });
 
+/** Pickup checkout: name + phone only — warehouse address is resolved server-side. */
+const pickupShippingAddressSchema = Joi.object({
+  fullName: Joi.string().trim().min(2).max(120).required(),
+  phone: Joi.string().trim().min(5).max(20).required(),
+  addressLine1: Joi.string().trim().max(200).allow("").optional(),
+  line1: Joi.string().trim().max(200).allow("").optional(),
+  addressLine2: Joi.string().trim().max(200).allow("").optional(),
+  city: Joi.string().trim().max(80).allow("").optional(),
+  state: Joi.string().trim().max(80).allow("").optional(),
+  suburb: Joi.string().trim().max(120).allow("").optional(),
+  localArea: Joi.string().trim().max(120).allow("").optional(),
+  enteredAddress: Joi.string().trim().max(500).allow("").optional(),
+  postalCode: Joi.string().trim().max(20).allow("").optional(),
+  pincode: Joi.string().trim().max(20).allow("").optional(),
+  country: Joi.string().trim().max(80).allow("").default("South Africa"),
+  lat: Joi.number().min(-90).max(90).optional().allow(null),
+  lng: Joi.number().min(-180).max(180).optional().allow(null),
+});
+
 const pickupContactSchema = Joi.object({
   fullName: Joi.string().trim().min(2).max(120).required(),
   phone: Joi.string().trim().min(5).max(20).required(),
@@ -39,7 +58,8 @@ const fulfillmentFields = {
   fulfillmentMethod: Joi.string().valid("DELIVERY", "PICKUP").default("DELIVERY"),
   shippingServiceLevelCode: Joi.string().trim().uppercase().max(20).optional(),
   contact: pickupContactSchema.optional(),
-  shippingAddress: shippingAddressSchema.optional(),
+  /** Validated in assertFulfillmentPayload (delivery vs pickup schemas differ). */
+  shippingAddress: Joi.object().unknown(true).optional(),
 };
 
 const assertFulfillmentPayload = (value, helpers) => {
@@ -53,6 +73,16 @@ const assertFulfillmentPayload = (value, helpers) => {
         custom: "shippingServiceLevelCode is required for delivery",
       });
     }
+    const { error, value: validatedAddress } = shippingAddressSchema.validate(
+      value.shippingAddress,
+      { abortEarly: false }
+    );
+    if (error) {
+      return helpers.message({
+        custom: error.details.map((d) => d.message).join(", "),
+      });
+    }
+    value.shippingAddress = validatedAddress;
   } else {
     const hasContact =
       value.contact?.fullName &&
@@ -63,6 +93,24 @@ const assertFulfillmentPayload = (value, helpers) => {
       return helpers.message({
         custom: "contact (fullName, phone) is required for pickup",
       });
+    }
+    if (value.shippingAddress) {
+      const { error, value: validatedAddress } = pickupShippingAddressSchema.validate(
+        value.shippingAddress,
+        { abortEarly: false }
+      );
+      if (error) {
+        return helpers.message({
+          custom: error.details.map((d) => d.message).join(", "),
+        });
+      }
+      value.shippingAddress = validatedAddress;
+    }
+    if (!value.contact?.fullName && value.shippingAddress?.fullName) {
+      value.contact = {
+        fullName: value.shippingAddress.fullName,
+        phone: value.shippingAddress.phone,
+      };
     }
   }
   return value;
@@ -246,6 +294,7 @@ const shippingQuoteSchema = Joi.object({
 
 module.exports = {
   shippingAddressSchema,
+  pickupShippingAddressSchema,
   checkoutOrderSchema,
   createOrderSchema,
   orderIdParamsSchema,
