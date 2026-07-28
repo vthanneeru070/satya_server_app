@@ -1613,6 +1613,36 @@ const updatePayment = async (
   return order;
 };
 
+/**
+ * Admin: fetch a signed ShipLogic shipping label URL for a dispatched delivery order.
+ */
+const getShippingLabelUrl = async (id) => {
+  const order = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
+  if (!order) throw new HttpError("Order not found", 404);
+  if (order.fulfillmentMethod === "PICKUP") {
+    throw new HttpError("Pickup orders do not have courier shipping labels", 400);
+  }
+
+  const result = await shippingShipmentService.getShippingLabelUrlForOrder(order);
+  await order.save();
+  return result;
+};
+
+/**
+ * Admin: stream shipping label PDF (or redirect to signed URL).
+ */
+const getShippingLabelStream = async (id) => {
+  const order = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
+  if (!order) throw new HttpError("Order not found", 404);
+  if (order.fulfillmentMethod === "PICKUP") {
+    throw new HttpError("Pickup orders do not have courier shipping labels", 400);
+  }
+
+  const asset = await shippingShipmentService.getShippingLabelAssetForOrder(order);
+  await order.save();
+  return asset;
+};
+
 module.exports = {
   checkoutFromCart,
   createOrder,
@@ -1626,6 +1656,8 @@ module.exports = {
   dispatchOrder,
   readyForPickup,
   syncDeliveryPod,
+  getShippingLabelUrl,
+  getShippingLabelStream,
   confirmDelivery,
   adminCancelOrder,
   adminInitiateRefund,

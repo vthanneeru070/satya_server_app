@@ -161,10 +161,107 @@ const getPodImages = async ({ trackingReference, fileNames = [] } = {}) => {
   });
 };
 
-const getLabelUrl = (shipmentId) => {
+const ensureLabelUrlHasTrackingRef = (url, { id, trackingReference } = {}) => {
+  if (!url || !trackingReference) return url || "";
+  try {
+    const parsed = new URL(String(url));
+    if (!parsed.pathname.toLowerCase().includes("/shipments/label")) {
+      return String(url);
+    }
+    if (!parsed.searchParams.get("tracking_reference")) {
+      parsed.searchParams.set("tracking_reference", String(trackingReference));
+    }
+    if (id && !parsed.searchParams.get("id")) {
+      parsed.searchParams.set("id", String(id));
+    }
+    return parsed.toString();
+  } catch (_) {
+    return String(url);
+  }
+};
+
+const extractUrlFromLabelPayload = (payload) => {
+  if (!payload) return "";
+  if (typeof payload === "string" && payload.startsWith("http")) return payload;
+  if (Buffer.isBuffer(payload)) return "";
+
+  const candidates = [
+    payload.url,
+    payload.label_url,
+    payload.labelUrl,
+    payload.data?.url,
+    payload.data?.label_url,
+    Array.isArray(payload) ? payload[0]?.data?.url : null,
+    Array.isArray(payload) ? payload[0]?.url : null,
+  ];
+  for (const value of candidates) {
+    if (value != null && String(value).trim().startsWith("http")) {
+      return String(value).trim();
+    }
+  }
+  return "";
+};
+
+const getLabelUrl = ({ id, trackingReference } = {}) => {
   const cfg = getTcgConfig();
-  if (!shipmentId) return "";
-  return `${cfg.baseUrl}/shipments/label?id=${encodeURIComponent(shipmentId)}`;
+  if (!id || !trackingReference) return "";
+  const params = new URLSearchParams({
+    id: String(id),
+    tracking_reference: String(trackingReference),
+  });
+  return `${cfg.baseUrl}/shipments/label?${params.toString()}`;
+};
+
+/** Authenticated label fetch — returns PDF bytes or a signed download URL. */
+const fetchLabelAsset = async ({ id, trackingReference } = {}) => {
+  const cfg = getTcgConfig();
+  if (cfg.useMock) {
+    if (!id) throw new HttpError("Shipment id is required for label download", 400);
+    return {
+      type: "pdf",
+      data: Buffer.from("%PDF-1.4\n%Mock shipping label\n"),
+      filename: `mock-label-${id}.pdf`,
+    };
+  }
+  if (!id || !trackingReference) {
+    throw new HttpError(
+      "Shipment id and tracking_reference are required for label download",
+      400
+    );
+  }
+
+  const payload = await request("GET", "/shipments/label", {
+    query: {
+      id: String(id),
+      tracking_reference: String(trackingReference),
+    },
+    accept: "application/pdf, application/json",
+  });
+
+  if (Buffer.isBuffer(payload)) {
+    return {
+      type: "pdf",
+      data: payload,
+      filename: `shipping-label-${id}.pdf`,
+    };
+  }
+
+  const rawUrl = extractUrlFromLabelPayload(payload);
+  if (!rawUrl) {
+    throw new HttpError("Courier label was not returned by ShipLogic", 502);
+  }
+
+  const url = ensureLabelUrlHasTrackingRef(rawUrl, { id, trackingReference });
+  return { type: "redirect", url };
+};
+
+/** @deprecated Prefer fetchLabelAsset — kept for callers expecting { url }. */
+const fetchLabelSignedUrl = async ({ id, trackingReference } = {}) => {
+  const asset = await fetchLabelAsset({ id, trackingReference });
+  if (asset.type === "redirect") return { url: asset.url };
+  return {
+    url: `data:application/pdf;base64,${asset.data.toString("base64")}`,
+  };
 };
 
 module.exports = {
@@ -176,5 +273,8 @@ module.exports = {
   getDigitalPod,
   getPodImages,
   getLabelUrl,
+  fetchLabelAsset,
+  fetchLabelSignedUrl,
+  ensureLabelUrlHasTrackingRef,
   request,
 };

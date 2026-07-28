@@ -130,6 +130,32 @@ const syncDeliveryPod = async (req, res, next) => {
   }
 };
 
+const getShippingLabelUrl = async (req, res, next) => {
+  try {
+    const data = await orderService.getShippingLabelUrl(req.params.id);
+    return sendSuccess(res, data, "Shipping label URL fetched");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const streamShippingLabel = async (req, res, next) => {
+  try {
+    const asset = await orderService.getShippingLabelStream(req.params.id);
+    if (asset.type === "pdf") {
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `inline; filename="${asset.filename || "shipping-label.pdf"}"`
+      );
+      return res.send(asset.data);
+    }
+    return res.redirect(asset.url);
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const confirmDelivery = async (req, res, next) => {
   try {
     const order = await orderService.confirmDelivery(
@@ -247,6 +273,8 @@ module.exports = {
   dispatchOrder,
   readyForPickup,
   syncDeliveryPod,
+  getShippingLabelUrl,
+  streamShippingLabel,
   confirmDelivery,
   adminCancelPaidOrder,
   adminInitiateRefund,

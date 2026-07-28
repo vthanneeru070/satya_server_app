@@ -15,6 +15,8 @@ const {
   dispatchOrder,
   readyForPickup,
   syncDeliveryPod,
+  getShippingLabelUrl,
+  streamShippingLabel,
   confirmDelivery,
   adminCancelPaidOrder,
   adminInitiateRefund,
@@ -578,6 +580,40 @@ router.post(
   authorizeRoles("admin"),
   validate(orderIdParamsSchema, "params"),
   syncDeliveryPod
+);
+
+/**
+ * @swagger
+ * /orders/{id}/shipping-label-url:
+ *   get:
+ *     summary: Fetch signed Courier Guy / ShipLogic shipping label URL (admin)
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get(
+  "/:id/shipping-label-url",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(orderIdParamsSchema, "params"),
+  getShippingLabelUrl
+);
+
+/**
+ * @swagger
+ * /orders/{id}/shipping-label:
+ *   get:
+ *     summary: Download Courier Guy shipping label PDF (admin)
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get(
+  "/:id/shipping-label",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(orderIdParamsSchema, "params"),
+  streamShippingLabel
 );
 
 /**

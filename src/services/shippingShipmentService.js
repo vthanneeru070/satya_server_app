@@ -104,7 +104,11 @@ const bookShipmentForOrder = async (order, { actorUserId } = {}) => {
     String(shipmentId || "");
   const shortRef = created?.short_tracking_reference || "";
   const status = created?.status || "submitted";
-  const labelUrl = shipmentId ? tcgClient.getLabelUrl(shipmentId) : "";
+  const trackingReference = waybill || shortRef;
+  const labelUrl =
+    shipmentId && trackingReference
+      ? tcgClient.getLabelUrl({ id: shipmentId, trackingReference })
+      : "";
 
   order.delivery = {
     ...(order.delivery?.toObject?.() || order.delivery || {}),
@@ -245,6 +249,106 @@ const findOrderByShipmentPayload = async (payload = {}) => {
   return Order.findOne({ isDeleted: { $ne: true }, $or: or });
 };
 
+const resolveShipmentTrackingReference = (order = {}) => {
+  const delivery = order.delivery || {};
+  const tracking = order.tracking || {};
+  const shipmentId = String(delivery.shipmentId || "").trim();
+  const candidates = [
+    delivery.shortTrackingReference,
+    delivery.waybill,
+    tracking.trackingNumber,
+  ];
+  for (const candidate of candidates) {
+    const value = String(candidate || "").trim();
+    if (!value) continue;
+    if (shipmentId && value === shipmentId) continue;
+    return value;
+  }
+  return "";
+};
+
+const resolveShipmentLabelContext = async (order) => {
+  if (!order) throw new HttpError("Order not found", 404);
+  const shipmentId = String(order.delivery?.shipmentId || "").trim();
+  let trackingReference = resolveShipmentTrackingReference(order);
+
+  if (shipmentId && !trackingReference) {
+    try {
+      const shipment = await tcgClient.getShipment({ id: shipmentId });
+      trackingReference = String(
+        shipment?.short_tracking_reference ||
+          shipment?.custom_tracking_reference ||
+          shipment?.shipment_tracking_reference ||
+          shipment?.tracking_reference ||
+          ""
+      ).trim();
+      if (trackingReference) {
+        order.delivery = {
+          ...(order.delivery?.toObject?.() || order.delivery || {}),
+          waybill: order.delivery?.waybill || trackingReference,
+          shortTrackingReference:
+            order.delivery?.shortTrackingReference ||
+            shipment?.short_tracking_reference ||
+            "",
+        };
+      }
+    } catch (err) {
+      console.warn(
+        "[shippingShipment] could not resolve tracking reference from ShipLogic:",
+        err?.message || err
+      );
+    }
+  }
+
+  if (!shipmentId || !trackingReference) {
+    throw new HttpError(
+      "Order has no Courier Guy shipment id or tracking reference for label download",
+      400
+    );
+  }
+
+  return { shipmentId, trackingReference };
+};
+
+const persistLabelUrl = (order, shipmentId, trackingReference) => {
+  order.delivery = {
+    ...(order.delivery?.toObject?.() || order.delivery || {}),
+    labelUrl: tcgClient.getLabelUrl({ id: shipmentId, trackingReference }),
+  };
+};
+
+/**
+ * Fetch label PDF bytes or a signed redirect URL from ShipLogic.
+ */
+const getShippingLabelAssetForOrder = async (order) => {
+  const { shipmentId, trackingReference } = await resolveShipmentLabelContext(order);
+  const asset = await tcgClient.fetchLabelAsset({
+    id: shipmentId,
+    trackingReference,
+  });
+  persistLabelUrl(order, shipmentId, trackingReference);
+  return { ...asset, shipmentId, trackingReference };
+};
+
+/**
+ * Fetch a signed ShipLogic label URL (valid ~24h). Requires shipment id + waybill.
+ */
+const getShippingLabelUrlForOrder = async (order) => {
+  const asset = await getShippingLabelAssetForOrder(order);
+  if (asset.type === "redirect") {
+    return {
+      url: asset.url,
+      shipmentId: asset.shipmentId,
+      trackingReference: asset.trackingReference,
+    };
+  }
+  return {
+    url: `data:application/pdf;base64,${asset.data.toString("base64")}`,
+    shipmentId: asset.shipmentId,
+    trackingReference: asset.trackingReference,
+  };
+};
+
 module.exports = {
   bookShipmentForOrder,
   cancelShipmentForOrder,
@@ -253,4 +357,8 @@ module.exports = {
   findOrderByShipmentPayload,
   mapShipLogicStatusToOrderStatus,
   buildTrackingUrl,
+  getShippingLabelUrlForOrder,
+  getShippingLabelAssetForOrder,
+  resolveShipmentTrackingReference,
+  resolveShipmentLabelContext,
 };
