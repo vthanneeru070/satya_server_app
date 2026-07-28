@@ -153,15 +153,17 @@ const rebookCourier = async (req, res, next) => {
 const streamShippingLabel = async (req, res, next) => {
   try {
     const asset = await orderService.getShippingLabelStream(req.params.id);
-    if (asset.type === "pdf") {
-      res.setHeader("Content-Type", "application/pdf");
-      res.setHeader(
-        "Content-Disposition",
-        `inline; filename="${asset.filename || "shipping-label.pdf"}"`
-      );
-      return res.send(asset.data);
+    // Always stream PDF bytes — never redirect to labels.shiplogic.com (CORS on Flutter web).
+    if (asset.type !== "pdf" || !asset.data) {
+      const HttpError = require("../utils/httpError");
+      throw new HttpError("Courier shipping label PDF was not available", 502);
     }
-    return res.redirect(asset.url);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${asset.filename || "shipping-label.pdf"}"`
+    );
+    return res.send(asset.data);
   } catch (error) {
     return next(error);
   }

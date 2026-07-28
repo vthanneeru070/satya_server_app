@@ -224,7 +224,32 @@ const getLabelUrl = ({ id, trackingReference } = {}) => {
   return `${cfg.baseUrl}/shipments/label?${params.toString()}`;
 };
 
-/** Authenticated label fetch — returns PDF bytes or a signed download URL. */
+/** Download a signed ShipLogic label CDN URL server-side (avoids browser CORS). */
+const downloadLabelPdfFromUrl = async (url) => {
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "GET",
+      signal: AbortSignal.timeout(25000),
+    });
+  } catch (err) {
+    console.error("[tcgClient] label CDN download failed:", err?.message || err);
+    throw new HttpError("Could not download shipping label from Courier Guy", 502);
+  }
+  if (!res.ok) {
+    throw new HttpError(
+      `Courier Guy label download failed (HTTP ${res.status})`,
+      res.status >= 400 && res.status < 600 ? res.status : 502
+    );
+  }
+  return Buffer.from(await res.arrayBuffer());
+};
+
+/**
+ * Authenticated label fetch — always returns PDF bytes.
+ * When ShipLogic returns a signed CDN URL, the server downloads it (never redirects
+ * the browser — Flutter web cannot fetch labels.shiplogic.com due to CORS).
+ */
 const fetchLabelAsset = async ({ id, trackingReference } = {}) => {
   const cfg = getTcgConfig();
   if (cfg.useMock) {
@@ -264,13 +289,17 @@ const fetchLabelAsset = async ({ id, trackingReference } = {}) => {
   }
 
   const url = ensureLabelUrlHasTrackingRef(rawUrl, { id, trackingReference });
-  return { type: "redirect", url };
+  const data = await downloadLabelPdfFromUrl(url);
+  return {
+    type: "pdf",
+    data,
+    filename: `shipping-label-${id}.pdf`,
+  };
 };
 
 /** @deprecated Prefer fetchLabelAsset — kept for callers expecting { url }. */
 const fetchLabelSignedUrl = async ({ id, trackingReference } = {}) => {
   const asset = await fetchLabelAsset({ id, trackingReference });
-  if (asset.type === "redirect") return { url: asset.url };
   return {
     url: `data:application/pdf;base64,${asset.data.toString("base64")}`,
   };
