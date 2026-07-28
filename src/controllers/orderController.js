@@ -139,6 +139,17 @@ const getShippingLabelUrl = async (req, res, next) => {
   }
 };
 
+const rebookCourier = async (req, res, next) => {
+  try {
+    const order = await orderService.rebookCourierShipment(req.params.id, {
+      actorUserId: req.user.userId,
+    });
+    return sendSuccess(res, { order }, "Courier shipment rebooked");
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const streamShippingLabel = async (req, res, next) => {
   try {
     const asset = await orderService.getShippingLabelStream(req.params.id);
@@ -275,6 +286,7 @@ module.exports = {
   syncDeliveryPod,
   getShippingLabelUrl,
   streamShippingLabel,
+  rebookCourier,
   confirmDelivery,
   adminCancelPaidOrder,
   adminInitiateRefund,

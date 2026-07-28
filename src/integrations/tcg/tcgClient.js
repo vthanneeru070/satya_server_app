@@ -61,7 +61,19 @@ const request = async (method, path, { body, query, accept } = {}) => {
       (typeof payload === "string" && payload.slice(0, 300)) ||
       `Courier API error (${res.status})`;
     console.error("[tcgClient]", method, path, res.status, msg);
-    throw new HttpError(String(msg), res.status >= 400 && res.status < 600 ? res.status : 502);
+    const normalized = String(msg).trim();
+    const lower = normalized.toLowerCase();
+    if (
+      res.status === 404 ||
+      lower.includes("could not find shipment") ||
+      lower.includes("shipment not found")
+    ) {
+      throw new HttpError(
+        "Courier shipment was not found in ShipLogic. This order may have been booked in mock mode — rebook the courier shipment and try again.",
+        404
+      );
+    }
+    throw new HttpError(normalized, res.status >= 400 && res.status < 600 ? res.status : 502);
   }
 
   return payload;

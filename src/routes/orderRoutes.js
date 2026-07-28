@@ -17,6 +17,7 @@ const {
   syncDeliveryPod,
   getShippingLabelUrl,
   streamShippingLabel,
+  rebookCourier,
   confirmDelivery,
   adminCancelPaidOrder,
   adminInitiateRefund,
@@ -614,6 +615,23 @@ router.get(
   authorizeRoles("admin"),
   validate(orderIdParamsSchema, "params"),
   streamShippingLabel
+);
+
+/**
+ * @swagger
+ * /orders/{id}/rebook-courier:
+ *   post:
+ *     summary: Rebook Courier Guy shipment (admin) — fixes mock/stale shipment ids
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post(
+  "/:id/rebook-courier",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(orderIdParamsSchema, "params"),
+  rebookCourier
 );
 
 /**

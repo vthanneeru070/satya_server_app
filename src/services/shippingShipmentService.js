@@ -37,7 +37,12 @@ const bookShipmentForOrder = async (order, { actorUserId } = {}) => {
     throw new HttpError("Pickup orders cannot be booked with The Courier Guy", 400);
   }
   if (order.delivery?.shipmentId) {
-    return order;
+    const exists = await shipmentExistsRemotely(order);
+    if (exists) return order;
+    console.warn(
+      `[shippingShipment] stale shipment ${order.delivery.shipmentId} on ${order.orderNumber} — rebooking`
+    );
+    clearCourierShipmentFields(order);
   }
   if (!order.shippingAddress) {
     throw new HttpError("Order has no shipping address", 400);
@@ -249,6 +254,81 @@ const findOrderByShipmentPayload = async (payload = {}) => {
   return Order.findOne({ isDeleted: { $ne: true }, $or: or });
 };
 
+const isShipmentMissingError = (err) => {
+  const msg = String(err?.message || "").toLowerCase();
+  return (
+    err?.statusCode === 404 ||
+    msg.includes("could not find shipment") ||
+    msg.includes("shipment was not found") ||
+    msg.includes("shipment not found")
+  );
+};
+
+const clearCourierShipmentFields = (order) => {
+  order.delivery = {
+    ...(order.delivery?.toObject?.() || order.delivery || {}),
+    provider: "TCG",
+    shipmentId: "",
+    waybill: "",
+    shortTrackingReference: "",
+    labelUrl: "",
+    stickerUrl: "",
+    status: "",
+    bookedAt: null,
+    lastSyncedAt: null,
+    bookedBy: null,
+    podMethod: order.delivery?.podMethod || "",
+    pod: order.delivery?.pod,
+  };
+  if (order.tracking?.courier === "The Courier Guy") {
+    order.tracking = {
+      ...(order.tracking?.toObject?.() || order.tracking || {}),
+      courier: "",
+      trackingNumber: "",
+      trackingUrl: "",
+    };
+  }
+};
+
+const shipmentExistsRemotely = async (order) => {
+  const cfg = getTcgConfig();
+  if (cfg.useMock) {
+    const { getMockShipment } = require("./tcgMock");
+    try {
+      await getMockShipment({
+        id: order.delivery?.shipmentId,
+        trackingReference: resolveShipmentTrackingReference(order),
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  const shipmentId = String(order.delivery?.shipmentId || "").trim();
+  if (!shipmentId) return false;
+
+  const trackingReference = resolveShipmentTrackingReference(order);
+  try {
+    await tcgClient.getShipment({
+      id: shipmentId,
+      ...(trackingReference ? { trackingReference } : {}),
+    });
+    return true;
+  } catch (err) {
+    if (isShipmentMissingError(err)) return false;
+    throw err;
+  }
+};
+
+/** Clear a stale/mock shipment and book a fresh one with ShipLogic. */
+const rebookCourierShipmentForOrder = async (order, { actorUserId } = {}) => {
+  if (!order) throw new HttpError("Order not found", 404);
+  clearCourierShipmentFields(order);
+  await bookShipmentForOrder(order, { actorUserId });
+  return order;
+};
+
 const resolveShipmentTrackingReference = (order = {}) => {
   const delivery = order.delivery || {};
   const tracking = order.tracking || {};
@@ -320,14 +400,22 @@ const persistLabelUrl = (order, shipmentId, trackingReference) => {
 /**
  * Fetch label PDF bytes or a signed redirect URL from ShipLogic.
  */
-const getShippingLabelAssetForOrder = async (order) => {
-  const { shipmentId, trackingReference } = await resolveShipmentLabelContext(order);
-  const asset = await tcgClient.fetchLabelAsset({
-    id: shipmentId,
-    trackingReference,
-  });
-  persistLabelUrl(order, shipmentId, trackingReference);
-  return { ...asset, shipmentId, trackingReference };
+const getShippingLabelAssetForOrder = async (order, { rebookIfMissing = false } = {}) => {
+  try {
+    const { shipmentId, trackingReference } = await resolveShipmentLabelContext(order);
+    const asset = await tcgClient.fetchLabelAsset({
+      id: shipmentId,
+      trackingReference,
+    });
+    persistLabelUrl(order, shipmentId, trackingReference);
+    return { ...asset, shipmentId, trackingReference };
+  } catch (err) {
+    if (rebookIfMissing && isShipmentMissingError(err)) {
+      await rebookCourierShipmentForOrder(order);
+      return getShippingLabelAssetForOrder(order, { rebookIfMissing: false });
+    }
+    throw err;
+  }
 };
 
 /**
@@ -359,6 +447,8 @@ module.exports = {
   buildTrackingUrl,
   getShippingLabelUrlForOrder,
   getShippingLabelAssetForOrder,
+  rebookCourierShipmentForOrder,
   resolveShipmentTrackingReference,
   resolveShipmentLabelContext,
+  isShipmentMissingError,
 };

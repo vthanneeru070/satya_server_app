@@ -1638,9 +1638,22 @@ const getShippingLabelStream = async (id) => {
     throw new HttpError("Pickup orders do not have courier shipping labels", 400);
   }
 
-  const asset = await shippingShipmentService.getShippingLabelAssetForOrder(order);
+  const asset = await shippingShipmentService.getShippingLabelAssetForOrder(order, {
+    rebookIfMissing: true,
+  });
   await order.save();
   return asset;
+};
+
+const rebookCourierShipment = async (id, { actorUserId } = {}) => {
+  const order = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
+  if (!order) throw new HttpError("Order not found", 404);
+  if (order.fulfillmentMethod === "PICKUP") {
+    throw new HttpError("Pickup orders do not use courier shipments", 400);
+  }
+  await shippingShipmentService.rebookCourierShipmentForOrder(order, { actorUserId });
+  await order.save();
+  return order;
 };
 
 module.exports = {
@@ -1658,6 +1671,7 @@ module.exports = {
   syncDeliveryPod,
   getShippingLabelUrl,
   getShippingLabelStream,
+  rebookCourierShipment,
   confirmDelivery,
   adminCancelOrder,
   adminInitiateRefund,
