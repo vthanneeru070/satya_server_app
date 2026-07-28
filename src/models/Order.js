@@ -93,6 +93,21 @@ const pickupCollectionSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const pickupCredentialsSchema = new mongoose.Schema(
+  {
+    pin: { type: String, trim: true, default: "" },
+    qrToken: { type: String, trim: true, default: "" },
+    issuedAt: { type: Date, default: null },
+    collectedAt: { type: Date, default: null },
+    collectedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+  },
+  { _id: false }
+);
+
 const pickupLocationSchema = new mongoose.Schema(
   {
     company: { type: String, default: "" },
@@ -274,7 +289,9 @@ const orderSchema = new mongoose.Schema(
       enum: [
         "PLACED",
         "PROCESSING",
+        "PACKED",
         "READY_FOR_PICKUP",
+        "COLLECTED",
         "SHIPPED",
         "OUT_FOR_DELIVERY",
         "DELIVERED",
@@ -322,9 +339,23 @@ const orderSchema = new mongoose.Schema(
       default: undefined,
     },
 
+    /** Assigned pickup warehouse (Pickup orders). */
+    warehouse: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Warehouse",
+      default: null,
+      index: true,
+    },
+
     /** One-time code for warehouse pickup verification. */
     pickupCollection: {
       type: pickupCollectionSchema,
+      default: undefined,
+    },
+
+    /** PIN + QR metadata for pickup verification. */
+    pickupCredentials: {
+      type: pickupCredentialsSchema,
       default: undefined,
     },
 

@@ -119,6 +119,28 @@ const readyForPickup = async (req, res, next) => {
   }
 };
 
+const markPacked = async (req, res, next) => {
+  try {
+    const order = await orderService.markPacked(req.params.id, req.body, {
+      actorUserId: req.user.userId,
+    });
+    return sendSuccess(res, { order }, "Order marked packed");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const verifyPickup = async (req, res, next) => {
+  try {
+    const order = await orderService.verifyPickup(req.params.id, req.body, {
+      actorUserId: req.user.userId,
+    });
+    return sendSuccess(res, { order }, "Pickup verified — order completed");
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const syncDeliveryPod = async (req, res, next) => {
   try {
     const order = await orderService.syncDeliveryPod(req.params.id, {
@@ -285,6 +307,8 @@ module.exports = {
   setTracking,
   dispatchOrder,
   readyForPickup,
+  markPacked,
+  verifyPickup,
   syncDeliveryPod,
   getShippingLabelUrl,
   streamShippingLabel,

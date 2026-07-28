@@ -217,27 +217,41 @@ const resolveCheckoutDeliveryTotals = async ({
   });
 };
 
-const getPickupLocation = () => {
-  const cfg = getTcgConfig();
-  const addr = cfg.collectionAddress || {};
-  const contact = cfg.collectionContact || {};
-  return {
-    company: addr.company || "Satya",
-    streetAddress: addr.street_address || "",
-    localArea: addr.local_area || "",
-    city: addr.city || "",
-    zone: addr.zone || "",
-    postalCode: addr.code || "",
-    country: addr.country || "South Africa",
-    enteredAddress: addr.entered_address || "",
-    lat: addr.lat ?? null,
-    lng: addr.lng ?? null,
-    contactName: contact.name || "",
-    contactPhone: contact.mobile_number || contact.phone || "",
-    contactEmail: contact.email || "",
-    hours: cfg.pickupHours,
-    instructions: cfg.pickupInstructions,
-  };
+const getPickupLocation = async () => {
+  const warehouseRoutingService = require("./warehouseRoutingService");
+  const { WAREHOUSE_CODE_DURBAN } = require("../constants/warehouses");
+  try {
+    const warehouse = await warehouseRoutingService.loadWarehouseByCode(
+      WAREHOUSE_CODE_DURBAN
+    );
+    const loc = warehouse.toPickupLocationSnapshot();
+    return {
+      ...loc,
+      lat: warehouse.lat ?? null,
+      lng: warehouse.lng ?? null,
+    };
+  } catch {
+    const cfg = getTcgConfig();
+    const addr = cfg.collectionAddress || {};
+    const contact = cfg.collectionContact || {};
+    return {
+      company: addr.company || "Satya",
+      streetAddress: addr.street_address || "",
+      localArea: addr.local_area || "",
+      city: addr.city || "",
+      zone: addr.zone || "",
+      postalCode: addr.code || "",
+      country: addr.country || "South Africa",
+      enteredAddress: addr.entered_address || "",
+      lat: addr.lat ?? null,
+      lng: addr.lng ?? null,
+      contactName: contact.name || "",
+      contactPhone: contact.mobile_number || contact.phone || "",
+      contactEmail: contact.email || "",
+      hours: cfg.pickupHours,
+      instructions: cfg.pickupInstructions,
+    };
+  }
 };
 
 module.exports = {

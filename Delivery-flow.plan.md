@@ -243,6 +243,29 @@ Update `orderEmailService.js` + `fcmOrderNotifyService.js` + invoice service:
 
 ---
 
+## Pickup (production — multi-warehouse)
+
+| Method | Warehouse | Categories |
+|--------|-----------|------------|
+| Pickup | **SATHYA_DURBAN** — 21 Blue Bell Crescent, Pinetown, Durban | Books, Puja Kits |
+| Pickup | **VISHAL_AYURVEDA** — Gary Player Blvd, Blue Valley Golf Estate, Centurion, 0096 | Ayurvedic |
+
+**Routing:** Category-auto (no warehouse picker). Mixed carts (books + ayurvedic) → `409` — checkout separately.
+
+**Status flow (pickup):** `PLACED → PROCESSING → PACKED → READY_FOR_PICKUP → COLLECTED → FULFILLED`
+
+**PIN:** Issued at payment success (`pickupCollection.code` + `pickupCredentials`). Customer shows PIN at counter; **admin enters PIN in CMS** via `POST /orders/:id/verify-pickup`. Customer `confirm-delivery` is blocked for pickup.
+
+**APIs:**
+- `GET/POST /api/v1/warehouses/for-cart` — resolve warehouse + address for cart
+- `POST /api/v1/orders/:id/packed` — admin
+- `POST /api/v1/orders/:id/ready-for-pickup` — admin
+- `POST /api/v1/orders/:id/verify-pickup` — admin `{ pin }`
+
+**Seed:** Warehouses upserted on server start; manual: `npm run seed:warehouses`
+
+---
+
 ## Out of scope (v1)
 
 - TCG lockers (D2L / L2L / locker picker UI)

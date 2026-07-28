@@ -18,7 +18,7 @@ const quoteShipping = async (req, res, next) => {
 
 const getPickupLocation = async (_req, res, next) => {
   try {
-    const location = shippingQuoteService.getPickupLocation();
+    const location = await shippingQuoteService.getPickupLocation();
     return sendSuccess(res, { location }, "Pickup location fetched");
   } catch (error) {
     return next(error);

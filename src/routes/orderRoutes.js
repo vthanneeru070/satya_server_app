@@ -14,6 +14,8 @@ const {
   setTracking,
   dispatchOrder,
   readyForPickup,
+  markPacked,
+  verifyPickup,
   syncDeliveryPod,
   getShippingLabelUrl,
   streamShippingLabel,
@@ -41,6 +43,8 @@ const {
   setTrackingSchema,
   dispatchOrderSchema,
   readyForPickupSchema,
+  markPackedSchema,
+  verifyPickupSchema,
   confirmDeliverySchema,
   adminCancelPaidSchema,
   adminInitiateRefundSchema,
@@ -564,6 +568,24 @@ router.post(
   validate(orderIdParamsSchema, "params"),
   validate(readyForPickupSchema),
   readyForPickup
+);
+
+router.post(
+  "/:id/packed",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(orderIdParamsSchema, "params"),
+  validate(markPackedSchema),
+  markPacked
+);
+
+router.post(
+  "/:id/verify-pickup",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(orderIdParamsSchema, "params"),
+  validate(verifyPickupSchema),
+  verifyPickup
 );
 
 /**

@@ -203,6 +203,17 @@ const readyForPickupSchema = Joi.object({
   note: Joi.string().trim().max(300).allow("").optional(),
 });
 
+const markPackedSchema = Joi.object({
+  note: Joi.string().trim().max(300).allow("").optional(),
+});
+
+const verifyPickupSchema = Joi.object({
+  pin: Joi.string().trim().pattern(/^\d{6}$/).required().messages({
+    "any.required": "Pickup PIN is required",
+    "string.pattern.base": "pin must be a 6-digit code",
+  }),
+});
+
 const confirmDeliverySchema = Joi.object({
   satisfied: Joi.boolean().required(),
   feedback: Joi.string().trim().max(2000).allow("").optional(),
@@ -249,6 +260,8 @@ module.exports = {
   setTrackingSchema,
   dispatchOrderSchema,
   readyForPickupSchema,
+  markPackedSchema,
+  verifyPickupSchema,
   confirmDeliverySchema,
   adminCancelPaidSchema,
   adminInitiateRefundSchema,

@@ -375,6 +375,24 @@ const applyStockDecrement = async (order, session) => {
   await orderService._internal.applyStockDeductionForOrder(order, session);
 };
 
+const issuePickupPinOnOrder = (order) => {
+  if (order.fulfillmentMethod !== "PICKUP") return;
+  const existing = String(order.pickupCollection?.code || "").trim();
+  if (existing) return;
+
+  const pickupCredentialService = require("./pickupCredentialService");
+  const pin = pickupCredentialService.generatePickupPin();
+  const issuedAt = new Date();
+  order.pickupCollection = { code: pin, generatedAt: issuedAt };
+  order.pickupCredentials = {
+    pin,
+    qrToken: pickupCredentialService.generateQrToken(order._id, pin),
+    issuedAt,
+    collectedAt: null,
+    collectedBy: null,
+  };
+};
+
 // ── ORDER verify path ───────────────────────────────────────────────────────
 
 const settleOrderInTransaction = async ({
@@ -452,6 +470,7 @@ const settleOrderInTransaction = async ({
     order.transactionId =
       gatewayData.transactionId != null ? String(gatewayData.transactionId) : null;
     order.inventoryReserved = true;
+    issuePickupPinOnOrder(order);
     appendOrderHistory(order, order.orderStatus, `PayFast paid (ref: ${payment.reference})`);
     await order.save({ session });
 

@@ -27,6 +27,8 @@ const ecommerceSettingsService = require("./ecommerceSettingsService");
 const shippingQuoteService = require("./shippingQuoteService");
 const shippingShipmentService = require("./shippingShipmentService");
 const shippingPodService = require("./shippingPodService");
+const warehouseRoutingService = require("./warehouseRoutingService");
+const pickupCredentialService = require("./pickupCredentialService");
 
 const escapeRegex = (value) =>
   String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -101,8 +103,10 @@ const buildOrderSearchFilter = async (searchTerm) => {
 
 const ORDER_STATUS_TRANSITIONS = {
   PLACED: new Set(["PROCESSING", "CANCELLED"]),
-  PROCESSING: new Set(["SHIPPED", "READY_FOR_PICKUP", "CANCELLED"]),
-  READY_FOR_PICKUP: new Set(["FULFILLED", "CANCELLED"]),
+  PROCESSING: new Set(["SHIPPED", "READY_FOR_PICKUP", "PACKED", "CANCELLED"]),
+  PACKED: new Set(["READY_FOR_PICKUP", "CANCELLED"]),
+  READY_FOR_PICKUP: new Set(["COLLECTED", "FULFILLED"]),
+  COLLECTED: new Set(["FULFILLED"]),
   SHIPPED: new Set(["OUT_FOR_DELIVERY", "DELIVERED"]),
   OUT_FOR_DELIVERY: new Set(["DELIVERED"]),
   // DELIVERED → FULFILLED is driven by user `confirmDelivery({ satisfied: true })`.
@@ -120,6 +124,15 @@ const canTransitionOrderStatus = (fromStatus, toStatus, order) => {
     return false;
   }
   if (toStatus === "READY_FOR_PICKUP" && method !== "PICKUP") {
+    return false;
+  }
+  if (toStatus === "PACKED" && method !== "PICKUP") {
+    return false;
+  }
+  if (toStatus === "COLLECTED" && method !== "PICKUP") {
+    return false;
+  }
+  if (["SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED"].includes(toStatus) && method === "PICKUP") {
     return false;
   }
   if (
@@ -302,7 +315,7 @@ const buildOrderPayload = async (userId, { items, useCart }) => {
     totalAmount += line.lineTotal;
   }
 
-  return { snapshots, subtotal: totalAmount, currency };
+  return { snapshots, subtotal: totalAmount, currency, products: [...productMap.values()] };
 };
 
 const applyDeliveryToCheckout = async ({ snapshots, subtotal, currency }) => {
@@ -353,6 +366,7 @@ const persistOrder = async (
     fulfillmentMethod = "DELIVERY",
     shippingQuote = undefined,
     pickupLocation = undefined,
+    warehouseId = undefined,
     session,
   }
 ) => {
@@ -375,6 +389,7 @@ const persistOrder = async (
         shippingAddress,
         shippingQuote,
         pickupLocation,
+        warehouse: warehouseId || null,
         inventoryReserved: false,
         orderStatusHistory: [{ status: "PLACED", at: new Date(), note: "Order created" }],
       },
@@ -403,7 +418,10 @@ const resolveFulfillmentCheckout = async ({
         phone: shippingAddress?.phone,
       }
     );
-    const pickupLocation = shippingQuoteService.getPickupLocation();
+    const routed = await warehouseRoutingService.resolveWarehouseForProducts(
+      linePayload.products || []
+    );
+    const pickupLocation = routed.pickupLocation;
     const subtotal = linePayload.subtotal;
     return {
       fulfillmentMethod: "PICKUP",
@@ -419,11 +437,12 @@ const resolveFulfillmentCheckout = async ({
         suburb: pickupLocation.localArea || "",
         localArea: pickupLocation.localArea || "",
         enteredAddress: pickupLocation.enteredAddress || "",
-        lat: pickupLocation.lat,
-        lng: pickupLocation.lng,
+        lat: routed.warehouse?.lat ?? null,
+        lng: routed.warehouse?.lng ?? null,
       },
       shippingQuote: undefined,
       pickupLocation,
+      warehouseId: routed.warehouseId,
       snapshots: linePayload.snapshots,
       subtotal,
       deliveryCharge: 0,
@@ -532,6 +551,18 @@ const createOrder = async (
       if (paymentMethod === "COD") {
         await applyStockDeductionForOrder(order, session);
         order.inventoryReserved = true;
+        if (order.fulfillmentMethod === "PICKUP") {
+          const pin = pickupCredentialService.generatePickupPin();
+          const issuedAt = new Date();
+          order.pickupCollection = { code: pin, generatedAt: issuedAt };
+          order.pickupCredentials = {
+            pin,
+            qrToken: pickupCredentialService.generateQrToken(order._id, pin),
+            issuedAt,
+            collectedAt: null,
+            collectedBy: null,
+          };
+        }
         await order.save({ session });
       }
     });
@@ -946,6 +977,94 @@ const readyForPickup = async (id, { note = "" } = {}, { actorUserId }) => {
 };
 
 /**
+ * Admin marks a pickup order as packed (optional step before ready-for-pickup).
+ */
+const markPacked = async (id, { note = "" } = {}, { actorUserId }) => {
+  const order = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
+  if (!order) throw new HttpError("Order not found", 404);
+  if (order.fulfillmentMethod !== "PICKUP") {
+    throw new HttpError("Only pickup orders can be marked packed", 400);
+  }
+
+  if (order.orderStatus === "PLACED") {
+    await updateStatus(
+      id,
+      {
+        status: "PROCESSING",
+        note: note || "Preparing for pickup",
+        skipNotify: true,
+      },
+      { actorUserId }
+    );
+  }
+
+  return updateStatus(
+    id,
+    { status: "PACKED", note: note || "Order packed for pickup" },
+    { actorUserId }
+  );
+};
+
+/**
+ * Admin verifies pickup PIN at the counter → COLLECTED → FULFILLED.
+ */
+const verifyPickup = async (id, { pin = "" } = {}, { actorUserId }) => {
+  const order = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
+  if (!order) throw new HttpError("Order not found", 404);
+  if (order.fulfillmentMethod !== "PICKUP") {
+    throw new HttpError("Only pickup orders can be verified at the counter", 400);
+  }
+  if (order.orderStatus !== "READY_FOR_PICKUP") {
+    throw new HttpError(
+      `Order must be READY_FOR_PICKUP to verify collection (current: ${order.orderStatus})`,
+      400
+    );
+  }
+  if (order.pickupCredentials?.collectedAt) {
+    throw new HttpError("This order has already been collected", 409);
+  }
+  if (!pickupCredentialService.pinMatchesOrder(order, pin)) {
+    throw new HttpError("Invalid pickup PIN", 403);
+  }
+
+  await updateStatus(
+    id,
+    { status: "COLLECTED", note: "Admin verified pickup PIN", skipNotify: true },
+    { actorUserId }
+  );
+
+  const collectedAt = new Date();
+  const orderAfterCollect = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
+  if (!orderAfterCollect) throw new HttpError("Order not found", 404);
+
+  const resolvedPin = String(
+    orderAfterCollect.pickupCollection?.code ||
+      orderAfterCollect.pickupCredentials?.pin ||
+      ""
+  ).trim();
+
+  orderAfterCollect.pickupCredentials = {
+    pin: resolvedPin,
+    qrToken: orderAfterCollect.pickupCredentials?.qrToken || "",
+    issuedAt: orderAfterCollect.pickupCredentials?.issuedAt || orderAfterCollect.pickupCollection?.generatedAt || collectedAt,
+    collectedAt,
+    collectedBy: actorUserId || null,
+  };
+  orderAfterCollect.fulfillment = {
+    satisfied: true,
+    ratedAt: collectedAt,
+    feedback: "",
+  };
+  await orderAfterCollect.save();
+
+  return updateStatus(
+    id,
+    { status: "FULFILLED", note: "Order collected at warehouse" },
+    { actorUserId }
+  );
+};
+
+/**
  * Admin: refresh Courier Guy tracking + proof-of-delivery status for a delivery order.
  */
 const syncDeliveryPod = async (id, { actorUserId } = {}) => {
@@ -998,6 +1117,13 @@ const confirmDelivery = async (
     isDeleted: { $ne: true },
   });
   if (!order) throw new HttpError("Order not found", 404);
+
+  if (order.fulfillmentMethod === "PICKUP") {
+    throw new HttpError(
+      "Pickup orders are completed by admin at the warehouse. Please give your collection PIN to staff.",
+      400
+    );
+  }
 
   const isPickupReady =
     order.fulfillmentMethod === "PICKUP" &&
@@ -1313,16 +1439,22 @@ const executeOrderCancellation = async (
   if (!preCheck) throw new HttpError("Order not found", 404);
 
   if (mode === "user") {
-    if (!["PLACED", "PROCESSING", "READY_FOR_PICKUP"].includes(preCheck.orderStatus)) {
+    if (!["PLACED", "PROCESSING", "PACKED"].includes(preCheck.orderStatus)) {
       throw new HttpError(
-        `You can only cancel before the order ships (current status: ${preCheck.orderStatus}).`,
+        `You can only cancel before the order is ready for pickup (current status: ${preCheck.orderStatus}).`,
         400
       );
     }
   } else if (
-    ["SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED", "FULFILLED", "CANCELLED"].includes(
-      preCheck.orderStatus
-    )
+    [
+      "READY_FOR_PICKUP",
+      "COLLECTED",
+      "SHIPPED",
+      "OUT_FOR_DELIVERY",
+      "DELIVERED",
+      "FULFILLED",
+      "CANCELLED",
+    ].includes(preCheck.orderStatus)
   ) {
     throw new HttpError(
       `Order is ${preCheck.orderStatus}; cancel is no longer possible.`,
@@ -1383,16 +1515,22 @@ const executeOrderCancellation = async (
       if (!order) throw new HttpError("Order not found", 404);
 
       if (mode === "user") {
-        if (!["PLACED", "PROCESSING", "READY_FOR_PICKUP"].includes(order.orderStatus)) {
+        if (!["PLACED", "PROCESSING", "PACKED"].includes(order.orderStatus)) {
           throw new HttpError(
-            `You can only cancel before the order ships (current status: ${order.orderStatus}).`,
+            `You can only cancel before the order is ready for pickup (current status: ${order.orderStatus}).`,
             400
           );
         }
       } else if (
-        ["SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED", "FULFILLED", "CANCELLED"].includes(
-          order.orderStatus
-        )
+        [
+          "READY_FOR_PICKUP",
+          "COLLECTED",
+          "SHIPPED",
+          "OUT_FOR_DELIVERY",
+          "DELIVERED",
+          "FULFILLED",
+          "CANCELLED",
+        ].includes(order.orderStatus)
       ) {
         throw new HttpError(
           `Order is ${order.orderStatus}; cancel is no longer possible.`,
@@ -1668,6 +1806,8 @@ module.exports = {
   adminSetTracking,
   dispatchOrder,
   readyForPickup,
+  markPacked,
+  verifyPickup,
   syncDeliveryPod,
   getShippingLabelUrl,
   getShippingLabelStream,
