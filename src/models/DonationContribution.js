@@ -60,6 +60,17 @@ const donationContributionSchema = new mongoose.Schema(
 donationContributionSchema.index({ user: 1, createdAt: -1 });
 donationContributionSchema.index({ donation: 1, paymentStatus: 1 });
 
+donationContributionSchema.virtual("paymentReference").get(function paymentReference() {
+  return this.paystackReference || null;
+});
+
+donationContributionSchema.virtual("payfastPaymentId").get(function payfastPaymentId() {
+  return this.transactionId || null;
+});
+
+donationContributionSchema.set("toJSON", { virtuals: true });
+donationContributionSchema.set("toObject", { virtuals: true });
+
 module.exports = mongoose.model(
   "DonationContribution",
   donationContributionSchema

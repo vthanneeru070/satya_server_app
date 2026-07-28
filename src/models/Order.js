@@ -484,4 +484,16 @@ orderSchema.index({
   replacementState: 1,
 });
 
+orderSchema.virtual("paymentReference").get(function paymentReference() {
+  return this.paystackReference || null;
+});
+
+/** PayFast pf_payment_id (numeric gateway transaction id). */
+orderSchema.virtual("payfastPaymentId").get(function payfastPaymentId() {
+  return this.transactionId || null;
+});
+
+orderSchema.set("toJSON", { virtuals: true });
+orderSchema.set("toObject", { virtuals: true });
+
 module.exports = mongoose.model("Order", orderSchema);

@@ -314,7 +314,9 @@ const initializeDonationPayment = async ({
         reference,
         returnUrl: resolvedReturnUrl,
         itemName: `Donation ${contributionNumber}`,
-        itemDescription: note ? String(note).slice(0, 255) : "Sathya donation",
+        itemDescription: note
+          ? `Sathya donation · ${contributionNumber} · ${String(note).slice(0, 180)}`
+          : `Sathya donation · ${contributionNumber}`,
         nameFirst,
         nameLast,
         metadata: {

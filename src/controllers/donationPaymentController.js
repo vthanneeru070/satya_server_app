@@ -26,12 +26,27 @@ const buildListFilters = (query, { userId } = {}) => {
   return filter;
 };
 
+/** Expose PayFast pf_payment_id alongside legacy field names for admin/clients. */
+const serializeDonationContribution = (doc) => {
+  const row = doc?.toObject ? doc.toObject() : { ...doc };
+  const paymentReference = row.paystackReference || null;
+  const payfastPaymentId = row.transactionId
+    ? String(row.transactionId)
+    : null;
+  return {
+    ...row,
+    paymentReference,
+    reference: paymentReference,
+    payfastPaymentId,
+  };
+};
+
 const fetchPaginated = async (filter, { page = 1, limit = 10 }) => {
   const pageNum = Math.max(parseInt(page, 10) || 1, 1);
   const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
   const skip = (pageNum - 1) * limitNum;
 
-  const [items, total] = await Promise.all([
+  const [rawItems, total] = await Promise.all([
     DonationContribution.find(filter)
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -40,6 +55,8 @@ const fetchPaginated = async (filter, { page = 1, limit = 10 }) => {
       .populate("user", "fullName email"),
     DonationContribution.countDocuments(filter),
   ]);
+
+  const items = rawItems.map(serializeDonationContribution);
 
   return {
     items,
