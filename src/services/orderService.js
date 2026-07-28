@@ -105,7 +105,7 @@ const ORDER_STATUS_TRANSITIONS = {
   PLACED: new Set(["PROCESSING", "CANCELLED"]),
   PROCESSING: new Set(["SHIPPED", "READY_FOR_PICKUP", "PACKED", "CANCELLED"]),
   PACKED: new Set(["READY_FOR_PICKUP", "CANCELLED"]),
-  READY_FOR_PICKUP: new Set(["COLLECTED", "FULFILLED"]),
+  READY_FOR_PICKUP: new Set(["COLLECTED"]),
   COLLECTED: new Set(["FULFILLED"]),
   SHIPPED: new Set(["OUT_FOR_DELIVERY", "DELIVERED"]),
   OUT_FOR_DELIVERY: new Set(["DELIVERED"]),
@@ -1006,60 +1006,82 @@ const markPacked = async (id, { note = "" } = {}, { actorUserId }) => {
 };
 
 /**
- * Admin verifies pickup PIN at the counter → COLLECTED → FULFILLED.
+ * Admin verifies pickup PIN at the counter → COLLECTED (user confirms → FULFILLED).
  */
 const verifyPickup = async (id, { pin = "" } = {}, { actorUserId }) => {
-  const order = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
+  let order = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
   if (!order) throw new HttpError("Order not found", 404);
   if (order.fulfillmentMethod !== "PICKUP") {
     throw new HttpError("Only pickup orders can be verified at the counter", 400);
   }
-  if (order.orderStatus !== "READY_FOR_PICKUP") {
+  if (order.paymentStatus !== "PAID") {
+    throw new HttpError("Order must be paid before completing pickup", 400);
+  }
+
+  const allowedVerifyStatuses = new Set([
+    "PLACED",
+    "PROCESSING",
+    "PACKED",
+    "READY_FOR_PICKUP",
+  ]);
+  if (!allowedVerifyStatuses.has(order.orderStatus)) {
     throw new HttpError(
-      `Order must be READY_FOR_PICKUP to verify collection (current: ${order.orderStatus})`,
+      `Cannot complete pickup while order is ${order.orderStatus}`,
       400
     );
   }
   if (order.pickupCredentials?.collectedAt) {
     throw new HttpError("This order has already been collected", 409);
   }
+
+  await pickupCredentialService.issuePickupCredentials(order);
+  order = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
+  if (!order) throw new HttpError("Order not found", 404);
+
+  if (order.orderStatus !== "READY_FOR_PICKUP") {
+    if (order.orderStatus === "PLACED") {
+      await updateStatus(
+        id,
+        { status: "PROCESSING", note: "Preparing for pickup", skipNotify: true },
+        { actorUserId }
+      );
+    }
+    await readyForPickup(
+      id,
+      { note: "Marked ready for pickup verification" },
+      { actorUserId }
+    );
+    order = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
+    if (!order) throw new HttpError("Order not found", 404);
+  }
+
   if (!pickupCredentialService.pinMatchesOrder(order, pin)) {
     throw new HttpError("Invalid pickup PIN", 403);
   }
 
-  await updateStatus(
-    id,
-    { status: "COLLECTED", note: "Admin verified pickup PIN", skipNotify: true },
-    { actorUserId }
-  );
-
   const collectedAt = new Date();
-  const orderAfterCollect = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
-  if (!orderAfterCollect) throw new HttpError("Order not found", 404);
-
   const resolvedPin = String(
-    orderAfterCollect.pickupCollection?.code ||
-      orderAfterCollect.pickupCredentials?.pin ||
-      ""
+    order.pickupCollection?.code || order.pickupCredentials?.pin || ""
   ).trim();
 
-  orderAfterCollect.pickupCredentials = {
+  order.pickupCredentials = {
     pin: resolvedPin,
-    qrToken: orderAfterCollect.pickupCredentials?.qrToken || "",
-    issuedAt: orderAfterCollect.pickupCredentials?.issuedAt || orderAfterCollect.pickupCollection?.generatedAt || collectedAt,
+    qrToken: order.pickupCredentials?.qrToken || "",
+    issuedAt:
+      order.pickupCredentials?.issuedAt ||
+      order.pickupCollection?.generatedAt ||
+      collectedAt,
     collectedAt,
     collectedBy: actorUserId || null,
   };
-  orderAfterCollect.fulfillment = {
-    satisfied: true,
-    ratedAt: collectedAt,
-    feedback: "",
-  };
-  await orderAfterCollect.save();
+  await order.save();
 
   return updateStatus(
     id,
-    { status: "FULFILLED", note: "Order collected at warehouse" },
+    {
+      status: "COLLECTED",
+      note: "Admin verified pickup PIN — awaiting customer confirmation",
+    },
     { actorUserId }
   );
 };
@@ -1100,7 +1122,7 @@ const syncDeliveryPod = async (id, { actorUserId } = {}) => {
 };
 
 /**
- * Customer-side: confirm receipt after DELIVERED, or confirm collection after READY_FOR_PICKUP.
+ * Customer confirms receipt after DELIVERED (delivery) or COLLECTED (pickup).
  * If `satisfied === true` the order moves to terminal FULFILLED.
  */
 const confirmDelivery = async (
@@ -1118,21 +1140,19 @@ const confirmDelivery = async (
   });
   if (!order) throw new HttpError("Order not found", 404);
 
-  if (order.fulfillmentMethod === "PICKUP") {
-    throw new HttpError(
-      "Pickup orders are completed by admin at the warehouse. Please give your collection PIN to staff.",
-      400
-    );
-  }
+  const isPickupCollected =
+    order.fulfillmentMethod === "PICKUP" && order.orderStatus === "COLLECTED";
+  const isDelivered = order.orderStatus === "DELIVERED";
 
-  const isPickupReady =
-    order.fulfillmentMethod === "PICKUP" &&
-    order.orderStatus === "READY_FOR_PICKUP";
-  const isDelivered = ["DELIVERED", "FULFILLED"].includes(order.orderStatus);
-
-  if (!isPickupReady && !isDelivered) {
+  if (!isPickupCollected && !isDelivered) {
+    if (order.fulfillmentMethod === "PICKUP" && order.orderStatus === "READY_FOR_PICKUP") {
+      throw new HttpError(
+        "Your order has not been marked as picked up yet. Please collect it at the warehouse first.",
+        400
+      );
+    }
     throw new HttpError(
-      `Cannot confirm delivery while order is ${order.orderStatus}`,
+      `Cannot confirm order while status is ${order.orderStatus}`,
       400
     );
   }
@@ -1140,19 +1160,8 @@ const confirmDelivery = async (
     return order;
   }
 
-  if (isPickupReady && satisfied) {
-    const expected = String(order.pickupCollection?.code || "").trim();
-    if (!expected) {
-      throw new HttpError(
-        "This order has no collection code yet. Please contact support.",
-        400
-      );
-    }
-    const provided = String(collectionCode || "").trim();
-    if (provided !== expected) {
-      throw new HttpError("Invalid collection code", 400);
-    }
-  }
+  // Legacy: ignore collectionCode for pickup — admin already verified PIN at counter.
+  void collectionCode;
 
   order.fulfillment = {
     satisfied,
@@ -1164,15 +1173,15 @@ const confirmDelivery = async (
     appendHistory(
       order,
       "FULFILLED",
-      isPickupReady ? "Customer confirmed collection" : "Customer confirmed receipt",
+      isPickupCollected ? "Customer confirmed pickup" : "Customer confirmed receipt",
       userId
     );
   } else {
     appendHistory(
       order,
       order.orderStatus,
-      isPickupReady
-        ? "Customer reported a problem at pickup"
+      isPickupCollected
+        ? "Customer reported a problem after pickup"
         : "Customer reported a problem with the delivery",
       userId
     );
@@ -1182,8 +1191,8 @@ const confirmDelivery = async (
   if (satisfied) {
     notifyCustomerOrderStatus(order._id, {
       newStatus: "FULFILLED",
-      note: isPickupReady
-        ? "Customer confirmed collection"
+      note: isPickupCollected
+        ? "Customer confirmed pickup"
         : "Customer confirmed receipt",
     });
   }
