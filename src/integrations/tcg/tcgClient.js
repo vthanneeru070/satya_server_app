@@ -78,10 +78,14 @@ const getRates = async (payload) => {
 const createShipment = async (payload) => {
   const cfg = getTcgConfig();
   if (cfg.useMock) {
-    return createMockShipment({
-      serviceLevelCode: payload.service_level_code,
-      customerReference: payload.customer_reference,
-    });
+    const { createMockShipment, rememberMockShipment } = require("./tcgMock");
+    return rememberMockShipment(
+      createMockShipment({
+        serviceLevelCode: payload.service_level_code,
+        customerReference: payload.customer_reference,
+        podMethod: payload.pod_method || cfg.podMethod,
+      })
+    );
   }
   return request("POST", "/shipments", { body: payload });
 };
@@ -100,17 +104,61 @@ const cancelShipment = async ({ id, trackingReference } = {}) => {
 const getShipment = async ({ id, trackingReference } = {}) => {
   const cfg = getTcgConfig();
   if (cfg.useMock) {
-    return {
-      id: id || 0,
-      short_tracking_reference: trackingReference || "MOCK",
-      status: "in-transit",
-      tracking_events: [],
-    };
+    const { getMockShipment } = require("./tcgMock");
+    return getMockShipment({ id, trackingReference });
   }
   const query = {};
   if (id) query.id = id;
   if (trackingReference) query.tracking_reference = trackingReference;
   return request("GET", "/shipments", { query });
+};
+
+const getPodEvents = async ({
+  trackingReference,
+  shipmentId,
+  includeDigitalPod = true,
+} = {}) => {
+  const cfg = getTcgConfig();
+  if (cfg.useMock) {
+    const { getMockPodEvents } = require("./tcgMock");
+    return getMockPodEvents({ trackingReference, shipmentId, includeDigitalPod });
+  }
+  const query = { include_digital_pod: includeDigitalPod ? "true" : "false" };
+  if (trackingReference) query.tracking_reference = trackingReference;
+  if (shipmentId) query.id = shipmentId;
+  return request("GET", "/shipments/pod", { query });
+};
+
+const getDigitalPod = async ({
+  trackingReference,
+  shipmentId,
+  trackingEventId,
+} = {}) => {
+  const cfg = getTcgConfig();
+  if (cfg.useMock) {
+    const { getMockDigitalPod } = require("./tcgMock");
+    return getMockDigitalPod({ trackingReference, shipmentId, trackingEventId });
+  }
+  const query = {};
+  if (trackingReference) query.tracking_reference = trackingReference;
+  if (shipmentId) query.id = shipmentId;
+  if (trackingEventId) query.tracking_event_id = trackingEventId;
+  return request("GET", "/shipments/digital-pod", { query });
+};
+
+const getPodImages = async ({ trackingReference, fileNames = [] } = {}) => {
+  const cfg = getTcgConfig();
+  if (cfg.useMock) {
+    const { getMockPodImages } = require("./tcgMock");
+    return getMockPodImages({ trackingReference, fileNames });
+  }
+  return request("POST", "/shipments/pod/images", {
+    body: {
+      tracking_reference: trackingReference,
+      folder: "shipment-images",
+      file_name: fileNames,
+    },
+  });
 };
 
 const getLabelUrl = (shipmentId) => {
@@ -124,6 +172,9 @@ module.exports = {
   createShipment,
   cancelShipment,
   getShipment,
+  getPodEvents,
+  getDigitalPod,
+  getPodImages,
   getLabelUrl,
   request,
 };

@@ -265,7 +265,8 @@ const STATUS_COPY = {
   },
   READY_FOR_PICKUP: {
     title: "Ready for pickup",
-    body: (n) => `Order ${n} is ready for collection. See the app for the pickup address.`,
+    body: (n) =>
+      `Order ${n} is ready for collection. Open the app for your pickup address and collection code.`,
   },
   SHIPPED: {
     title: "Your order is on its way",

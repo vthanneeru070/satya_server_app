@@ -46,6 +46,20 @@ const shippingQuoteSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const deliveryPodSchema = new mongoose.Schema(
+  {
+    status: { type: String, default: "" },
+    message: { type: String, default: "" },
+    verifiedAt: { type: Date, default: null },
+    eventId: { type: String, default: "" },
+    digitalPodUrl: { type: String, default: "" },
+    imageUrls: { type: [String], default: [] },
+    imageFileNames: { type: [String], default: [] },
+    lastSyncedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
 const deliverySchema = new mongoose.Schema(
   {
     provider: { type: String, default: "TCG" },
@@ -62,6 +76,19 @@ const deliverySchema = new mongoose.Schema(
       ref: "User",
       default: null,
     },
+    podMethod: { type: String, default: "" },
+    pod: {
+      type: deliveryPodSchema,
+      default: undefined,
+    },
+  },
+  { _id: false }
+);
+
+const pickupCollectionSchema = new mongoose.Schema(
+  {
+    code: { type: String, trim: true, default: "" },
+    generatedAt: { type: Date, default: null },
   },
   { _id: false }
 );
@@ -292,6 +319,12 @@ const orderSchema = new mongoose.Schema(
     /** Warehouse snapshot for Pickup orders. */
     pickupLocation: {
       type: pickupLocationSchema,
+      default: undefined,
+    },
+
+    /** One-time code for warehouse pickup verification. */
+    pickupCollection: {
+      type: pickupCollectionSchema,
       default: undefined,
     },
 

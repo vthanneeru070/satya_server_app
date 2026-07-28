@@ -1,6 +1,7 @@
 const { sendSuccess } = require("../utils/response");
 const shippingQuoteService = require("../services/shippingQuoteService");
 const shippingShipmentService = require("../services/shippingShipmentService");
+const shippingPodService = require("../services/shippingPodService");
 const orderService = require("../services/orderService");
 
 const quoteShipping = async (req, res, next) => {
@@ -47,8 +48,25 @@ const tcgWebhook = async (req, res, next) => {
       return sendSuccess(res, { matched: false }, "No matching order");
     }
 
-    const result = shippingShipmentService.applyTrackingStatus(order, status);
+    const result = shippingShipmentService.applyTrackingUpdate(order, {
+      status,
+      payload,
+    });
     await order.save();
+
+    if (
+      result.podStatus &&
+      shippingPodService.POD_STATUS_LABELS[result.podStatus] &&
+      order.delivery?.podMethod
+    ) {
+      await shippingPodService.enrichPodAssets(order).catch((err) =>
+        console.warn(
+          `[tcgWebhook] POD asset fetch failed for ${order.orderNumber}:`,
+          err?.message || err
+        )
+      );
+      await order.save();
+    }
 
     if (result.nextOrderStatus && result.nextOrderStatus !== order.orderStatus) {
       await orderService.updateStatus(
@@ -73,6 +91,7 @@ const tcgWebhook = async (req, res, next) => {
         matched: true,
         orderId: order._id,
         deliveryStatus: status,
+        podStatus: order.delivery?.pod?.status || null,
         orderStatus: result.nextOrderStatus || order.orderStatus,
       },
       "Webhook processed"

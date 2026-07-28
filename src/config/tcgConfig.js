@@ -94,7 +94,9 @@ const getTcgConfig = () => {
       "Mon–Fri 09:00–17:00, Sat 09:00–13:00",
     pickupInstructions:
       (process.env.TCG_PICKUP_INSTRUCTIONS || "").trim() ||
-      "Please bring your order number and a valid ID when collecting.",
+      "Please bring your order number, collection code, and a valid ID when collecting.",
+    /** ShipLogic POD method, e.g. pin-with-fallback. Set empty or "none" to disable. */
+    podMethod: (process.env.TCG_POD_METHOD || "pin-with-fallback").trim(),
   };
 };
 

@@ -14,6 +14,7 @@ const {
   setTracking,
   dispatchOrder,
   readyForPickup,
+  syncDeliveryPod,
   confirmDelivery,
   adminCancelPaidOrder,
   adminInitiateRefund,
@@ -560,6 +561,23 @@ router.post(
   validate(orderIdParamsSchema, "params"),
   validate(readyForPickupSchema),
   readyForPickup
+);
+
+/**
+ * @swagger
+ * /orders/{id}/sync-delivery-pod:
+ *   post:
+ *     summary: Refresh Courier Guy POD / tracking status for a delivery order (admin)
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post(
+  "/:id/sync-delivery-pod",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(orderIdParamsSchema, "params"),
+  syncDeliveryPod
 );
 
 /**

@@ -206,6 +206,9 @@ const readyForPickupSchema = Joi.object({
 const confirmDeliverySchema = Joi.object({
   satisfied: Joi.boolean().required(),
   feedback: Joi.string().trim().max(2000).allow("").optional(),
+  collectionCode: Joi.string().trim().pattern(/^\d{6}$/).optional().messages({
+    "string.pattern.base": "collectionCode must be a 6-digit code",
+  }),
 });
 
 const adminCancelPaidSchema = Joi.object({

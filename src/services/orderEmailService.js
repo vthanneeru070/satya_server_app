@@ -294,6 +294,7 @@ const sendReadyForPickup = async (order) => {
   if (!to) return { delivered: false, reason: "no-recipient-email" };
 
   const loc = order.pickupLocation || {};
+  const collectionCode = String(order.pickupCollection?.code || "").trim();
   const addressLine = [
     loc.company,
     loc.streetAddress || loc.enteredAddress,
@@ -314,8 +315,17 @@ const sendReadyForPickup = async (order) => {
     <div style="margin-top:6px;font-size:14px;line-height:1.5;">${escapeHtml(addressLine || "See the app for details")}</div>
     ${loc.hours ? `<p style="margin:12px 0 0;font-size:14px;line-height:1.5;"><strong>Hours:</strong> ${escapeHtml(loc.hours)}</p>` : ""}
     ${loc.instructions ? `<p style="margin:8px 0 0;font-size:14px;line-height:1.5;">${escapeHtml(loc.instructions)}</p>` : ""}
+    ${
+      collectionCode
+        ? `<div style="margin:18px 0 0;padding:14px 16px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;">
+      <div style="font-size:12px;color:#92400e;text-transform:uppercase;letter-spacing:1px;">Collection code</div>
+      <div style="margin-top:6px;font-size:28px;font-weight:700;letter-spacing:6px;color:#78350f;">${escapeHtml(collectionCode)}</div>
+      <p style="margin:8px 0 0;font-size:13px;line-height:1.5;color:#92400e;">Show this code at the warehouse. You will also need it to confirm collection in the app.</p>
+    </div>`
+        : ""
+    }
     <p style="margin:18px 0 0;font-size:14px;line-height:1.6;">
-      Please bring your order number and a valid ID. Confirm collection in the app once you have picked it up.
+      Please bring your order number, collection code, and a valid ID. Enter the collection code in the app once you have picked up your order.
     </p>`;
 
   return safeSend({
@@ -330,6 +340,7 @@ const sendReadyForPickup = async (order) => {
     text:
       `Your order ${order.orderNumber} is ready for pickup` +
       (addressLine ? ` at ${addressLine}.` : ".") +
+      (collectionCode ? ` Collection code: ${collectionCode}.` : "") +
       (loc.hours ? ` Hours: ${loc.hours}.` : ""),
   });
 };

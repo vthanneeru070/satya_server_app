@@ -119,6 +119,17 @@ const readyForPickup = async (req, res, next) => {
   }
 };
 
+const syncDeliveryPod = async (req, res, next) => {
+  try {
+    const order = await orderService.syncDeliveryPod(req.params.id, {
+      actorUserId: req.user.userId,
+    });
+    return sendSuccess(res, { order }, "Delivery POD status refreshed");
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const confirmDelivery = async (req, res, next) => {
   try {
     const order = await orderService.confirmDelivery(
@@ -235,6 +246,7 @@ module.exports = {
   setTracking,
   dispatchOrder,
   readyForPickup,
+  syncDeliveryPod,
   confirmDelivery,
   adminCancelPaidOrder,
   adminInitiateRefund,

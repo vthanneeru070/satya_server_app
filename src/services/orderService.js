@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const crypto = require("crypto");
 const Order = require("../models/Order");
 const User = require("../models/User");
 const Payment = require("../models/Payment");
@@ -25,9 +26,26 @@ const payfastService = require("./payfastService");
 const ecommerceSettingsService = require("./ecommerceSettingsService");
 const shippingQuoteService = require("./shippingQuoteService");
 const shippingShipmentService = require("./shippingShipmentService");
+const shippingPodService = require("./shippingPodService");
 
 const escapeRegex = (value) =>
   String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const generatePickupCollectionCode = () =>
+  String(crypto.randomInt(100000, 1000000));
+
+const ensurePickupCollectionCode = async (order) => {
+  if (order.pickupCollection?.code) {
+    return order.pickupCollection.code;
+  }
+  const code = generatePickupCollectionCode();
+  order.pickupCollection = {
+    code,
+    generatedAt: new Date(),
+  };
+  await order.save();
+  return code;
+};
 
 const buildOrderSearchFilter = async (searchTerm) => {
   const trimmed = String(searchTerm || "").trim();
@@ -905,6 +923,10 @@ const readyForPickup = async (id, { note = "" } = {}, { actorUserId }) => {
     );
   }
 
+  const orderForCode = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
+  if (!orderForCode) throw new HttpError("Order not found", 404);
+  await ensurePickupCollectionCode(orderForCode);
+
   const updated = await updateStatus(
     id,
     {
@@ -924,10 +946,49 @@ const readyForPickup = async (id, { note = "" } = {}, { actorUserId }) => {
 };
 
 /**
+ * Admin: refresh Courier Guy tracking + proof-of-delivery status for a delivery order.
+ */
+const syncDeliveryPod = async (id, { actorUserId } = {}) => {
+  const order = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
+  if (!order) throw new HttpError("Order not found", 404);
+  if (order.fulfillmentMethod === "PICKUP") {
+    throw new HttpError("Pickup orders do not have courier POD status", 400);
+  }
+  if (!order.delivery?.shipmentId && !order.delivery?.waybill) {
+    throw new HttpError(
+      "Order has no Courier Guy shipment yet. Dispatch the order first.",
+      400
+    );
+  }
+
+  const result = await shippingPodService.syncDeliveryPodForOrder(order, {
+    fetchAssets: true,
+  });
+  await order.save();
+
+  if (result.nextOrderStatus && result.nextOrderStatus !== order.orderStatus) {
+    return updateStatus(
+      order._id,
+      {
+        status: result.nextOrderStatus,
+        note: `Courier POD sync: ${order.delivery?.status || result.podStatus || "updated"}`,
+      },
+      { actorUserId }
+    );
+  }
+
+  return Order.findOne({ _id: id, isDeleted: { $ne: true } });
+};
+
+/**
  * Customer-side: confirm receipt after DELIVERED, or confirm collection after READY_FOR_PICKUP.
  * If `satisfied === true` the order moves to terminal FULFILLED.
  */
-const confirmDelivery = async (id, userId, { satisfied, feedback = "" } = {}) => {
+const confirmDelivery = async (
+  id,
+  userId,
+  { satisfied, feedback = "", collectionCode = "" } = {}
+) => {
   if (typeof satisfied !== "boolean") {
     throw new HttpError("`satisfied` must be a boolean", 400);
   }
@@ -951,6 +1012,20 @@ const confirmDelivery = async (id, userId, { satisfied, feedback = "" } = {}) =>
   }
   if (order.orderStatus === "FULFILLED" && order.fulfillment?.satisfied === true) {
     return order;
+  }
+
+  if (isPickupReady && satisfied) {
+    const expected = String(order.pickupCollection?.code || "").trim();
+    if (!expected) {
+      throw new HttpError(
+        "This order has no collection code yet. Please contact support.",
+        400
+      );
+    }
+    const provided = String(collectionCode || "").trim();
+    if (provided !== expected) {
+      throw new HttpError("Invalid collection code", 400);
+    }
   }
 
   order.fulfillment = {
@@ -1550,6 +1625,7 @@ module.exports = {
   adminSetTracking,
   dispatchOrder,
   readyForPickup,
+  syncDeliveryPod,
   confirmDelivery,
   adminCancelOrder,
   adminInitiateRefund,

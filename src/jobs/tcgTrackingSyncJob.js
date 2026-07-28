@@ -1,48 +1,56 @@
 const Order = require("../models/Order");
 const { getTcgConfig } = require("../config/tcgConfig");
-const tcgClient = require("../integrations/tcg/tcgClient");
-const shippingShipmentService = require("../services/shippingShipmentService");
+const shippingPodService = require("../services/shippingPodService");
 const orderService = require("../services/orderService");
 
 let timer = null;
 
+const POD_TERMINAL_STATUSES = new Set([
+  shippingPodService.POD_STATUS.PIN_VERIFIED,
+  shippingPodService.POD_STATUS.IMAGE_CAPTURED,
+  shippingPodService.POD_STATUS.RECIPIENT_DETAILS,
+]);
+
 const syncOpenShipments = async () => {
   const cfg = getTcgConfig();
-  if (cfg.useMock) return { scanned: 0, updated: 0 };
+  if (cfg.useMock) {
+    // Mock mode still exercises POD parsing using deterministic mock events.
+  }
 
   const orders = await Order.find({
     isDeleted: { $ne: true },
     fulfillmentMethod: "DELIVERY",
-    orderStatus: { $in: ["SHIPPED", "OUT_FOR_DELIVERY"] },
+    orderStatus: { $in: ["SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED", "FULFILLED"] },
     "delivery.shipmentId": { $exists: true, $ne: "" },
+    $or: [
+      { orderStatus: { $in: ["SHIPPED", "OUT_FOR_DELIVERY"] } },
+      {
+        "delivery.podMethod": { $exists: true, $ne: "" },
+        "delivery.pod.status": {
+          $nin: [...POD_TERMINAL_STATUSES],
+        },
+      },
+    ],
   }).limit(50);
 
   let updated = 0;
   for (const order of orders) {
     try {
-      const shipment = await tcgClient.getShipment({
-        id: order.delivery.shipmentId,
-        trackingReference: order.delivery.waybill || undefined,
+      const result = await shippingPodService.syncDeliveryPodForOrder(order, {
+        fetchAssets: POD_TERMINAL_STATUSES.has(order.delivery?.pod?.status)
+          ? !order.delivery?.pod?.digitalPodUrl
+          : true,
       });
-      const list = Array.isArray(shipment?.shipments)
-        ? shipment.shipments
-        : Array.isArray(shipment)
-          ? shipment
-          : shipment
-            ? [shipment]
-            : [];
-      const doc = list[0] || shipment;
-      const status = doc?.status;
-      if (!status) continue;
-
-      const result = shippingShipmentService.applyTrackingStatus(order, status);
       if (!result.changed && !result.nextOrderStatus) continue;
 
       await order.save();
       if (result.nextOrderStatus && result.nextOrderStatus !== order.orderStatus) {
         await orderService.updateStatus(
           order._id,
-          { status: result.nextOrderStatus, note: `Courier sync: ${status}` },
+          {
+            status: result.nextOrderStatus,
+            note: `Courier sync: ${order.delivery?.status || result.nextOrderStatus}`,
+          },
           { actorUserId: null }
         );
       }

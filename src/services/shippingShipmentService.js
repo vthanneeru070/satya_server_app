@@ -7,6 +7,10 @@ const {
   defaultParcels,
   todayIsoDate,
 } = require("./shippingQuoteService");
+const {
+  applyPodFromEvents,
+  normalizeTrackingEvents,
+} = require("./shippingPodService");
 
 const mapShipLogicStatusToOrderStatus = (status) => {
   const s = String(status || "").toLowerCase();
@@ -49,8 +53,17 @@ const bookShipmentForOrder = async (order, { actorUserId } = {}) => {
   const deliveryAddress = toShipLogicAddress(order.shippingAddress, {
     type: "residential",
   });
-  const contactPhone = order.shippingAddress.phone || "";
+  const contactPhone = String(order.shippingAddress.phone || "").trim();
   const contactName = order.shippingAddress.fullName || "Customer";
+  const podMethod = String(cfg.podMethod || "").trim();
+  const podEnabled = podMethod && podMethod.toLowerCase() !== "none";
+
+  if (podEnabled && !contactPhone) {
+    throw new HttpError(
+      "Customer phone number is required for Courier Guy delivery PIN verification",
+      400
+    );
+  }
 
   const payload = {
     collection_address: cfg.collectionAddress,
@@ -74,8 +87,13 @@ const bookShipmentForOrder = async (order, { actorUserId } = {}) => {
     mute_notifications: false,
   };
 
+  if (podEnabled) {
+    payload.pod_method = podMethod;
+  }
+
   console.info(
-    `[shippingShipment] booking TCG shipment for ${order.orderNumber} (${order.shippingQuote.serviceLevelCode})`
+    `[shippingShipment] booking TCG shipment for ${order.orderNumber} (${order.shippingQuote.serviceLevelCode})` +
+      (podEnabled ? ` with POD ${podMethod}` : "")
   );
 
   const created = await tcgClient.createShipment(payload);
@@ -100,6 +118,18 @@ const bookShipmentForOrder = async (order, { actorUserId } = {}) => {
     bookedAt: new Date(),
     lastSyncedAt: new Date(),
     bookedBy: actorUserId || null,
+    podMethod: podEnabled ? podMethod : "",
+    pod: podEnabled
+      ? {
+          status: "pending",
+          message: "Awaiting proof of delivery",
+          verifiedAt: null,
+          digitalPodUrl: "",
+          imageUrls: [],
+          imageFileNames: [],
+          lastSyncedAt: new Date(),
+        }
+      : undefined,
   };
 
   order.tracking = {
@@ -171,6 +201,29 @@ const applyTrackingStatus = (order, shipLogicStatus) => {
   };
 };
 
+/**
+ * Apply shipment status and POD tracking events onto an order (mutates, does not save).
+ */
+const applyTrackingUpdate = (order, { status, trackingEvents = [], payload } = {}) => {
+  const events =
+    trackingEvents.length > 0
+      ? trackingEvents
+      : normalizeTrackingEvents(payload || {});
+
+  const statusResult = status
+    ? applyTrackingStatus(order, status)
+    : { changed: false, nextOrderStatus: null, alert: false };
+
+  const podResult = applyPodFromEvents(order, events);
+
+  return {
+    changed: statusResult.changed || podResult.changed,
+    nextOrderStatus: statusResult.nextOrderStatus,
+    alert: statusResult.alert,
+    podStatus: podResult.podStatus,
+  };
+};
+
 const findOrderByShipmentPayload = async (payload = {}) => {
   const shipmentId = payload.shipment_id ?? payload.id ?? payload.shipmentId;
   const waybill =
@@ -196,6 +249,7 @@ module.exports = {
   bookShipmentForOrder,
   cancelShipmentForOrder,
   applyTrackingStatus,
+  applyTrackingUpdate,
   findOrderByShipmentPayload,
   mapShipLogicStatusToOrderStatus,
   buildTrackingUrl,
