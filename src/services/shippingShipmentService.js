@@ -22,10 +22,15 @@ const mapShipLogicStatusToOrderStatus = (status) => {
   return null; // remain SHIPPED / current
 };
 
-const buildTrackingUrl = (waybill) => {
-  if (!waybill) return "";
+const buildTrackingUrl = (trackingRef) => {
+  const ref = String(trackingRef || "").trim();
+  if (!ref) return "";
   const cfg = getTcgConfig();
-  return `${cfg.trackingPublicBaseUrl}?waybill=${encodeURIComponent(waybill)}`;
+  const base = String(cfg.trackingPublicBaseUrl || "").replace(/\/$/, "");
+  // Sandbox ShipLogic uses ?ref=… ; live Courier Guy track page uses ?waybill=…
+  const isSandboxTrack = /sandbox\.shiplogic\.com/i.test(base);
+  const param = isSandboxTrack ? "ref" : "waybill";
+  return `${base}?${param}=${encodeURIComponent(ref)}`;
 };
 
 /**
@@ -144,8 +149,8 @@ const bookShipmentForOrder = async (order, { actorUserId } = {}) => {
   order.tracking = {
     ...(order.tracking?.toObject?.() || order.tracking || {}),
     courier: "The Courier Guy",
-    trackingNumber: waybill,
-    trackingUrl: buildTrackingUrl(waybill),
+    trackingNumber: shortRef || waybill,
+    trackingUrl: buildTrackingUrl(shortRef || waybill),
   };
 
   return order;

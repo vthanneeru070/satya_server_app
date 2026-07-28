@@ -115,16 +115,14 @@ const resolveTrackingUrl = (order) => {
   const explicit = toTrimmedOrNull(tracking.trackingUrl);
   if (explicit) return explicit;
 
-  const waybill =
+  const ref =
+    toTrimmedOrNull(order?.delivery?.shortTrackingReference) ||
     toTrimmedOrNull(tracking.trackingNumber) ||
     toTrimmedOrNull(order?.delivery?.waybill);
-  if (!waybill) return null;
+  if (!ref) return null;
 
-  const base = (
-    process.env.TCG_TRACKING_PUBLIC_BASE_URL ||
-    "https://www.thecourierguy.co.za/track"
-  ).replace(/\/$/, "");
-  return `${base}?waybill=${encodeURIComponent(waybill)}`;
+  const { buildTrackingUrl } = require("./shippingShipmentService");
+  return buildTrackingUrl(ref);
 };
 
 const toTrimmedOrNull = (value) => {

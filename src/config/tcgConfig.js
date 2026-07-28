@@ -58,6 +58,11 @@ const getTcgConfig = () => {
         : "https://api.shiplogic.com";
   }
 
+  const defaultTrackingPublicBaseUrl =
+    apiEnv === "production"
+      ? "https://www.thecourierguy.co.za/track"
+      : "https://sandbox.shiplogic.com/track";
+
   return {
     apiEnv,
     useMock,
@@ -70,8 +75,8 @@ const getTcgConfig = () => {
       900000
     ),
     trackingPublicBaseUrl:
-      (process.env.TCG_TRACKING_PUBLIC_BASE_URL || "").trim() ||
-      "https://www.thecourierguy.co.za/track",
+      (process.env.TCG_TRACKING_PUBLIC_BASE_URL || "").trim().replace(/\/$/, "") ||
+      defaultTrackingPublicBaseUrl,
     defaultParcel: {
       submitted_length_cm: parseNumber(process.env.TCG_DEFAULT_PARCEL_LENGTH_CM, 40),
       submitted_width_cm: parseNumber(process.env.TCG_DEFAULT_PARCEL_WIDTH_CM, 30),
