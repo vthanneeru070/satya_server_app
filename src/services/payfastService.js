@@ -264,7 +264,11 @@ const initializeTransaction = async ({
     item_name: itemName || `Payment ${reference}`.slice(0, 100),
     item_description: (itemDescription || "").slice(0, 255),
     custom_str1: metadata.kind ? String(metadata.kind).slice(0, 255) : "",
-    custom_str2: metadata.orderId ? String(metadata.orderId).slice(0, 255) : "",
+    custom_str2: metadata.contributionNumber
+      ? String(metadata.contributionNumber).slice(0, 255)
+      : metadata.orderId
+        ? String(metadata.orderId).slice(0, 255)
+        : "",
     custom_str3: metadata.contributionId ? String(metadata.contributionId).slice(0, 255) : "",
     custom_str4: metadata.userId ? String(metadata.userId).slice(0, 255) : "",
     custom_str5: metadata.callbackUrl ? String(metadata.callbackUrl).slice(0, 255) : "",

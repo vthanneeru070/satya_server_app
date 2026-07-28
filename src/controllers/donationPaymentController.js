@@ -31,7 +31,7 @@ const fetchPaginated = async (filter, { page = 1, limit = 10 }) => {
   const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
   const skip = (pageNum - 1) * limitNum;
 
-  const [items, total] = await Promise.all([
+  const [rawItems, total] = await Promise.all([
     DonationContribution.find(filter)
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -40,6 +40,16 @@ const fetchPaginated = async (filter, { page = 1, limit = 10 }) => {
       .populate("user", "fullName email"),
     DonationContribution.countDocuments(filter),
   ]);
+
+  const items = rawItems.map((doc) => {
+    const row = doc.toObject ? doc.toObject() : { ...doc };
+    const paymentReference = row.paystackReference || null;
+    return {
+      ...row,
+      paymentReference,
+      reference: paymentReference,
+    };
+  });
 
   return {
     items,
