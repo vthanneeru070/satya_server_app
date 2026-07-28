@@ -10,6 +10,7 @@
     "prod": "cross-env NODE_ENV=production node src/server.js",
     "create:super-admin": "node scripts/createSuperAdmin.js",
     "migrate:roles": "node scripts/migrateRoles.js",
+    "backfill:payfast-txn-ids": "node scripts/backfillPayfastTransactionIds.js",
     "test:email": "node scripts/testEmail.js",
     "seed:moon": "node scripts/seedMoon.js",
     "seed:inventory-categories": "node scripts/masterdata/seed-inventory-categories.js",

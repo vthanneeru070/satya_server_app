@@ -156,6 +156,138 @@ const normalizeGatewayData = (gateway, rawData) => {
   };
 };
 
+/** Pull PayFast pf_payment_id from a Payment doc or nested gateway response blobs. */
+const extractPfPaymentIdFromStoredGatewayData = (source) => {
+  if (!source || typeof source !== "object") return null;
+  if (source.transactionId != null && String(source.transactionId).trim() !== "") {
+    return String(source.transactionId).trim();
+  }
+
+  const response =
+    source.response && typeof source.response === "object" ? source.response : source;
+
+  const candidates = [
+    response?.itn?.pf_payment_id,
+    response?.verify?.pf_payment_id,
+    response?.payfastHistoryLookup?.pfPaymentId,
+  ];
+  for (const value of candidates) {
+    if (value != null && String(value).trim() !== "") {
+      return String(value).trim();
+    }
+  }
+  return null;
+};
+
+/**
+ * Persist pf_payment_id on Payment + linked Order/DonationContribution when missing.
+ * Uses stored ITN/verify payloads first, then PayFast transaction-history API.
+ */
+const backfillPayfastTransactionId = async (reference, { session = null } = {}) => {
+  if (!reference) return { updated: false, reason: "reference required" };
+
+  const paymentQuery = Payment.findOne({ reference, isDeleted: { $ne: true } });
+  const payment = session ? await paymentQuery.session(session) : await paymentQuery;
+  if (!payment) return { updated: false, reason: "payment not found", reference };
+
+  let pfId = extractPfPaymentIdFromStoredGatewayData(payment);
+
+  if (!pfId) {
+    try {
+      const lookup = await payfastService.lookupTransactionByMerchantPaymentId(reference, {
+        fromDate: payment.createdAt,
+        expectedAmountMajor: payment.amount,
+      });
+      if (lookup.found && lookup.data?.id) {
+        pfId = String(lookup.data.id);
+      }
+    } catch (err) {
+      console.warn(
+        "[paymentService] PayFast backfill lookup failed:",
+        reference,
+        err?.message || err
+      );
+    }
+  }
+
+  if (!pfId) {
+    return { updated: false, reason: "pf_payment_id not found", reference };
+  }
+
+  const saveOpts = session ? { session } : {};
+  let updated = false;
+
+  if (payment.transactionId !== pfId) {
+    payment.transactionId = pfId;
+    if (!payment.paymentId) payment.paymentId = pfId;
+    await payment.save(saveOpts);
+    updated = true;
+  }
+
+  if (payment.donationContribution) {
+    const contributionQuery = DonationContribution.findById(payment.donationContribution);
+    const contribution = session
+      ? await contributionQuery.session(session)
+      : await contributionQuery;
+    if (contribution && contribution.transactionId !== pfId) {
+      contribution.transactionId = pfId;
+      await contribution.save(saveOpts);
+      updated = true;
+    }
+  }
+
+  if (payment.order) {
+    const orderQuery = Order.findById(payment.order);
+    const order = session ? await orderQuery.session(session) : await orderQuery;
+    if (order && order.transactionId !== pfId) {
+      order.transactionId = pfId;
+      await order.save(saveOpts);
+      updated = true;
+    }
+  }
+
+  return { updated, payfastPaymentId: pfId, reference };
+};
+
+/**
+ * For list APIs: copy pf_payment_id from linked Payment rows (and persist when found locally).
+ * Does not call PayFast APIs — run scripts/backfillPayfastTransactionIds.js for historical rows.
+ */
+const enrichDonationContributionsWithPayfastIds = async (contributions) => {
+  const rows = Array.isArray(contributions) ? contributions : [];
+  const needsFill = rows.filter(
+    (c) => c.paymentStatus === "PAID" && !c.transactionId && c.paystackReference
+  );
+  if (!needsFill.length) return rows;
+
+  const refs = needsFill.map((c) => c.paystackReference);
+  const payments = await Payment.find({
+    reference: { $in: refs },
+    gateway: "PAYFAST",
+    isDeleted: { $ne: true },
+  });
+
+  const paymentByRef = new Map(payments.map((p) => [p.reference, p]));
+
+  await Promise.all(
+    needsFill.map(async (contribution) => {
+      const payment = paymentByRef.get(contribution.paystackReference);
+      const pfId = payment ? extractPfPaymentIdFromStoredGatewayData(payment) : null;
+      if (!pfId) return;
+
+      contribution.transactionId = pfId;
+      await contribution.save();
+      if (payment.transactionId !== pfId) {
+        payment.transactionId = pfId;
+        if (!payment.paymentId) payment.paymentId = pfId;
+        await payment.save();
+      }
+    })
+  );
+
+  return rows;
+};
+
 // ── ORDER: initialize ───────────────────────────────────────────────────────
 
 /**
@@ -396,12 +528,27 @@ const settleOrderInTransaction = async ({
   }
 
   if (order.paymentStatus === "PAID") {
+    let shouldSavePayment = false;
     if (gatewayStatus === "success" && payment.status !== "SUCCESS") {
       payment.status = "SUCCESS";
-      payment.paymentId =
-        gatewayData.transactionId != null ? String(gatewayData.transactionId) : payment.paymentId;
-      payment.transactionId =
-        gatewayData.transactionId != null ? String(gatewayData.transactionId) : payment.transactionId;
+      shouldSavePayment = true;
+    }
+    if (gatewayData.transactionId != null) {
+      const pfId = String(gatewayData.transactionId);
+      if (payment.transactionId !== pfId) {
+        payment.transactionId = pfId;
+        shouldSavePayment = true;
+      }
+      if (!payment.paymentId) {
+        payment.paymentId = pfId;
+        shouldSavePayment = true;
+      }
+      if (order.transactionId !== pfId) {
+        order.transactionId = pfId;
+        await order.save({ session });
+      }
+    }
+    if (shouldSavePayment) {
       payment.response = { ...(payment.response || {}), verify: gatewayData.raw };
       await payment.save({ session });
     }
@@ -512,12 +659,27 @@ const settleDonationInTransaction = async ({
   }
 
   if (contribution.paymentStatus === "PAID") {
+    let shouldSavePayment = false;
     if (gatewayStatus === "success" && payment.status !== "SUCCESS") {
       payment.status = "SUCCESS";
-      payment.paymentId =
-        gatewayData.transactionId != null ? String(gatewayData.transactionId) : payment.paymentId;
-      payment.transactionId =
-        gatewayData.transactionId != null ? String(gatewayData.transactionId) : payment.transactionId;
+      shouldSavePayment = true;
+    }
+    if (gatewayData.transactionId != null) {
+      const pfId = String(gatewayData.transactionId);
+      if (payment.transactionId !== pfId) {
+        payment.transactionId = pfId;
+        shouldSavePayment = true;
+      }
+      if (!payment.paymentId) {
+        payment.paymentId = pfId;
+        shouldSavePayment = true;
+      }
+      if (contribution.transactionId !== pfId) {
+        contribution.transactionId = pfId;
+        await contribution.save({ session });
+      }
+    }
+    if (shouldSavePayment) {
       payment.response = { ...(payment.response || {}), verify: gatewayData.raw };
       await payment.save({ session });
     }
@@ -823,6 +985,21 @@ const verifyPaymentByReference = async (
           err?.message || err
         );
       }
+    }
+
+    const linkedPaid =
+      payment.status === "SUCCESS" ||
+      (kind === "DONATION" &&
+        (await DonationContribution.findById(payment.donationContribution)
+          .select("paymentStatus transactionId")
+          .lean())?.paymentStatus === "PAID") ||
+      (kind === "ORDER" &&
+        (await Order.findById(payment.order).select("paymentStatus transactionId").lean())
+          ?.paymentStatus === "PAID");
+
+    if (linkedPaid && !payment.transactionId) {
+      await backfillPayfastTransactionId(reference);
+      payment = await Payment.findOne({ reference, isDeleted: { $ne: true } });
     }
 
     return buildPayfastVerifyResult(payment, kind);
@@ -1192,6 +1369,9 @@ module.exports = {
   initializeDonationPayment,
   verifyPaymentByReference,
   extractPayfastItnFromVerifyPayload,
+  extractPfPaymentIdFromStoredGatewayData,
+  backfillPayfastTransactionId,
+  enrichDonationContributionsWithPayfastIds,
   handlePaystackWebhook,
   handlePayfastItn,
   listAllPayments,

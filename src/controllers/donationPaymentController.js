@@ -56,6 +56,8 @@ const fetchPaginated = async (filter, { page = 1, limit = 10 }) => {
     DonationContribution.countDocuments(filter),
   ]);
 
+  await paymentService.enrichDonationContributionsWithPayfastIds(rawItems);
+
   const items = rawItems.map(serializeDonationContribution);
 
   return {
