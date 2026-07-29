@@ -134,7 +134,7 @@ const advanceMockShipmentStatus = (shipment) => {
   return shipment;
 };
 
-const getMockShipment = ({ id, trackingReference } = {}) => {
+const getMockShipment = ({ id, trackingReference, advance = true } = {}) => {
   const key = String(trackingReference || id || "");
   let shipment = mockShipmentStore.get(key);
   if (!shipment && id != null) {
@@ -149,11 +149,18 @@ const getMockShipment = ({ id, trackingReference } = {}) => {
       })
     );
   }
-  return advanceMockShipmentStatus({ ...shipment });
+  if (!advance) {
+    return { ...shipment };
+  }
+  const advanced = advanceMockShipmentStatus({ ...shipment });
+  return rememberMockShipment(advanced);
 };
 
 const getMockPodEvents = ({ trackingReference, includeDigitalPod = true } = {}) => {
-  const shipment = getMockShipment({ trackingReference });
+  const shipment = getMockShipment({ trackingReference, advance: false });
+  if (!shipment) {
+    return { tracking_events: [] };
+  }
   return {
     tracking_events: (shipment.tracking_events || []).filter((event) =>
       /pod|pin|recipient details/i.test(String(event.message || ""))
@@ -167,14 +174,20 @@ const getMockPodEvents = ({ trackingReference, includeDigitalPod = true } = {}) 
 };
 
 const getMockDigitalPod = ({ trackingReference } = {}) => {
-  const shipment = getMockShipment({ trackingReference });
+  const shipment = getMockShipment({ trackingReference, advance: false });
+  if (!shipment) {
+    return { url: "" };
+  }
   return {
     url: `https://example.com/mock-digital-pod/${shipment.short_tracking_reference}.pdf`,
   };
 };
 
 const getMockPodImages = ({ trackingReference, fileNames = [] } = {}) => {
-  const shipment = getMockShipment({ trackingReference });
+  const shipment = getMockShipment({ trackingReference, advance: false });
+  if (!shipment) {
+    return [];
+  }
   const names =
     fileNames.length > 0
       ? fileNames

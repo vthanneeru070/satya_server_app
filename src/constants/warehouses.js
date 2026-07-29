@@ -5,8 +5,8 @@ const WAREHOUSE_CODE_CENTURION = "VISHAL_AYURVEDA";
 const WAREHOUSE_SEEDS = [
   {
     code: WAREHOUSE_CODE_DURBAN,
-    name: "Satya Warehouse — Pinetown",
-    company: "Satya",
+    name: "Sathya Warehouse — Pinetown",
+    company: "Sathya",
     streetAddress: "21 Blue Bell Crescent",
     localArea: "Pinetown",
     city: "Durban",
@@ -14,10 +14,10 @@ const WAREHOUSE_SEEDS = [
     postalCode: "3610",
     country: "South Africa",
     enteredAddress:
-      "21 Blue Bell Crescent, Pinetown, Durban, KwaZulu-Natal, South Africa",
+      "21 Blue Bell Crescent, Pinetown, Durban, KwaZulu-Natal, South Africa, 3610",
     lat: null,
     lng: null,
-    contactName: "Satya Pickup",
+    contactName: "Sathya Pickup",
     contactPhone: "",
     contactEmail: "",
     hours: "Mon–Fri 09:00–17:00, Sat 09:00–13:00",
