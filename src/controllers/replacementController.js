@@ -80,7 +80,9 @@ const approveAdmin = async (req, res, next) => {
   try {
     const request = await replacementService.approveRequest(
       req.params.id,
-      { adminRemarks: req.body?.adminRemarks },
+      {
+        adminRemarks: req.body?.adminRemarks ?? req.body?.adminNote,
+      },
       { actorUserId: req.user.userId }
     );
     return sendSuccess(res, { request }, "Replacement approved and order created");
@@ -93,10 +95,34 @@ const rejectAdmin = async (req, res, next) => {
   try {
     const request = await replacementService.rejectRequest(
       req.params.id,
-      { adminRemarks: req.body?.adminRemarks },
+      {
+        adminRemarks: req.body?.adminRemarks ?? req.body?.adminNote,
+      },
       { actorUserId: req.user.userId }
     );
     return sendSuccess(res, { request }, "Replacement request rejected");
+  } catch (err) {
+    return next(err);
+  }
+};
+
+const bookReturnAdmin = async (req, res, next) => {
+  try {
+    const request = await replacementService.bookReturnShipment(req.params.id, {
+      actorUserId: req.user.userId,
+    });
+    return sendSuccess(res, { request }, "Return collection booked with Courier Guy");
+  } catch (err) {
+    return next(err);
+  }
+};
+
+const markReturnReceivedAdmin = async (req, res, next) => {
+  try {
+    const request = await replacementService.markReturnReceived(req.params.id, {
+      actorUserId: req.user.userId,
+    });
+    return sendSuccess(res, { request }, "Return marked as received at warehouse");
   } catch (err) {
     return next(err);
   }
@@ -110,4 +136,6 @@ module.exports = {
   getOneAdmin,
   approveAdmin,
   rejectAdmin,
+  bookReturnAdmin,
+  markReturnReceivedAdmin,
 };

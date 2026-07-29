@@ -783,7 +783,18 @@ const updateStatus = async (
   if (updated) {
     if (updated.orderType === "REPLACEMENT" && status === "SHIPPED") {
       ReplacementRequest.findOneAndUpdate(
-        { replacementOrder: updated._id, status: { $in: ["APPROVED", "PROCESSING", "PENDING"] } },
+        {
+          replacementOrder: updated._id,
+          status: {
+            $in: [
+              "APPROVED",
+              "AWAITING_RETURN",
+              "RETURN_RECEIVED",
+              "PROCESSING",
+              "PENDING",
+            ],
+          },
+        },
         { $set: { status: "SHIPPED" } }
       ).catch((err) =>
         console.warn(
@@ -792,7 +803,10 @@ const updateStatus = async (
         )
       );
     }
-    if (updated.orderType === "REPLACEMENT" && status === "DELIVERED") {
+    if (
+      updated.orderType === "REPLACEMENT" &&
+      (status === "DELIVERED" || status === "FULFILLED")
+    ) {
       ReplacementRequest.findOneAndUpdate(
         { replacementOrder: updated._id },
         { $set: { status: "DELIVERED", completedAt: new Date() } },
@@ -875,6 +889,8 @@ const dispatchOrder = async (
   const existing = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
   if (!existing) throw new HttpError("Order not found", 404);
 
+  await require("./replacementService").assertReplacementFulfillmentAllowed(existing);
+
   if (existing.fulfillmentMethod === "PICKUP") {
     throw new HttpError(
       "Pickup orders cannot be dispatched via courier. Use POST /orders/:id/ready-for-pickup.",
@@ -938,6 +954,7 @@ const dispatchOrder = async (
 const readyForPickup = async (id, { note = "" } = {}, { actorUserId }) => {
   const order = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
   if (!order) throw new HttpError("Order not found", 404);
+  await require("./replacementService").assertReplacementFulfillmentAllowed(order);
   if (order.fulfillmentMethod !== "PICKUP") {
     throw new HttpError("Only pickup orders can be marked ready for pickup", 400);
   }
@@ -982,6 +999,7 @@ const readyForPickup = async (id, { note = "" } = {}, { actorUserId }) => {
 const markPacked = async (id, { note = "" } = {}, { actorUserId }) => {
   const order = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
   if (!order) throw new HttpError("Order not found", 404);
+  await require("./replacementService").assertReplacementFulfillmentAllowed(order);
   if (order.fulfillmentMethod !== "PICKUP") {
     throw new HttpError("Only pickup orders can be marked packed", 400);
   }

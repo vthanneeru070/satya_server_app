@@ -7,6 +7,7 @@ const {
   defaultParcels,
   todayIsoDate,
 } = require("./shippingQuoteService");
+const Warehouse = require("../models/Warehouse");
 const {
   applyPodFromEvents,
   normalizeTrackingEvents,
@@ -154,6 +155,155 @@ const bookShipmentForOrder = async (order, { actorUserId } = {}) => {
   };
 
   return order;
+};
+
+const warehouseToShipLogicAddress = (warehouse, pickupLocation = {}) => {
+  const snap =
+    pickupLocation && typeof pickupLocation === "object" ? pickupLocation : {};
+  const wh = warehouse && typeof warehouse === "object" ? warehouse : {};
+  return toShipLogicAddress(
+    {
+      company: snap.company || wh.company || wh.name || "",
+      street_address: snap.streetAddress || wh.streetAddress || "",
+      local_area: snap.localArea || wh.localArea || wh.city || "",
+      city: snap.city || wh.city || "",
+      zone: snap.zone || wh.zone || "",
+      postalCode: snap.postalCode || wh.postalCode || "",
+      country: snap.country || wh.country || "South Africa",
+      enteredAddress: snap.enteredAddress || wh.enteredAddress || "",
+      lat: snap.lat != null ? snap.lat : wh.lat,
+      lng: snap.lng != null ? snap.lng : wh.lng,
+    },
+    { type: "business" }
+  );
+};
+
+/**
+ * Book a return shipment (customer → warehouse) for a delivery replacement.
+ * Mutates `replacementRequest.returnShipment` but does not save.
+ */
+const bookReturnShipmentForReplacement = async (
+  replacementRequest,
+  originalOrder,
+  { actorUserId } = {}
+) => {
+  if (!replacementRequest || !originalOrder) {
+    throw new HttpError("Replacement request or original order not found", 404);
+  }
+  if (originalOrder.fulfillmentMethod !== "DELIVERY") {
+    throw new HttpError("Return courier collection applies only to delivery orders", 400);
+  }
+  if (!originalOrder.shippingAddress) {
+    throw new HttpError("Original order has no shipping address", 400);
+  }
+
+  const existing = replacementRequest.returnShipment || {};
+  if (existing.shipmentId) {
+    return replacementRequest;
+  }
+
+  const shortRef = String(originalOrder.delivery?.shortTrackingReference || "").trim();
+  const customRef = String(
+    originalOrder.delivery?.waybill || originalOrder.tracking?.trackingNumber || ""
+  ).trim();
+  if (!shortRef && !customRef) {
+    throw new HttpError(
+      "Original order has no Courier Guy waybill. Mark the return as received manually instead.",
+      400
+    );
+  }
+
+  const cfg = requireCollectionConfig();
+  let deliveryAddress = cfg.collectionAddress;
+  let deliveryContact = cfg.collectionContact;
+
+  if (originalOrder.warehouse) {
+    const wh = await Warehouse.findById(originalOrder.warehouse).lean();
+    if (wh) {
+      deliveryAddress = warehouseToShipLogicAddress(wh, originalOrder.pickupLocation);
+      deliveryContact = {
+        name: wh.contactName || cfg.collectionContact?.name || "Warehouse",
+        mobile_number: wh.contactPhone || cfg.collectionContact?.mobile_number || "",
+        email: wh.contactEmail || cfg.collectionContact?.email || "",
+      };
+    }
+  }
+
+  const collectionAddress = toShipLogicAddress(originalOrder.shippingAddress, {
+    type: "residential",
+  });
+  const contactPhone = String(originalOrder.shippingAddress.phone || "").trim();
+  const contactName = originalOrder.shippingAddress.fullName || "Customer";
+  if (!contactPhone) {
+    throw new HttpError(
+      "Customer phone number is required to book a return collection",
+      400
+    );
+  }
+
+  const serviceLevel =
+    originalOrder.shippingQuote?.serviceLevelCode ||
+    cfg.offeredServiceLevels?.[0] ||
+    "ECO";
+
+  const payload = {
+    collection_address: collectionAddress,
+    collection_contact: {
+      name: contactName,
+      mobile_number: contactPhone,
+      email: "",
+    },
+    delivery_address: deliveryAddress,
+    delivery_contact: deliveryContact,
+    parcels: defaultParcels(cfg),
+    opt_in_rates: [],
+    opt_in_time_based_rates: [],
+    special_instructions_collection: "Return — damaged item for replacement",
+    special_instructions_delivery: "Replacement return shipment",
+    collection_min_date: `${todayIsoDate()}T00:00:00.000Z`,
+    delivery_min_date: `${todayIsoDate()}T00:00:00.000Z`,
+    customer_reference_name: "Return for",
+    customer_reference: replacementRequest.requestNumber || originalOrder.orderNumber,
+    service_level_code: serviceLevel,
+    mute_notifications: false,
+    is_return: true,
+    short_tracking_reference: shortRef || customRef,
+    ...(customRef ? { custom_tracking_reference: customRef } : {}),
+  };
+
+  console.info(
+    `[shippingShipment] booking TCG return for ${replacementRequest.requestNumber} (original ${originalOrder.orderNumber})`
+  );
+
+  const created = await tcgClient.createShipment(payload);
+  const shipmentId = created?.id ?? created?.shipment_id ?? null;
+  const waybill =
+    created?.custom_tracking_reference ||
+    created?.short_tracking_reference ||
+    String(shipmentId || "");
+  const returnShortRef = created?.short_tracking_reference || "";
+  const courierStatus = created?.status || "submitted";
+  const trackingReference = waybill || returnShortRef;
+  const labelUrl =
+    shipmentId && trackingReference
+      ? tcgClient.getLabelUrl({ id: shipmentId, trackingReference })
+      : "";
+
+  replacementRequest.returnShipment = {
+    ...(existing.toObject?.() || existing),
+    method: "COURIER_COLLECTION",
+    status: "RETURN_BOOKED",
+    provider: "TCG",
+    shipmentId: shipmentId != null ? String(shipmentId) : "",
+    waybill,
+    shortTrackingReference: returnShortRef,
+    trackingUrl: buildTrackingUrl(returnShortRef || waybill),
+    labelUrl,
+    courierStatus,
+    bookedAt: new Date(),
+  };
+
+  return replacementRequest;
 };
 
 const cancelShipmentForOrder = async (order) => {
@@ -444,6 +594,7 @@ const getShippingLabelUrlForOrder = async (order) => {
 
 module.exports = {
   bookShipmentForOrder,
+  bookReturnShipmentForReplacement,
   cancelShipmentForOrder,
   applyTrackingStatus,
   applyTrackingUpdate,

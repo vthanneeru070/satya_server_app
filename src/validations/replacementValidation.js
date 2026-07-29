@@ -15,6 +15,8 @@ const replacementRequestIdParamsSchema = Joi.object({
 const REPLACEMENT_REQUEST_STATUSES = [
   "REQUESTED",
   "APPROVED",
+  "AWAITING_RETURN",
+  "RETURN_RECEIVED",
   "REJECTED",
   "PROCESSING",
   "SHIPPED",
@@ -32,6 +34,7 @@ const adminListReplacementQuerySchema = Joi.object({
 
 const adminDecideReplacementSchema = Joi.object({
   adminRemarks: Joi.string().trim().max(2000).allow("").optional(),
+  adminNote: Joi.string().trim().max(2000).allow("").optional(),
 });
 
 const listMyReplacementQuerySchema = Joi.object({
