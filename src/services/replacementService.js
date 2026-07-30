@@ -10,6 +10,10 @@ const fcmReplacementNotifyService = require("./fcmReplacementNotifyService");
 const adminNotificationService = require("./adminNotificationService");
 const shippingShipmentService = require("./shippingShipmentService");
 const Warehouse = require("../models/Warehouse");
+const {
+  resolveAffectedItems,
+  sumAffectedLineTotals,
+} = require("../utils/orderAffectedItems");
 
 const notDeleted = { isDeleted: { $ne: true } };
 
@@ -279,9 +283,13 @@ const assertNoBlockingReplacement = async (orderId) => {
   }
 };
 
-const createRequest = async (userId, { orderId, reason = "", images = [] } = {}) => {
+const createRequest = async (
+  userId,
+  { orderId, reason = "", images = [], affectedItems: rawAffectedItems = [] } = {}
+) => {
   const order = await ensureOwnedDeliveredPaidOriginal(orderId, userId);
   await assertNoBlockingReplacement(order._id);
+  const affectedItems = resolveAffectedItems(order, rawAffectedItems);
 
   const session = await mongoose.startSession();
   let request;
@@ -297,6 +305,7 @@ const createRequest = async (userId, { orderId, reason = "", images = [] } = {})
             fulfillmentMethod: order.fulfillmentMethod || "DELIVERY",
             reason: String(reason || "").trim().slice(0, 2000),
             images: Array.isArray(images) ? images.filter(Boolean).slice(0, 12) : [],
+            affectedItems,
           },
         ],
         { session }
@@ -470,7 +479,11 @@ const approveRequest = async (requestId, { adminRemarks = "" } = {}, { actorUser
       }
 
       const orderNumber = await generateReplacementOrderNumber(original, session);
-      const items = original.items.map((line) => ({
+      const sourceItems =
+        lockedReq.affectedItems?.length > 0
+          ? lockedReq.affectedItems
+          : resolveAffectedItems(original, []);
+      const items = sourceItems.map((line) => ({
         product: line.product,
         title: line.title,
         imageUrl: line.imageUrl,
@@ -478,6 +491,7 @@ const approveRequest = async (requestId, { adminRemarks = "" } = {}, { actorUser
         price: line.price,
         lineTotal: line.lineTotal,
       }));
+      const replacementTotal = sumAffectedLineTotals(sourceItems);
 
       const origPayRef = original.paystackReference || "";
       const origTx = original.transactionId || "";
@@ -505,7 +519,7 @@ const approveRequest = async (requestId, { adminRemarks = "" } = {}, { actorUser
             parentOrderNumber: original.orderNumber || "",
             replacementReason: lockedReq.reason || "",
             items,
-            totalAmount: original.totalAmount,
+            totalAmount: replacementTotal,
             currency: original.currency,
             paymentStatus: "PAID",
             orderStatus: "PROCESSING",

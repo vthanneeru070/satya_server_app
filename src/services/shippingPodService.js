@@ -52,6 +52,25 @@ const classifyPodMessage = (message) => {
 const eventTimestamp = (event) =>
   event?.date || event?.event_time || event?.time_created || null;
 
+const serializeTrackingEvents = (events = []) => {
+  const out = [];
+  for (const event of events) {
+    if (!event || typeof event !== "object") continue;
+    const status = String(event.status || "").trim().toLowerCase();
+    const message = String(event.message || "").trim();
+    const rawDate = eventTimestamp(event);
+    const date = rawDate ? new Date(rawDate) : null;
+    if (!status && !message) continue;
+    out.push({
+      status,
+      message,
+      date: date && !Number.isNaN(date.getTime()) ? date : null,
+      eventId: event.id != null ? String(event.id) : "",
+    });
+  }
+  return out;
+};
+
 const collectImageFileNames = (events = []) => {
   const names = new Set();
   for (const event of events) {
@@ -336,6 +355,7 @@ module.exports = {
   POD_STATUS_LABELS,
   classifyPodMessage,
   normalizeTrackingEvents,
+  serializeTrackingEvents,
   extractPodSnapshot,
   applyPodFromEvents,
   enrichPodAssets,

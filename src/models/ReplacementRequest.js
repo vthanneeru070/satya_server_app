@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { affectedOrderItemSchema } = require("../utils/orderAffectedItems");
 
 /**
  * Customer replacement request flow.
@@ -83,6 +84,12 @@ const replacementRequestSchema = new mongoose.Schema(
 
     images: {
       type: [String],
+      default: [],
+    },
+
+    /** Line items the customer wants replaced (subset of original order). */
+    affectedItems: {
+      type: [affectedOrderItemSchema],
       default: [],
     },
 

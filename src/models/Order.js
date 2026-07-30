@@ -60,6 +60,16 @@ const deliveryPodSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const deliveryTrackingEventSchema = new mongoose.Schema(
+  {
+    status: { type: String, default: "" },
+    message: { type: String, default: "" },
+    date: { type: Date, default: null },
+    eventId: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
 const deliverySchema = new mongoose.Schema(
   {
     provider: { type: String, default: "TCG" },
@@ -80,6 +90,10 @@ const deliverySchema = new mongoose.Schema(
     pod: {
       type: deliveryPodSchema,
       default: undefined,
+    },
+    trackingEvents: {
+      type: [deliveryTrackingEventSchema],
+      default: [],
     },
   },
   { _id: false }

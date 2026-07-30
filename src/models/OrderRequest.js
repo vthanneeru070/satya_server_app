@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { affectedOrderItemSchema } = require("../utils/orderAffectedItems");
 
 const historyEntrySchema = new mongoose.Schema(
   {
@@ -39,6 +40,15 @@ const orderRequestSchema = new mongoose.Schema(
     },
     reason: { type: String, default: "", trim: true, maxlength: 2000 },
     attachments: { type: [String], default: [] },
+
+    /** Line items the customer wants refunded (subset of original order). */
+    affectedItems: {
+      type: [affectedOrderItemSchema],
+      default: [],
+    },
+
+    /** Amount to refund when approved (major currency units). */
+    refundAmount: { type: Number, default: null, min: 0 },
 
     status: {
       type: String,

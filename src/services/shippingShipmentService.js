@@ -11,6 +11,7 @@ const Warehouse = require("../models/Warehouse");
 const {
   applyPodFromEvents,
   normalizeTrackingEvents,
+  serializeTrackingEvents,
 } = require("./shippingPodService");
 
 const mapShipLogicStatusToOrderStatus = (status) => {
@@ -145,6 +146,14 @@ const bookShipmentForOrder = async (order, { actorUserId } = {}) => {
           lastSyncedAt: new Date(),
         }
       : undefined,
+    trackingEvents: [
+      {
+        status,
+        message: `Shipment ${status}`,
+        date: new Date(),
+        eventId: "",
+      },
+    ],
   };
 
   order.tracking = {
@@ -379,6 +388,13 @@ const applyTrackingUpdate = (order, { status, trackingEvents = [], payload } = {
     : { changed: false, nextOrderStatus: null, alert: false };
 
   const podResult = applyPodFromEvents(order, events);
+
+  if (events.length) {
+    order.delivery = {
+      ...(order.delivery?.toObject?.() || order.delivery || {}),
+      trackingEvents: serializeTrackingEvents(events),
+    };
+  }
 
   return {
     changed: statusResult.changed || podResult.changed,

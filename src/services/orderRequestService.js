@@ -6,6 +6,10 @@ const HttpError = require("../utils/httpError");
 const orderService = require("./orderService");
 const orderEmailService = require("./orderEmailService");
 const adminNotificationService = require("./adminNotificationService");
+const {
+  resolveAffectedItems,
+  computeRefundAmount,
+} = require("../utils/orderAffectedItems");
 
 const REQUEST_PREFIX = process.env.REQUEST_NUMBER_PREFIX || "REQ";
 
@@ -66,7 +70,7 @@ const assertCanCreate = (order, type) => {
   if (type === "REFUND") {
     if (order.paymentStatus === "REFUNDED") {
       throw new HttpError(
-        "This order has already been refunded; no further refund/replacement can be requested.",
+        "This order has already been fully refunded; no further refund/replacement can be requested.",
         400
       );
     }
@@ -101,12 +105,19 @@ const assertCanCreate = (order, type) => {
 const createRequest = async (
   userId,
   orderId,
-  { type, reason = "", attachments = [] } = {}
+  { type, reason = "", attachments = [], affectedItems: rawAffectedItems = [] } = {}
 ) => {
   if (!type) throw new HttpError("type is required", 400);
   const order = await ensureOwnedOrder(orderId, userId);
   assertCanCreate(order, type);
   await ensureNoOpenRequest(order._id, type);
+
+  let affectedItems = [];
+  let refundAmount = null;
+  if (type === "REFUND") {
+    affectedItems = resolveAffectedItems(order, rawAffectedItems);
+    refundAmount = computeRefundAmount(order, affectedItems);
+  }
 
   const session = await mongoose.startSession();
   let request;
@@ -122,6 +133,8 @@ const createRequest = async (
             type,
             reason: reason || "",
             attachments: Array.isArray(attachments) ? attachments : [],
+            affectedItems,
+            refundAmount,
             status: "PENDING",
             history: [
               {
@@ -271,15 +284,57 @@ const approveRequest = async (
     );
     finalStatus = "COMPLETED";
   } else if (request.type === "REFUND") {
-    await orderService.adminInitiateRefund(
+    const refundAmount =
+      request.refundAmount ??
+      computeRefundAmount(order, request.affectedItems || []);
+    const { refund } = await orderService.adminInitiateRefund(
       order._id,
       {
         reason: `Approved request ${request.requestNumber}`,
         adminNote,
+        amountInMajor: refundAmount,
       },
       { actorUserId }
     );
-    finalStatus = "APPROVED";
+
+    if (refund.outcome === "REFUNDED") {
+      finalStatus = "COMPLETED";
+    } else if (refund.outcome === "PENDING") {
+      finalStatus = "APPROVED";
+    } else {
+      throw new HttpError(
+        refund.error ||
+          refund.manualNote ||
+          "PayFast refund could not be completed automatically. Check the order payment details and try again, or refund manually in the PayFast merchant portal.",
+        502
+      );
+    }
+
+    request.status = finalStatus;
+    request.adminNote = adminNote || request.adminNote || "";
+    request.resolvedBy = actorUserId || null;
+    request.resolvedAt = new Date();
+    appendRequestHistory(
+      request,
+      finalStatus,
+      adminNote || `Approved by admin`,
+      actorUserId
+    );
+    await request.save();
+
+    const populated = await OrderRequest.findById(request._id)
+      .populate("order", "orderNumber orderStatus paymentStatus totalAmount currency");
+
+    orderEmailService
+      .sendRequestStatusUpdate(request, { order: populated.order })
+      .catch((err) =>
+        console.error(
+          "[orderRequestService] sendRequestStatusUpdate (approve) failed:",
+          err?.message || err
+        )
+      );
+
+    return { request: populated, refund };
   }
 
   request.status = finalStatus;
@@ -304,7 +359,8 @@ const approveRequest = async (
     );
 
   return OrderRequest.findById(request._id)
-    .populate("order", "orderNumber orderStatus paymentStatus totalAmount currency");
+    .populate("order", "orderNumber orderStatus paymentStatus totalAmount currency")
+    .then((populated) => ({ request: populated, refund: null }));
 };
 
 const rejectRequest = async (

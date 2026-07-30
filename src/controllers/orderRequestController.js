@@ -52,12 +52,22 @@ const getRequestById = async (req, res, next) => {
 
 const approveRequest = async (req, res, next) => {
   try {
-    const request = await orderRequestService.approveRequest(
+    const result = await orderRequestService.approveRequest(
       req.params.requestId,
       req.body,
       { actorUserId: req.user.userId }
     );
-    return sendSuccess(res, { request }, "Request approved");
+    const request = result?.request || result;
+    const refund = result?.refund || null;
+    const message =
+      request?.type === "REFUND" && refund
+        ? refund.outcome === "REFUNDED"
+          ? "Return approved — PayFast refund completed."
+          : refund.manual
+            ? "Return approved — complete the refund in the PayFast merchant portal (sandbox/manual)."
+            : "Return approved — PayFast refund submitted. Funds usually return in 5–10 business days."
+        : "Request approved";
+    return sendSuccess(res, { request, refund }, message);
   } catch (error) {
     return next(error);
   }

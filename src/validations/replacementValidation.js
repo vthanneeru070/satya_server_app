@@ -2,10 +2,21 @@ const Joi = require("joi");
 
 const objectIdHex = Joi.string().trim().hex().length(24);
 
+const affectedItemInputSchema = Joi.object({
+  productId: objectIdHex.required(),
+  quantity: Joi.number().integer().min(1).required(),
+});
+
 const createReplacementRequestSchema = Joi.object({
   orderId: objectIdHex.required(),
   reason: Joi.string().trim().min(5).max(2000).required(),
   imageUrls: Joi.array().items(Joi.string().trim().uri().max(2048)).max(12).optional(),
+  affectedItems: Joi.alternatives()
+    .try(
+      Joi.array().items(affectedItemInputSchema).min(1).max(50),
+      Joi.string().trim().max(20000)
+    )
+    .optional(),
 });
 
 const replacementRequestIdParamsSchema = Joi.object({

@@ -584,7 +584,14 @@ const listMyOrders = async (userId, query = {}) => {
   if (query.fulfillmentMethod) filter.fulfillmentMethod = query.fulfillmentMethod;
 
   const [orders, total] = await Promise.all([
-    Order.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+    Order.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate(
+        "latestReplacementRequest",
+        "requestNumber status fulfillmentMethod returnShipment.status returnShipment.method returnShipment.instructions returnShipment.waybill returnShipment.shortTrackingReference returnShipment.trackingUrl returnShipment.labelUrl returnShipment.courierStatus returnShipment.shipmentId replacementOrder"
+      ),
     Order.countDocuments(filter),
   ]);
 
@@ -636,10 +643,12 @@ const listAllOrders = async (query = {}) => {
 };
 
 const getOrderById = async (id, { userId = null, isAdmin = false } = {}) => {
-  const order = await Order.findOne({ _id: id, isDeleted: { $ne: true } }).populate(
-    "user",
-    "fullName email phone role"
-  );
+  const order = await Order.findOne({ _id: id, isDeleted: { $ne: true } })
+    .populate("user", "fullName email phone role")
+    .populate(
+      "latestReplacementRequest",
+      "requestNumber status fulfillmentMethod returnShipment.status returnShipment.method returnShipment.instructions returnShipment.waybill returnShipment.shortTrackingReference returnShipment.trackingUrl returnShipment.labelUrl returnShipment.courierStatus returnShipment.shipmentId replacementOrder"
+    );
   if (!order) throw new HttpError("Order not found", 404);
 
   if (!isAdmin && userId && String(order.user._id || order.user) !== String(userId)) {
@@ -1236,14 +1245,22 @@ const resolvePayfastPaymentId = async (order) => {
     status: "SUCCESS",
     isDeleted: { $ne: true },
   })
-    .select("paymentId transactionId")
+    .select("paymentId transactionId response")
     .lean();
 
-  return (
+  const fromPayment =
     (payment?.paymentId ? String(payment.paymentId).trim() : "") ||
-    (payment?.transactionId ? String(payment.transactionId).trim() : "") ||
-    null
-  );
+    (payment?.transactionId ? String(payment.transactionId).trim() : "");
+
+  if (fromPayment) return fromPayment;
+
+  const itn = payment?.response?.itn;
+  if (itn && typeof itn === "object" && itn.pf_payment_id != null) {
+    const fromItn = String(itn.pf_payment_id).trim();
+    if (fromItn) return fromItn;
+  }
+
+  return null;
 };
 
 /**
@@ -1252,9 +1269,30 @@ const resolvePayfastPaymentId = async (order) => {
  */
 const attemptGatewayRefund = async (
   order,
-  { reason = "", refundAudit = null } = {}
+  { reason = "", refundAudit = null, amountInMajor = null } = {}
 ) => {
   const paymentMethod = String(order.paymentMethod || "PAYFAST").toUpperCase();
+  const refundAmount =
+    amountInMajor != null
+      ? Math.round(Number(amountInMajor) * 100) / 100
+      : Math.round(Number(order.totalAmount) * 100) / 100;
+
+  if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
+    if (refundAudit) mergeRefundAudit(order, refundAudit);
+    return {
+      outcome: "FAILED",
+      error: "Refund amount must be greater than zero.",
+      apiAttempted: false,
+    };
+  }
+  if (refundAmount > Number(order.totalAmount) + 0.01) {
+    if (refundAudit) mergeRefundAudit(order, refundAudit);
+    return {
+      outcome: "FAILED",
+      error: "Refund amount cannot exceed the order total.",
+      apiAttempted: false,
+    };
+  }
 
   if (paymentMethod === "PAYFAST") {
     const pfConfig = payfastService.readConfig();
@@ -1283,32 +1321,27 @@ const attemptGatewayRefund = async (
       });
 
       const refundData = await payfastService.createRefund(pfPaymentId, {
-        amountInMajor: order.totalAmount,
+        amountInMajor: refundAmount,
         reason: refundReason,
         notifyBuyer: true,
         notifyMerchant: false,
       });
 
-      const responsePayload = refundData?.data?.response;
-      const refundStatus = String(
-        (typeof responsePayload === "object" && responsePayload?.status) ||
-          refundData?.data?.status ||
-          "pending"
-      ).toLowerCase();
-      const refundId =
-        (typeof responsePayload === "object" &&
-          (responsePayload?.refund_id || responsePayload?.id)) ||
-        refundData?.data?.refund_id ||
-        "";
-      const isTerminalSuccess = ["completed", "processed", "success"].includes(
-        refundStatus
-      );
+      const parsed = payfastService.parseCreateRefundResponse(refundData);
+      if (!parsed.apiSuccess) {
+        throw new HttpError(
+          parsed.failureReason || "PayFast rejected the refund request.",
+          502
+        );
+      }
+
+      const isTerminalSuccess = parsed.terminalSuccess;
 
       order.refund = {
         ...(order.refund || {}),
         status: isTerminalSuccess ? "PROCESSED" : "PENDING",
-        paystackRefundId: refundId != null ? String(refundId) : "",
-        amount: order.totalAmount,
+        paystackRefundId: parsed.refundId || "",
+        amount: refundAmount,
         currency: order.currency,
         attemptedAt: new Date(),
         processedAt: isTerminalSuccess ? new Date() : null,
@@ -1321,6 +1354,7 @@ const attemptGatewayRefund = async (
         manual: false,
         apiAttempted: true,
         payfastEnvironment: pfConfig.sandbox ? "sandbox" : "live",
+        payfastRefundStatus: parsed.refundStatus,
       };
     } catch (err) {
       const message = err?.message || String(err);
@@ -1335,7 +1369,7 @@ const attemptGatewayRefund = async (
           ...(order.refund || {}),
           status: "PENDING",
           paystackRefundId: "",
-          amount: order.totalAmount,
+          amount: refundAmount,
           currency: order.currency,
           attemptedAt: new Date(),
           processedAt: null,
@@ -1377,7 +1411,7 @@ const attemptGatewayRefund = async (
   try {
     const refundData = await paystackService.refundTransaction({
       reference: order.paystackReference,
-      amountInMajor: order.totalAmount,
+      amountInMajor: refundAmount,
       currency: order.currency,
       merchantNote: reason ? String(reason).slice(0, 300) : "Admin refund",
     });
@@ -1389,7 +1423,7 @@ const attemptGatewayRefund = async (
       ...(order.refund || {}),
       status: isTerminalSuccess ? "PROCESSED" : "PENDING",
       paystackRefundId: refundData?.id != null ? String(refundData.id) : "",
-      amount: order.totalAmount,
+      amount: refundAmount,
       currency: order.currency,
       attemptedAt: new Date(),
       processedAt: isTerminalSuccess ? new Date() : null,
@@ -1661,7 +1695,7 @@ const executeOrderCancellation = async (
  */
 const adminInitiateRefund = async (
   id,
-  { reason = "", adminNote = "" } = {},
+  { reason = "", adminNote = "", amountInMajor = null } = {},
   { actorUserId } = {}
 ) => {
   const order = await Order.findOne({ _id: id, isDeleted: { $ne: true } });
@@ -1701,10 +1735,17 @@ const adminInitiateRefund = async (
       adminNote: trimmedAdminNote,
       refundedBy,
     },
+    amountInMajor,
   });
 
+  const requestedAmount =
+    amountInMajor != null
+      ? Math.round(Number(amountInMajor) * 100) / 100
+      : Math.round(Number(order.totalAmount) * 100) / 100;
+  const isFullRefund = requestedAmount >= Number(order.totalAmount) - 0.01;
+
   if (refundOutcome.outcome === "REFUNDED") {
-    order.paymentStatus = "REFUNDED";
+    order.paymentStatus = isFullRefund ? "REFUNDED" : "PAID";
   } else if (refundOutcome.outcome === "PENDING") {
     order.paymentStatus = "REFUND_INITIATED";
   } else {
