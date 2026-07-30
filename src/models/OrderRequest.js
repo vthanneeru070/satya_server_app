@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const { affectedOrderItemSchema } = require("../utils/orderAffectedItems");
+const { returnShipmentSchema } = require("./schemas/returnShipmentSchema");
 
 const historyEntrySchema = new mongoose.Schema(
   {
@@ -14,6 +15,9 @@ const historyEntrySchema = new mongoose.Schema(
 /**
  * Unified post-payment request lifecycle for an order (cancellation / refund).
  * Replacement shipments use `ReplacementRequest` + `/replacements` APIs instead.
+ *
+ * REFUND flow: PENDING → AWAITING_RETURN (approve) → refund after return received
+ * → APPROVED (gateway pending) or COMPLETED (refunded).
  */
 const orderRequestSchema = new mongoose.Schema(
   {
@@ -41,21 +45,43 @@ const orderRequestSchema = new mongoose.Schema(
     reason: { type: String, default: "", trim: true, maxlength: 2000 },
     attachments: { type: [String], default: [] },
 
+    /** Snapshot of how the original order was fulfilled (REFUND). */
+    fulfillmentMethod: {
+      type: String,
+      enum: ["DELIVERY", "PICKUP"],
+      default: "DELIVERY",
+      index: true,
+    },
+
     /** Line items the customer wants refunded (subset of original order). */
     affectedItems: {
       type: [affectedOrderItemSchema],
       default: [],
     },
 
-    /** Amount to refund when approved (major currency units). */
+    /** Amount to refund when return is received (major currency units). */
     refundAmount: { type: Number, default: null, min: 0 },
 
+    /**
+     * PENDING — opened by user
+     * AWAITING_RETURN — approved; waiting for goods
+     * APPROVED — refund initiated, gateway still pending
+     * COMPLETED — refund settled
+     * REJECTED — declined
+     */
     status: {
       type: String,
-      enum: ["PENDING", "APPROVED", "REJECTED", "COMPLETED"],
+      enum: ["PENDING", "AWAITING_RETURN", "APPROVED", "REJECTED", "COMPLETED"],
       default: "PENDING",
       index: true,
     },
+
+    /** Physical return of the item before refund is paid out. */
+    returnShipment: {
+      type: returnShipmentSchema,
+      default: () => ({}),
+    },
+
     adminNote: { type: String, default: "" },
     resolvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     resolvedAt: { type: Date, default: null },
@@ -79,5 +105,9 @@ const orderRequestSchema = new mongoose.Schema(
 
 orderRequestSchema.index({ order: 1, type: 1, status: 1 });
 orderRequestSchema.index({ user: 1, createdAt: -1 });
+orderRequestSchema.index({
+  "returnShipment.shipmentId": 1,
+  "returnShipment.status": 1,
+});
 
 module.exports = mongoose.model("OrderRequest", orderRequestSchema);

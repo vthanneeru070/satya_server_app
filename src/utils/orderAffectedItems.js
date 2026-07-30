@@ -24,7 +24,7 @@ const roundMoney = (value) => Math.round(Number(value) * 100) / 100;
 
 /**
  * Resolve user selections against an order's line items.
- * When `rawSelections` is empty, all order lines are returned (backward compatible).
+ * Multi-item orders require an explicit selection. Single-item orders may omit it.
  */
 const resolveAffectedItems = (order, rawSelections = []) => {
   if (!order || !Array.isArray(order.items) || order.items.length === 0) {
@@ -33,6 +33,12 @@ const resolveAffectedItems = (order, rawSelections = []) => {
 
   const selections = Array.isArray(rawSelections) ? rawSelections : [];
   if (selections.length === 0) {
+    if (order.items.length > 1) {
+      throw new HttpError(
+        "Select at least one item to return or replace from this order.",
+        400
+      );
+    }
     return order.items.map((line) => snapshotLine(line, line.quantity));
   }
 

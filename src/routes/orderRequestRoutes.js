@@ -9,6 +9,8 @@ const {
   getRequestById,
   approveRequest,
   rejectRequest,
+  bookReturn,
+  markReturnReceived,
 } = require("../controllers/orderRequestController");
 const {
   createRequestSchema,
@@ -45,7 +47,7 @@ const router = express.Router();
  *         schema: { type: integer, default: 20, maximum: 100 }
  *       - in: query
  *         name: status
- *         schema: { type: string, enum: [PENDING, APPROVED, REJECTED, COMPLETED] }
+ *         schema: { type: string, enum: [PENDING, AWAITING_RETURN, APPROVED, REJECTED, COMPLETED] }
  *       - in: query
  *         name: type
  *         schema: { type: string, enum: [CANCELLATION, REFUND] }
@@ -76,7 +78,7 @@ router.get(
  *         schema: { type: integer, default: 20, maximum: 100 }
  *       - in: query
  *         name: status
- *         schema: { type: string, enum: [PENDING, APPROVED, REJECTED, COMPLETED] }
+ *         schema: { type: string, enum: [PENDING, AWAITING_RETURN, APPROVED, REJECTED, COMPLETED] }
  *       - in: query
  *         name: type
  *         schema: { type: string, enum: [CANCELLATION, REFUND] }
@@ -125,8 +127,9 @@ router.get(
  *   post:
  *     summary: Approve an order request (admin)
  *     description: |
- *       - **CANCELLATION** → cancels the order (restocks; PayFast refund sets `paymentStatus` to REFUND_INITIATED — complete in merchant portal).
- *       - **REFUND** → same PayFast refund flow; admin completes in merchant portal.
+ *       - **CANCELLATION** → cancels the order (restocks; PayFast refund if paid).
+ *       - **REFUND** → starts physical return (warehouse drop-off for pickup; auto-books
+ *         Courier Guy collection for delivery). Refund is initiated only after return is received.
  *       Product replacements use **PUT /admin/replacements/:id/approve** instead.
  *     tags: [Order Requests]
  *     security:
@@ -157,6 +160,60 @@ router.post(
   validate(requestIdParamsSchema, "params"),
   validate(decideRequestSchema),
   approveRequest
+);
+
+/**
+ * @swagger
+ * /orders/requests/{requestId}/book-return:
+ *   post:
+ *     summary: Book Courier Guy return collection (admin, delivery refunds)
+ *     tags: [Order Requests]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: requestId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Return collection booked }
+ *       400: { description: Not actionable }
+ *       403: { description: Admin role required }
+ *       404: { description: Request not found }
+ */
+router.post(
+  "/requests/:requestId/book-return",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(requestIdParamsSchema, "params"),
+  bookReturn
+);
+
+/**
+ * @swagger
+ * /orders/requests/{requestId}/mark-return-received:
+ *   post:
+ *     summary: Confirm returned item received and initiate refund (admin)
+ *     tags: [Order Requests]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: requestId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Return received; refund initiated }
+ *       400: { description: Not actionable }
+ *       403: { description: Admin role required }
+ *       404: { description: Request not found }
+ */
+router.post(
+  "/requests/:requestId/mark-return-received",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(requestIdParamsSchema, "params"),
+  markReturnReceived
 );
 
 /**

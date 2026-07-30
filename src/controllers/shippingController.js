@@ -39,6 +39,35 @@ const tcgWebhook = async (req, res, next) => {
         payload.tracking_events[0]?.status) ||
       null;
 
+    const shipmentId = payload.shipment_id ?? payload.id ?? payload.shipmentId;
+    if (shipmentId != null && String(shipmentId).trim()) {
+      const OrderRequest = require("../models/OrderRequest");
+      const refundReturn = await OrderRequest.findOne({
+        type: "REFUND",
+        isDeleted: { $ne: true },
+        "returnShipment.shipmentId": String(shipmentId),
+        status: "AWAITING_RETURN",
+      });
+      if (refundReturn && status) {
+        const orderRequestService = require("../services/orderRequestService");
+        const result = await orderRequestService.applyReturnTrackingStatus(
+          refundReturn._id,
+          status
+        );
+        return sendSuccess(
+          res,
+          {
+            matched: true,
+            kind: "refund_return",
+            requestId: refundReturn._id,
+            changed: result.changed,
+            deliveryStatus: status,
+          },
+          "Webhook processed (refund return)"
+        );
+      }
+    }
+
     const order = await shippingShipmentService.findOrderByShipmentPayload(payload);
     if (!order) {
       console.warn("[tcgWebhook] no matching order for payload", {

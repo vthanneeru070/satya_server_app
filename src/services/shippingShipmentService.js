@@ -188,16 +188,20 @@ const warehouseToShipLogicAddress = (warehouse, pickupLocation = {}) => {
 };
 
 /**
- * Book a return shipment (customer → warehouse) for a delivery replacement.
- * Mutates `replacementRequest.returnShipment` but does not save.
+ * Book a return shipment (customer → warehouse) for a delivery refund or replacement.
+ * Mutates `requestDoc.returnShipment` but does not save.
+ *
+ * @param {object} requestDoc — ReplacementRequest or OrderRequest (REFUND)
+ * @param {object} originalOrder
+ * @param {{ actorUserId?: string, purpose?: 'refund'|'replacement' }} opts
  */
-const bookReturnShipmentForReplacement = async (
-  replacementRequest,
+const bookReturnShipmentForRequest = async (
+  requestDoc,
   originalOrder,
-  { actorUserId } = {}
+  { actorUserId, purpose = "replacement" } = {}
 ) => {
-  if (!replacementRequest || !originalOrder) {
-    throw new HttpError("Replacement request or original order not found", 404);
+  if (!requestDoc || !originalOrder) {
+    throw new HttpError("Return request or original order not found", 404);
   }
   if (originalOrder.fulfillmentMethod !== "DELIVERY") {
     throw new HttpError("Return courier collection applies only to delivery orders", 400);
@@ -206,9 +210,9 @@ const bookReturnShipmentForReplacement = async (
     throw new HttpError("Original order has no shipping address", 400);
   }
 
-  const existing = replacementRequest.returnShipment || {};
+  const existing = requestDoc.returnShipment || {};
   if (existing.shipmentId) {
-    return replacementRequest;
+    return requestDoc;
   }
 
   const shortRef = String(originalOrder.delivery?.shortTrackingReference || "").trim();
@@ -255,6 +259,7 @@ const bookReturnShipmentForReplacement = async (
     cfg.offeredServiceLevels?.[0] ||
     "ECO";
 
+  const purposeLabel = purpose === "refund" ? "refund" : "replacement";
   const payload = {
     collection_address: collectionAddress,
     collection_contact: {
@@ -267,12 +272,12 @@ const bookReturnShipmentForReplacement = async (
     parcels: defaultParcels(cfg),
     opt_in_rates: [],
     opt_in_time_based_rates: [],
-    special_instructions_collection: "Return — damaged item for replacement",
-    special_instructions_delivery: "Replacement return shipment",
+    special_instructions_collection: `Return — item for ${purposeLabel}`,
+    special_instructions_delivery: `${purposeLabel} return shipment`,
     collection_min_date: `${todayIsoDate()}T00:00:00.000Z`,
     delivery_min_date: `${todayIsoDate()}T00:00:00.000Z`,
     customer_reference_name: "Return for",
-    customer_reference: replacementRequest.requestNumber || originalOrder.orderNumber,
+    customer_reference: requestDoc.requestNumber || originalOrder.orderNumber,
     service_level_code: serviceLevel,
     mute_notifications: false,
     is_return: true,
@@ -281,7 +286,7 @@ const bookReturnShipmentForReplacement = async (
   };
 
   console.info(
-    `[shippingShipment] booking TCG return for ${replacementRequest.requestNumber} (original ${originalOrder.orderNumber})`
+    `[shippingShipment] booking TCG return for ${requestDoc.requestNumber} (original ${originalOrder.orderNumber}, ${purposeLabel})`
   );
 
   const created = await tcgClient.createShipment(payload);
@@ -298,7 +303,7 @@ const bookReturnShipmentForReplacement = async (
       ? tcgClient.getLabelUrl({ id: shipmentId, trackingReference })
       : "";
 
-  replacementRequest.returnShipment = {
+  requestDoc.returnShipment = {
     ...(existing.toObject?.() || existing),
     method: "COURIER_COLLECTION",
     status: "RETURN_BOOKED",
@@ -312,7 +317,40 @@ const bookReturnShipmentForReplacement = async (
     bookedAt: new Date(),
   };
 
-  return replacementRequest;
+  return requestDoc;
+};
+
+/** @deprecated Use bookReturnShipmentForRequest */
+const bookReturnShipmentForReplacement = (replacementRequest, originalOrder, opts) =>
+  bookReturnShipmentForRequest(replacementRequest, originalOrder, {
+    ...opts,
+    purpose: "replacement",
+  });
+
+/**
+ * Map a ShipLogic courier status onto returnShipment lifecycle.
+ * Returns { nextReturnStatus } or nulls when unchanged / unknown.
+ */
+const mapShipLogicStatusToReturnShipmentStatus = (shipLogicStatus) => {
+  const s = String(shipLogicStatus || "").toLowerCase();
+  if (!s) return null;
+  if (s === "delivered") return "RETURN_RECEIVED";
+  if (
+    [
+      "submitted",
+      "collection-assigned",
+      "collection-collected",
+      "collected",
+      "at-hub",
+      "in-transit",
+      "out-for-delivery",
+    ].includes(s) ||
+    s.startsWith("collection-") ||
+    s.includes("transit")
+  ) {
+    return "RETURN_IN_TRANSIT";
+  }
+  return null;
 };
 
 const cancelShipmentForOrder = async (order) => {
@@ -610,12 +648,14 @@ const getShippingLabelUrlForOrder = async (order) => {
 
 module.exports = {
   bookShipmentForOrder,
+  bookReturnShipmentForRequest,
   bookReturnShipmentForReplacement,
   cancelShipmentForOrder,
   applyTrackingStatus,
   applyTrackingUpdate,
   findOrderByShipmentPayload,
   mapShipLogicStatusToOrderStatus,
+  mapShipLogicStatusToReturnShipmentStatus,
   buildTrackingUrl,
   getShippingLabelUrlForOrder,
   getShippingLabelAssetForOrder,

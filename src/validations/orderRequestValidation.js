@@ -34,7 +34,7 @@ const listRequestsQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(20),
   status: Joi.string()
-    .valid("PENDING", "APPROVED", "REJECTED", "COMPLETED")
+    .valid("PENDING", "AWAITING_RETURN", "APPROVED", "REJECTED", "COMPLETED")
     .optional(),
   type: Joi.string().valid("CANCELLATION", "REFUND").optional(),
   user: objectIdHex.optional(),

@@ -590,7 +590,7 @@ const listMyOrders = async (userId, query = {}) => {
       .limit(limit)
       .populate(
         "latestReplacementRequest",
-        "requestNumber status fulfillmentMethod returnShipment.status returnShipment.method returnShipment.instructions returnShipment.waybill returnShipment.shortTrackingReference returnShipment.trackingUrl returnShipment.labelUrl returnShipment.courierStatus returnShipment.shipmentId replacementOrder"
+        "requestNumber status fulfillmentMethod affectedItems returnShipment.status returnShipment.method returnShipment.instructions returnShipment.waybill returnShipment.shortTrackingReference returnShipment.trackingUrl returnShipment.labelUrl returnShipment.courierStatus returnShipment.shipmentId replacementOrder"
       ),
     Order.countDocuments(filter),
   ]);
@@ -647,7 +647,7 @@ const getOrderById = async (id, { userId = null, isAdmin = false } = {}) => {
     .populate("user", "fullName email phone role")
     .populate(
       "latestReplacementRequest",
-      "requestNumber status fulfillmentMethod returnShipment.status returnShipment.method returnShipment.instructions returnShipment.waybill returnShipment.shortTrackingReference returnShipment.trackingUrl returnShipment.labelUrl returnShipment.courierStatus returnShipment.shipmentId replacementOrder"
+      "requestNumber status fulfillmentMethod affectedItems returnShipment.status returnShipment.method returnShipment.instructions returnShipment.waybill returnShipment.shortTrackingReference returnShipment.trackingUrl returnShipment.labelUrl returnShipment.courierStatus returnShipment.shipmentId replacementOrder"
     );
   if (!order) throw new HttpError("Order not found", 404);
 
