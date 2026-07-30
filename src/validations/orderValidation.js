@@ -290,6 +290,17 @@ const cancelMyOrderSchema = Joi.object({
 const shippingQuoteSchema = Joi.object({
   shippingAddress: shippingAddressSchema.required(),
   declaredValue: Joi.number().min(0).optional(),
+  productIds: Joi.array().items(objectIdHex.required()).max(100).optional(),
+  items: Joi.array()
+    .items(
+      Joi.object({
+        productId: objectIdHex.optional(),
+        product: objectIdHex.optional(),
+        quantity: Joi.number().integer().min(1).optional(),
+      }).or("productId", "product")
+    )
+    .max(100)
+    .optional(),
 });
 
 module.exports = {

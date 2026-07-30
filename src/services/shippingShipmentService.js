@@ -61,21 +61,49 @@ const bookShipmentForOrder = async (order, { actorUserId } = {}) => {
     );
   }
 
-  const cfg = requireCollectionConfig();
-  let collectionAddress = cfg.collectionAddress;
-  let collectionContact = cfg.collectionContact;
+  const cfg = getTcgConfig();
+  let collectionAddress = null;
+  let collectionContact = null;
 
+  let warehouseDoc = null;
   if (order.warehouse) {
-    const Warehouse = require("../models/Warehouse");
-    const wh = await Warehouse.findById(order.warehouse).lean();
-    if (wh) {
-      collectionAddress = warehouseToShipLogicAddress(wh, order.pickupLocation);
-      collectionContact = {
-        name: wh.contactName || cfg.collectionContact?.name || "Warehouse",
-        mobile_number: wh.contactPhone || cfg.collectionContact?.mobile_number || "",
-        email: wh.contactEmail || cfg.collectionContact?.email || "",
-      };
+    warehouseDoc = await Warehouse.findById(order.warehouse).lean();
+  }
+  if (!warehouseDoc && order.items?.length) {
+    try {
+      const warehouseRoutingService = require("./warehouseRoutingService");
+      const resolved = await warehouseRoutingService.resolveWarehouseForReturn({
+        order,
+        affectedItems: order.items,
+      });
+      warehouseDoc = resolved.warehouse?.toObject?.() || resolved.warehouse;
+      if (!order.pickupLocation && resolved.pickupLocation) {
+        order.pickupLocation = resolved.pickupLocation;
+      }
+      if (!order.warehouse && resolved.warehouseId) {
+        order.warehouse = resolved.warehouseId;
+      }
+    } catch (err) {
+      console.warn(
+        `[shippingShipment] outbound warehouse resolve failed for ${order.orderNumber}:`,
+        err?.message || err
+      );
     }
+  }
+  if (warehouseDoc) {
+    collectionAddress = warehouseToShipLogicAddress(
+      warehouseDoc,
+      order.pickupLocation
+    );
+    collectionContact = {
+      name: warehouseDoc.contactName || warehouseDoc.name || "Warehouse",
+      mobile_number: warehouseDoc.contactPhone || "",
+      email: warehouseDoc.contactEmail || "",
+    };
+  } else {
+    const required = requireCollectionConfig(cfg);
+    collectionAddress = required.collectionAddress;
+    collectionContact = required.collectionContact;
   }
 
   const deliveryAddress = toShipLogicAddress(order.shippingAddress, {
@@ -107,8 +135,8 @@ const bookShipmentForOrder = async (order, { actorUserId } = {}) => {
     opt_in_time_based_rates: [],
     special_instructions_collection: "",
     special_instructions_delivery: "",
-    collection_min_date: `${todayIsoDate()}T00:00:00.000Z`,
-    delivery_min_date: `${todayIsoDate()}T00:00:00.000Z`,
+    collection_min_date: `${todayIsoDate()}T00:00:00+02:00`,
+    delivery_min_date: `${todayIsoDate()}T00:00:00+02:00`,
     customer_reference_name: "Order no.",
     customer_reference: order.orderNumber,
     service_level_code: order.shippingQuote.serviceLevelCode,
@@ -438,8 +466,8 @@ const bookReturnShipmentForRequest = async (
     opt_in_time_based_rates: [],
     special_instructions_collection: `Return — item for ${purposeLabel}`,
     special_instructions_delivery: `${purposeLabel} return shipment`,
-    collection_min_date: `${todayIsoDate()}T00:00:00.000Z`,
-    delivery_min_date: `${todayIsoDate()}T00:00:00.000Z`,
+    collection_min_date: `${todayIsoDate()}T00:00:00+02:00`,
+    delivery_min_date: `${todayIsoDate()}T00:00:00+02:00`,
     customer_reference_name: "Return for",
     customer_reference: requestDoc.requestNumber || originalOrder.orderNumber,
     service_level_code: serviceLevel,

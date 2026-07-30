@@ -9,6 +9,9 @@ const quoteShipping = async (req, res, next) => {
     const quote = await shippingQuoteService.quoteDoorToDoor({
       shippingAddress: req.body.shippingAddress,
       declaredValue: req.body.declaredValue,
+      productIds: req.body.productIds,
+      items: req.body.items,
+      userId: req.user?._id || req.user?.id || null,
     });
     return sendSuccess(res, { quote }, "Shipping rates fetched");
   } catch (error) {

@@ -454,19 +454,26 @@ const resolveFulfillmentCheckout = async ({
   const addr = normalizeShippingAddress(shippingAddress);
   assertShippingComplete(addr);
   const declaredValue = linePayload.subtotal;
+
+  const routed = await warehouseRoutingService.resolveWarehouseForProducts(
+    linePayload.products || []
+  );
+
   const totals = await shippingQuoteService.resolveCheckoutDeliveryTotals({
     shippingAddress: addr,
     serviceLevelCode: shippingServiceLevelCode,
     subtotal: linePayload.subtotal,
     currency: linePayload.currency,
     declaredValue,
+    products: linePayload.products || [],
   });
 
   return {
     fulfillmentMethod: "DELIVERY",
     shippingAddress: addr,
     shippingQuote: totals.shippingQuote,
-    pickupLocation: undefined,
+    pickupLocation: routed.pickupLocation,
+    warehouseId: routed.warehouseId,
     snapshots: linePayload.snapshots,
     subtotal: totals.subtotal,
     deliveryCharge: totals.deliveryCharge,
