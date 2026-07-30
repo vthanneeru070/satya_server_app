@@ -618,6 +618,79 @@ const applyReturnTrackingStatus = async (requestId, shipLogicStatus, { actorUser
   return { changed: false };
 };
 
+/**
+ * Admin: poll TCG for return shipment status (advances mock / pulls live status).
+ * On delivered, marks return received and initiates refund.
+ */
+const syncReturnShipment = async (requestId, { actorUserId } = {}) => {
+  const request = await OrderRequest.findOne({
+    _id: requestId,
+    isDeleted: { $ne: true },
+  });
+  if (!request) throw new HttpError("Request not found", 404);
+  if (request.type !== "REFUND") {
+    throw new HttpError("Return tracking sync applies only to refund requests", 400);
+  }
+  if (request.fulfillmentMethod === "PICKUP") {
+    throw new HttpError(
+      "Pickup returns do not use Courier Guy. Mark return received when the item arrives at the warehouse.",
+      400
+    );
+  }
+  if (request.status === "COMPLETED" || request.status === "APPROVED") {
+    return {
+      request: await populateRequest(request._id),
+      changed: false,
+      courierStatus: request.returnShipment?.courierStatus || "",
+      alreadyDone: true,
+    };
+  }
+  if (request.status !== "AWAITING_RETURN") {
+    throw new HttpError(
+      `Cannot sync return tracking when request status is ${request.status}.`,
+      400
+    );
+  }
+
+  const shipmentId = String(request.returnShipment?.shipmentId || "").trim();
+  const trackingReference = String(
+    request.returnShipment?.shortTrackingReference ||
+      request.returnShipment?.waybill ||
+      ""
+  ).trim();
+  if (!shipmentId && !trackingReference) {
+    throw new HttpError(
+      "No Courier Guy return shipment to sync. Book return collection first.",
+      400
+    );
+  }
+
+  const tcgClient = require("../integrations/tcg/tcgClient");
+  const shipment = await tcgClient.getShipment({
+    id: shipmentId || undefined,
+    trackingReference: trackingReference || undefined,
+  });
+  const courierStatus = shipment?.status || null;
+  if (!courierStatus) {
+    throw new HttpError("Courier Guy did not return a status for this shipment", 502);
+  }
+
+  const result = await applyReturnTrackingStatus(requestId, courierStatus, {
+    actorUserId,
+  });
+
+  const populated =
+    result.request || (await populateRequest(request._id));
+
+  return {
+    request: populated,
+    changed: Boolean(result.changed),
+    courierStatus: String(courierStatus),
+    refund: result.refund || null,
+    alreadyDone: false,
+  };
+};
+
 const rejectRequest = async (
   requestId,
   { adminNote = "" } = {},
@@ -670,5 +743,6 @@ module.exports = {
   bookReturnShipment,
   markReturnReceived,
   applyReturnTrackingStatus,
+  syncReturnShipment,
   _internal: { nextRequestNumber, OPEN_REFUND_STATUSES },
 };

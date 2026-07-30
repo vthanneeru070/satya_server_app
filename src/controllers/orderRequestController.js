@@ -143,6 +143,40 @@ const markReturnReceived = async (req, res, next) => {
   }
 };
 
+const syncReturn = async (req, res, next) => {
+  try {
+    const result = await orderRequestService.syncReturnShipment(
+      req.params.requestId,
+      { actorUserId: req.user.userId }
+    );
+    const status = result.courierStatus || "";
+    let message = result.changed
+      ? `Return tracking refreshed (${status || "updated"}).`
+      : `Return tracking checked (${status || "unchanged"}).`;
+    if (result.refund?.outcome === "REFUNDED") {
+      message =
+        "Return delivered to warehouse — PayFast refund completed.";
+    } else if (result.refund?.outcome === "PENDING") {
+      message =
+        "Return delivered to warehouse — PayFast refund submitted.";
+    } else if (result.alreadyDone) {
+      message = "Return already completed for this request.";
+    }
+    return sendSuccess(
+      res,
+      {
+        request: result.request,
+        refund: result.refund,
+        changed: result.changed,
+        courierStatus: result.courierStatus,
+      },
+      message
+    );
+  } catch (error) {
+    return next(error);
+  }
+};
+
 module.exports = {
   createRequest,
   listMyRequests,
@@ -152,4 +186,5 @@ module.exports = {
   rejectRequest,
   bookReturn,
   markReturnReceived,
+  syncReturn,
 };

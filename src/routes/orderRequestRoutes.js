@@ -11,6 +11,7 @@ const {
   rejectRequest,
   bookReturn,
   markReturnReceived,
+  syncReturn,
 } = require("../controllers/orderRequestController");
 const {
   createRequestSchema,
@@ -214,6 +215,36 @@ router.post(
   authorizeRoles("admin"),
   validate(requestIdParamsSchema, "params"),
   markReturnReceived
+);
+
+/**
+ * @swagger
+ * /orders/requests/{requestId}/sync-return:
+ *   post:
+ *     summary: Refresh Courier Guy status for a refund return shipment (admin)
+ *     description: |
+ *       Polls TCG for the return waybill. With mock mode, each refresh advances
+ *       status toward delivered; on delivered, refund is initiated automatically.
+ *     tags: [Order Requests]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: requestId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Return tracking refreshed }
+ *       400: { description: Not actionable }
+ *       403: { description: Admin role required }
+ *       404: { description: Request not found }
+ */
+router.post(
+  "/requests/:requestId/sync-return",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(requestIdParamsSchema, "params"),
+  syncReturn
 );
 
 /**
