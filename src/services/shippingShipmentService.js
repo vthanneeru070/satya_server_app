@@ -62,6 +62,22 @@ const bookShipmentForOrder = async (order, { actorUserId } = {}) => {
   }
 
   const cfg = requireCollectionConfig();
+  let collectionAddress = cfg.collectionAddress;
+  let collectionContact = cfg.collectionContact;
+
+  if (order.warehouse) {
+    const Warehouse = require("../models/Warehouse");
+    const wh = await Warehouse.findById(order.warehouse).lean();
+    if (wh) {
+      collectionAddress = warehouseToShipLogicAddress(wh, order.pickupLocation);
+      collectionContact = {
+        name: wh.contactName || cfg.collectionContact?.name || "Warehouse",
+        mobile_number: wh.contactPhone || cfg.collectionContact?.mobile_number || "",
+        email: wh.contactEmail || cfg.collectionContact?.email || "",
+      };
+    }
+  }
+
   const deliveryAddress = toShipLogicAddress(order.shippingAddress, {
     type: "residential",
   });
@@ -78,8 +94,8 @@ const bookShipmentForOrder = async (order, { actorUserId } = {}) => {
   }
 
   const payload = {
-    collection_address: cfg.collectionAddress,
-    collection_contact: cfg.collectionContact,
+    collection_address: collectionAddress,
+    collection_contact: collectionContact,
     delivery_address: deliveryAddress,
     delivery_contact: {
       name: contactName,
@@ -135,6 +151,12 @@ const bookShipmentForOrder = async (order, { actorUserId } = {}) => {
     lastSyncedAt: new Date(),
     bookedBy: actorUserId || null,
     podMethod: podEnabled ? podMethod : "",
+    collectionAddress: snapshotReturnEndpoint(collectionAddress, collectionContact),
+    deliveryAddress: snapshotReturnEndpoint(deliveryAddress, {
+      name: contactName,
+      mobile_number: contactPhone,
+      email: "",
+    }),
     pod: podEnabled
       ? {
           status: "pending",
@@ -236,6 +258,74 @@ const snapshotFromOrderShippingAddress = (shippingAddress) => {
   );
 };
 
+/** Backfill TCG collection/delivery address snapshots for older outbound orders. */
+const ensureOutboundDeliveryAddressSnapshots = async (order) => {
+  if (!order || (order.fulfillmentMethod || "DELIVERY") === "PICKUP") return;
+
+  if (!order.delivery) {
+    order.delivery = {};
+  }
+
+  const d = order.delivery;
+  const hasCollection = Boolean(String(d.collectionAddress?.label || "").trim());
+  const hasDelivery = Boolean(String(d.deliveryAddress?.label || "").trim());
+  if (hasCollection && hasDelivery) return;
+
+  let dirty = false;
+
+  if (!hasCollection) {
+    let warehouse = null;
+    if (order.warehouse) {
+      const Warehouse = require("../models/Warehouse");
+      warehouse = await Warehouse.findById(order.warehouse).lean();
+    }
+    if (warehouse || order.pickupLocation) {
+      const sl = warehouseToShipLogicAddress(warehouse, order.pickupLocation);
+      d.collectionAddress = snapshotReturnEndpoint(sl, {
+        name:
+          warehouse?.contactName ||
+          warehouse?.name ||
+          order.pickupLocation?.company ||
+          "Warehouse",
+        mobile_number:
+          warehouse?.contactPhone || order.pickupLocation?.contactPhone || "",
+        email:
+          warehouse?.contactEmail || order.pickupLocation?.contactEmail || "",
+      });
+      dirty = true;
+    } else {
+      try {
+        const { requireCollectionConfig } = require("../config/tcgConfig");
+        const cfg = requireCollectionConfig();
+        d.collectionAddress = snapshotReturnEndpoint(
+          cfg.collectionAddress,
+          cfg.collectionContact
+        );
+        dirty = true;
+      } catch (_) {
+        // Config may be incomplete in local/dev; skip quietly.
+      }
+    }
+  }
+
+  if (!hasDelivery && order.shippingAddress) {
+    d.deliveryAddress = snapshotFromOrderShippingAddress(order.shippingAddress);
+    dirty = true;
+  }
+
+  if (dirty) {
+    order.markModified?.("delivery");
+    try {
+      await order.save();
+    } catch (err) {
+      console.warn(
+        `[shippingShipment] could not persist outbound address snapshots for ${order.orderNumber}:`,
+        err?.message || err
+      );
+    }
+  }
+};
+
 /**
  * Book a return shipment (customer → warehouse) for a delivery refund or replacement.
  * Mutates `requestDoc.returnShipment` but does not save.
@@ -279,15 +369,40 @@ const bookReturnShipmentForRequest = async (
   let deliveryAddress = cfg.collectionAddress;
   let deliveryContact = cfg.collectionContact;
 
-  if (originalOrder.warehouse) {
-    const wh = await Warehouse.findById(originalOrder.warehouse).lean();
-    if (wh) {
-      deliveryAddress = warehouseToShipLogicAddress(wh, originalOrder.pickupLocation);
-      deliveryContact = {
-        name: wh.contactName || cfg.collectionContact?.name || "Warehouse",
-        mobile_number: wh.contactPhone || cfg.collectionContact?.mobile_number || "",
-        email: wh.contactEmail || cfg.collectionContact?.email || "",
-      };
+  try {
+    const warehouseRoutingService = require("./warehouseRoutingService");
+    const resolved = await warehouseRoutingService.resolveWarehouseForReturn({
+      order: originalOrder,
+      affectedItems: requestDoc.affectedItems,
+    });
+    deliveryAddress = warehouseToShipLogicAddress(
+      resolved.warehouse,
+      resolved.pickupLocation
+    );
+    deliveryContact = warehouseRoutingService.warehouseContact(
+      resolved.warehouse,
+      cfg.collectionContact
+    );
+  } catch (err) {
+    if (originalOrder.warehouse) {
+      const wh = await Warehouse.findById(originalOrder.warehouse).lean();
+      if (wh) {
+        deliveryAddress = warehouseToShipLogicAddress(
+          wh,
+          originalOrder.pickupLocation
+        );
+        deliveryContact = {
+          name: wh.contactName || cfg.collectionContact?.name || "Warehouse",
+          mobile_number:
+            wh.contactPhone || cfg.collectionContact?.mobile_number || "",
+          email: wh.contactEmail || cfg.collectionContact?.email || "",
+        };
+      }
+    } else {
+      console.warn(
+        `[shippingShipment] return warehouse resolve failed for ${requestDoc.requestNumber}:`,
+        err?.message || err
+      );
     }
   }
 
@@ -712,6 +827,7 @@ module.exports = {
   mapShipLogicStatusToOrderStatus,
   mapShipLogicStatusToReturnShipmentStatus,
   buildTrackingUrl,
+  ensureOutboundDeliveryAddressSnapshots,
   snapshotReturnEndpoint,
   snapshotFromOrderShippingAddress,
   warehouseToShipLogicAddress,

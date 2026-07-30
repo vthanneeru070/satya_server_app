@@ -8,6 +8,7 @@ const orderService = require("./orderService");
 const orderEmailService = require("./orderEmailService");
 const adminNotificationService = require("./adminNotificationService");
 const shippingShipmentService = require("./shippingShipmentService");
+const warehouseRoutingService = require("./warehouseRoutingService");
 const {
   resolveAffectedItems,
   computeRefundAmount,
@@ -144,24 +145,33 @@ const setupReturnShipmentOnApprove = async (request, order) => {
   request.fulfillmentMethod = fulfillmentMethod;
 
   let warehouse = null;
-  if (order.warehouse) {
-    warehouse = await Warehouse.findById(order.warehouse).lean();
+  let pickupLocation = order.pickupLocation;
+  try {
+    const resolved = await warehouseRoutingService.resolveWarehouseForReturn({
+      order,
+      affectedItems: request.affectedItems,
+    });
+    warehouse = resolved.warehouse?.toObject?.() || resolved.warehouse;
+    pickupLocation = resolved.pickupLocation || pickupLocation;
+  } catch (err) {
+    if (order.warehouse) {
+      warehouse = await Warehouse.findById(order.warehouse).lean();
+    }
+    console.warn(
+      `[orderRequestService] return warehouse resolve failed for ${request.requestNumber}:`,
+      err?.message || err
+    );
   }
 
   const warehouseEndpoint = () => {
     const sl = shippingShipmentService.warehouseToShipLogicAddress(
       warehouse,
-      order.pickupLocation
+      pickupLocation
     );
-    return shippingShipmentService.snapshotReturnEndpoint(sl, {
-      name:
-        warehouse?.contactName ||
-        warehouse?.name ||
-        order.pickupLocation?.company ||
-        "Warehouse",
-      mobile_number: warehouse?.contactPhone || "",
-      email: warehouse?.contactEmail || "",
-    });
+    return shippingShipmentService.snapshotReturnEndpoint(
+      sl,
+      warehouseRoutingService.warehouseContact(warehouse)
+    );
   };
 
   if (fulfillmentMethod === "PICKUP") {
@@ -169,7 +179,7 @@ const setupReturnShipmentOnApprove = async (request, order) => {
       method: "WAREHOUSE_DROP_OFF",
       status: "AWAITING_RETURN",
       instructions: buildReturnInstructions("PICKUP", {
-        pickupLocation: order.pickupLocation,
+        pickupLocation,
         warehouse,
       }),
       provider: "",
@@ -233,21 +243,41 @@ const ensureReturnAddressSnapshots = async (request) => {
   if (!request || request.type !== "REFUND" || !request.returnShipment) return;
   const rs = request.returnShipment;
   const hasCollection = Boolean(String(rs.collectionAddress?.label || "").trim());
+  const hasShipment = Boolean(String(rs.shipmentId || "").trim());
   const hasDelivery = Boolean(String(rs.deliveryAddress?.label || "").trim());
-  if (hasCollection && hasDelivery) return;
+  // Re-resolve delivery from product category until a courier waybill exists —
+  // older requests may have used the wrong TCG env collection address.
+  const shouldFixDelivery = !hasDelivery || !hasShipment;
+  if (hasCollection && !shouldFixDelivery) return;
 
   let order = request.order;
   const orderId = order?._id || order || request.order;
-  if (!order?.shippingAddress || order.warehouse === undefined) {
+  if (!order?.items || !order?.shippingAddress) {
     order = await Order.findById(orderId)
-      .select("shippingAddress pickupLocation warehouse fulfillmentMethod")
+      .select(
+        "shippingAddress pickupLocation warehouse fulfillmentMethod items.product items.title"
+      )
       .lean();
   }
   if (!order) return;
 
   let warehouse = null;
-  if (order.warehouse) {
-    warehouse = await Warehouse.findById(order.warehouse).lean();
+  let pickupLocation = order.pickupLocation;
+  try {
+    const resolved = await warehouseRoutingService.resolveWarehouseForReturn({
+      order,
+      affectedItems: request.affectedItems,
+    });
+    warehouse = resolved.warehouse?.toObject?.() || resolved.warehouse;
+    pickupLocation = resolved.pickupLocation || pickupLocation;
+  } catch (err) {
+    if (order.warehouse) {
+      warehouse = await Warehouse.findById(order.warehouse).lean();
+    }
+    console.warn(
+      `[orderRequestService] return warehouse backfill failed for ${request.requestNumber}:`,
+      err?.message || err
+    );
   }
 
   let dirty = false;
@@ -267,20 +297,15 @@ const ensureReturnAddressSnapshots = async (request) => {
     }
     dirty = true;
   }
-  if (!hasDelivery) {
+  if (shouldFixDelivery && warehouse) {
     const sl = shippingShipmentService.warehouseToShipLogicAddress(
       warehouse,
-      order.pickupLocation
+      pickupLocation
     );
-    rs.deliveryAddress = shippingShipmentService.snapshotReturnEndpoint(sl, {
-      name:
-        warehouse?.contactName ||
-        warehouse?.name ||
-        order.pickupLocation?.company ||
-        "Warehouse",
-      mobile_number: warehouse?.contactPhone || "",
-      email: warehouse?.contactEmail || "",
-    });
+    rs.deliveryAddress = shippingShipmentService.snapshotReturnEndpoint(
+      sl,
+      warehouseRoutingService.warehouseContact(warehouse)
+    );
     dirty = true;
   }
   if (dirty) {

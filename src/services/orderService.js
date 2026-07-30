@@ -654,6 +654,9 @@ const getOrderById = async (id, { userId = null, isAdmin = false } = {}) => {
   if (!isAdmin && userId && String(order.user._id || order.user) !== String(userId)) {
     throw new HttpError("Order not found", 404);
   }
+  if (isAdmin) {
+    await shippingShipmentService.ensureOutboundDeliveryAddressSnapshots(order);
+  }
   return order;
 };
 

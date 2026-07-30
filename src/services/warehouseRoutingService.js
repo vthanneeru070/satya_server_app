@@ -80,6 +80,96 @@ const resolveWarehouseForProductIds = async (productIds) => {
   return resolveWarehouseForProducts(products);
 };
 
+const productIdFromLine = (line) => {
+  if (!line) return "";
+  if (line.product && typeof line.product === "object" && line.product._id) {
+    return String(line.product._id);
+  }
+  return String(line.product || line.productId || "").trim();
+};
+
+/**
+ * Resolve return destination warehouse from returned product categories.
+ * Ayurvedic → Vishal Ayurveda (Centurion); book/pujakit → Sathya Durban.
+ * Prefers `affectedItems` when present; otherwise uses full order lines.
+ * Falls back to `order.warehouse` when products cannot be resolved.
+ */
+const resolveWarehouseForReturn = async ({
+  order,
+  affectedItems = [],
+} = {}) => {
+  const lines =
+    Array.isArray(affectedItems) && affectedItems.length > 0
+      ? affectedItems
+      : order?.items || [];
+  const productIds = [
+    ...new Set(lines.map(productIdFromLine).filter(Boolean)),
+  ];
+
+  if (productIds.length) {
+    const products = await Product.find({
+      _id: { $in: productIds },
+      isDeleted: { $ne: true },
+    }).select("_id category title");
+
+    if (products.length) {
+      const codes = new Set(
+        products.map((p) => warehouseCodeForCategory(p.category))
+      );
+      if (codes.size > 1) {
+        throw new HttpError(
+          "This return includes Ayurvedic and Book/Puja Kit items that ship to different warehouses. Please create separate return requests per warehouse.",
+          409
+        );
+      }
+      const [code] = [...codes];
+      const warehouse = await loadWarehouseByCode(code);
+      return {
+        warehouse,
+        warehouseId: warehouse._id,
+        pickupLocation: warehouse.toPickupLocationSnapshot(),
+        warehouseCode: warehouse.code,
+        source: "category",
+      };
+    }
+  }
+
+  if (order?.warehouse) {
+    const warehouse = await Warehouse.findOne({
+      _id: order.warehouse,
+      isActive: true,
+      isDeleted: { $ne: true },
+    });
+    if (warehouse) {
+      return {
+        warehouse,
+        warehouseId: warehouse._id,
+        pickupLocation:
+          order.pickupLocation || warehouse.toPickupLocationSnapshot(),
+        warehouseCode: warehouse.code,
+        source: "order",
+      };
+    }
+  }
+
+  throw new HttpError(
+    "Could not resolve return warehouse from product category. Ensure warehouses are seeded.",
+    503
+  );
+};
+
+/** ShipLogic contact fields from a warehouse document. */
+const warehouseContact = (warehouse, fallback = {}) => ({
+  name:
+    warehouse?.contactName ||
+    warehouse?.name ||
+    fallback.name ||
+    "Warehouse",
+  mobile_number:
+    warehouse?.contactPhone || fallback.mobile_number || fallback.phone || "",
+  email: warehouse?.contactEmail || fallback.email || "",
+});
+
 /** Per-line availability at the resolved warehouse (uses global product/kit stock). */
 const buildAvailabilityForProducts = async (products, quantitiesById = {}) => {
   const resolved = await resolveWarehouseForProducts(products);
@@ -114,6 +204,8 @@ module.exports = {
   warehouseCodeForCategory,
   resolveWarehouseForProducts,
   resolveWarehouseForProductIds,
+  resolveWarehouseForReturn,
+  warehouseContact,
   buildAvailabilityForProducts,
   loadWarehouseByCode,
 };

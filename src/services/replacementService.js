@@ -9,6 +9,7 @@ const orderEmailService = require("./orderEmailService");
 const fcmReplacementNotifyService = require("./fcmReplacementNotifyService");
 const adminNotificationService = require("./adminNotificationService");
 const shippingShipmentService = require("./shippingShipmentService");
+const warehouseRoutingService = require("./warehouseRoutingService");
 const Warehouse = require("../models/Warehouse");
 const {
   resolveAffectedItems,
@@ -148,19 +149,53 @@ const setupReturnShipmentOnApprove = async (lockedReq, original) => {
   const fulfillmentMethod = original.fulfillmentMethod || "DELIVERY";
   lockedReq.fulfillmentMethod = fulfillmentMethod;
 
-  if (fulfillmentMethod === "PICKUP") {
-    let warehouse = null;
+  let warehouse = null;
+  let pickupLocation = original.pickupLocation;
+  try {
+    const resolved = await warehouseRoutingService.resolveWarehouseForReturn({
+      order: original,
+      affectedItems: lockedReq.affectedItems,
+    });
+    warehouse = resolved.warehouse?.toObject?.() || resolved.warehouse;
+    pickupLocation = resolved.pickupLocation || pickupLocation;
+  } catch (err) {
     if (original.warehouse) {
       warehouse = await Warehouse.findById(original.warehouse).lean();
     }
+    console.warn(
+      `[replacementService] return warehouse resolve failed for ${lockedReq.requestNumber}:`,
+      err?.message || err
+    );
+  }
+
+  const warehouseEndpoint = () => {
+    if (!warehouse && !pickupLocation) return undefined;
+    const sl = shippingShipmentService.warehouseToShipLogicAddress(
+      warehouse,
+      pickupLocation
+    );
+    return shippingShipmentService.snapshotReturnEndpoint(
+      sl,
+      warehouseRoutingService.warehouseContact(warehouse)
+    );
+  };
+
+  if (fulfillmentMethod === "PICKUP") {
     lockedReq.returnShipment = {
       method: "WAREHOUSE_DROP_OFF",
       status: "AWAITING_RETURN",
       instructions: buildReturnInstructions("PICKUP", {
-        pickupLocation: original.pickupLocation,
+        pickupLocation,
         warehouse,
       }),
       provider: "",
+      collectionAddress: {
+        label: "Customer brings item to warehouse (no courier collection)",
+        contactName: "",
+        contactPhone: "",
+        contactEmail: "",
+      },
+      deliveryAddress: warehouseEndpoint(),
     };
     return;
   }
@@ -170,6 +205,10 @@ const setupReturnShipmentOnApprove = async (lockedReq, original) => {
     status: "AWAITING_RETURN",
     instructions: buildReturnInstructions("DELIVERY"),
     provider: "",
+    collectionAddress: shippingShipmentService.snapshotFromOrderShippingAddress(
+      original.shippingAddress
+    ),
+    deliveryAddress: warehouseEndpoint(),
   };
 };
 

@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { returnAddressSnapshotSchema } = require("./schemas/returnShipmentSchema");
 
 const shippingAddressSchema = new mongoose.Schema(
   {
@@ -94,6 +95,16 @@ const deliverySchema = new mongoose.Schema(
     trackingEvents: {
       type: [deliveryTrackingEventSchema],
       default: [],
+    },
+    /** Warehouse / TCG collection point snapshot at booking time. */
+    collectionAddress: {
+      type: returnAddressSnapshotSchema,
+      default: undefined,
+    },
+    /** Customer delivery address snapshot at booking time. */
+    deliveryAddress: {
+      type: returnAddressSnapshotSchema,
+      default: undefined,
     },
   },
   { _id: false }
