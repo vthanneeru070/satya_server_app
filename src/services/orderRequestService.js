@@ -9,6 +9,7 @@ const adminNotificationService = require("./adminNotificationService");
 const {
   resolveAffectedItems,
   computeRefundAmount,
+  assertPostFulfilmentForRequests,
 } = require("../utils/orderAffectedItems");
 
 const REQUEST_PREFIX = process.env.REQUEST_NUMBER_PREFIX || "REQ";
@@ -93,10 +94,14 @@ const assertCanCreate = (order, type) => {
       );
     }
     if (!["DELIVERED", "FULFILLED"].includes(order.orderStatus)) {
-      throw new HttpError(
-        `${type.toLowerCase()} requests can only be opened after the order is delivered (current status: ${order.orderStatus}).`,
-        400
-      );
+      if (order.fulfillmentMethod === "PICKUP") {
+        assertPostFulfilmentForRequests(order, `${type.toLowerCase()} requests`);
+      } else {
+        throw new HttpError(
+          `${type.toLowerCase()} requests can only be opened after the order is delivered (current status: ${order.orderStatus}).`,
+          400
+        );
+      }
     }
     return;
   }

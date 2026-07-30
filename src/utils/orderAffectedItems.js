@@ -143,6 +143,22 @@ const parseAffectedItemsInput = (raw, fieldName = "affectedItems") => {
   return [];
 };
 
+/** Pickup: COLLECTED or FULFILLED. Delivery: DELIVERED or FULFILLED. */
+const assertPostFulfilmentForRequests = (order, actionLabel = "This request") => {
+  const method = String(order?.fulfillmentMethod || "DELIVERY").toUpperCase();
+  const allowed =
+    method === "PICKUP"
+      ? ["COLLECTED", "FULFILLED"]
+      : ["DELIVERED", "FULFILLED"];
+  if (!allowed.includes(order.orderStatus)) {
+    const phase = method === "PICKUP" ? "pickup" : "delivery";
+    throw new HttpError(
+      `${actionLabel} is only allowed after ${phase} (current status: ${order.orderStatus}).`,
+      400
+    );
+  }
+};
+
 module.exports = {
   affectedOrderItemSchema,
   resolveAffectedItems,
@@ -151,4 +167,5 @@ module.exports = {
   computeRefundAmount,
   parseAffectedItemsInput,
   normalizeProductId,
+  assertPostFulfilmentForRequests,
 };

@@ -13,6 +13,7 @@ const Warehouse = require("../models/Warehouse");
 const {
   resolveAffectedItems,
   sumAffectedLineTotals,
+  assertPostFulfilmentForRequests,
 } = require("../utils/orderAffectedItems");
 
 const notDeleted = { isDeleted: { $ne: true } };
@@ -243,12 +244,7 @@ const ensureOwnedDeliveredPaidOriginal = async (orderId, userId) => {
   if (order.orderStatus === "CANCELLED") {
     throw new HttpError("Cannot request replacement for a cancelled order.", 400);
   }
-  if (order.orderStatus !== "DELIVERED" && order.orderStatus !== "FULFILLED") {
-    throw new HttpError(
-      `Replacements are only allowed after delivery (current status: ${order.orderStatus}).`,
-      400
-    );
-  }
+  assertPostFulfilmentForRequests(order, "Replacements");
   if (order.paymentStatus !== "PAID") {
     throw new HttpError("Only paid orders can request a replacement.", 400);
   }
@@ -458,12 +454,7 @@ const approveRequest = async (requestId, { adminRemarks = "" } = {}, { actorUser
       if (original.paymentStatus !== "PAID") {
         throw new HttpError("Original order is not paid; cannot spawn replacement.", 400);
       }
-      if (!["DELIVERED", "FULFILLED"].includes(original.orderStatus)) {
-        throw new HttpError(
-          `Original order must be delivered (current: ${original.orderStatus}).`,
-          400
-        );
-      }
+      assertPostFulfilmentForRequests(original, "Replacement approval");
 
       const activeChild = await Order.findOne({
         replacementFor: original._id,
