@@ -20,7 +20,7 @@ const OPEN_REFUND_STATUSES = ["PENDING", "AWAITING_RETURN", "APPROVED"];
 const RETURN_ACTIONABLE_STATUSES = new Set(["AWAITING_RETURN"]);
 
 const ORDER_POPULATE =
-  "orderNumber orderStatus paymentStatus totalAmount currency fulfillmentMethod";
+  "orderNumber orderStatus paymentStatus totalAmount currency fulfillmentMethod shippingAddress pickupLocation warehouse";
 
 const nextRequestNumber = async (session) => {
   const doc = await Counter.findOneAndUpdate(
@@ -143,11 +143,28 @@ const setupReturnShipmentOnApprove = async (request, order) => {
   const fulfillmentMethod = order.fulfillmentMethod || "DELIVERY";
   request.fulfillmentMethod = fulfillmentMethod;
 
+  let warehouse = null;
+  if (order.warehouse) {
+    warehouse = await Warehouse.findById(order.warehouse).lean();
+  }
+
+  const warehouseEndpoint = () => {
+    const sl = shippingShipmentService.warehouseToShipLogicAddress(
+      warehouse,
+      order.pickupLocation
+    );
+    return shippingShipmentService.snapshotReturnEndpoint(sl, {
+      name:
+        warehouse?.contactName ||
+        warehouse?.name ||
+        order.pickupLocation?.company ||
+        "Warehouse",
+      mobile_number: warehouse?.contactPhone || "",
+      email: warehouse?.contactEmail || "",
+    });
+  };
+
   if (fulfillmentMethod === "PICKUP") {
-    let warehouse = null;
-    if (order.warehouse) {
-      warehouse = await Warehouse.findById(order.warehouse).lean();
-    }
     request.returnShipment = {
       method: "WAREHOUSE_DROP_OFF",
       status: "AWAITING_RETURN",
@@ -156,15 +173,30 @@ const setupReturnShipmentOnApprove = async (request, order) => {
         warehouse,
       }),
       provider: "",
+      collectionAddress: {
+        label: "Customer brings item to warehouse (no courier collection)",
+        contactName: "",
+        contactPhone: "",
+        contactEmail: "",
+      },
+      deliveryAddress: warehouseEndpoint(),
     };
     return { booked: false, bookError: null };
   }
+
+  const collectionAddress =
+    shippingShipmentService.snapshotFromOrderShippingAddress(
+      order.shippingAddress
+    );
+  const deliveryAddress = warehouseEndpoint();
 
   request.returnShipment = {
     method: "COURIER_COLLECTION",
     status: "AWAITING_RETURN",
     instructions: buildReturnInstructions("DELIVERY"),
     provider: "",
+    collectionAddress,
+    deliveryAddress,
   };
 
   try {
@@ -184,10 +216,84 @@ const setupReturnShipmentOnApprove = async (request, order) => {
   }
 };
 
-const populateRequest = (id) =>
-  OrderRequest.findById(id)
-    .populate("order", ORDER_POPULATE)
+const populateRequest = async (id) => {
+  const request = await OrderRequest.findById(id)
+    .populate(
+      "order",
+      ORDER_POPULATE
+    )
     .populate("user", "fullName email phone role");
+  if (!request) return null;
+  await ensureReturnAddressSnapshots(request);
+  return request;
+};
+
+/** Backfill collection/delivery address snapshots for older return requests. */
+const ensureReturnAddressSnapshots = async (request) => {
+  if (!request || request.type !== "REFUND" || !request.returnShipment) return;
+  const rs = request.returnShipment;
+  const hasCollection = Boolean(String(rs.collectionAddress?.label || "").trim());
+  const hasDelivery = Boolean(String(rs.deliveryAddress?.label || "").trim());
+  if (hasCollection && hasDelivery) return;
+
+  let order = request.order;
+  const orderId = order?._id || order || request.order;
+  if (!order?.shippingAddress || order.warehouse === undefined) {
+    order = await Order.findById(orderId)
+      .select("shippingAddress pickupLocation warehouse fulfillmentMethod")
+      .lean();
+  }
+  if (!order) return;
+
+  let warehouse = null;
+  if (order.warehouse) {
+    warehouse = await Warehouse.findById(order.warehouse).lean();
+  }
+
+  let dirty = false;
+  if (!hasCollection) {
+    if ((order.fulfillmentMethod || request.fulfillmentMethod) === "PICKUP") {
+      rs.collectionAddress = {
+        label: "Customer brings item to warehouse (no courier collection)",
+        contactName: "",
+        contactPhone: "",
+        contactEmail: "",
+      };
+    } else {
+      rs.collectionAddress =
+        shippingShipmentService.snapshotFromOrderShippingAddress(
+          order.shippingAddress
+        );
+    }
+    dirty = true;
+  }
+  if (!hasDelivery) {
+    const sl = shippingShipmentService.warehouseToShipLogicAddress(
+      warehouse,
+      order.pickupLocation
+    );
+    rs.deliveryAddress = shippingShipmentService.snapshotReturnEndpoint(sl, {
+      name:
+        warehouse?.contactName ||
+        warehouse?.name ||
+        order.pickupLocation?.company ||
+        "Warehouse",
+      mobile_number: warehouse?.contactPhone || "",
+      email: warehouse?.contactEmail || "",
+    });
+    dirty = true;
+  }
+  if (dirty) {
+    try {
+      await request.save();
+    } catch (err) {
+      console.warn(
+        `[orderRequestService] could not persist return address snapshots for ${request.requestNumber}:`,
+        err?.message || err
+      );
+    }
+  }
+};
 
 const createRequest = async (
   userId,
@@ -327,6 +433,7 @@ const getRequestById = async (requestId, { userId = null, isAdmin = false } = {}
       "orderNumber orderStatus paymentStatus totalAmount currency"
     );
   if (!request) throw new HttpError("Request not found", 404);
+  await ensureReturnAddressSnapshots(request);
   return request;
 };
 

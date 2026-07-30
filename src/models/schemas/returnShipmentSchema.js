@@ -1,5 +1,15 @@
 const mongoose = require("mongoose");
 
+const returnAddressSnapshotSchema = new mongoose.Schema(
+  {
+    label: { type: String, default: "", trim: true, maxlength: 1000 },
+    contactName: { type: String, default: "", trim: true, maxlength: 200 },
+    contactPhone: { type: String, default: "", trim: true, maxlength: 40 },
+    contactEmail: { type: String, default: "", trim: true, maxlength: 200 },
+  },
+  { _id: false }
+);
+
 /** Shared return logistics for refund / replacement requests. */
 const returnShipmentSchema = new mongoose.Schema(
   {
@@ -28,6 +38,16 @@ const returnShipmentSchema = new mongoose.Schema(
     trackingUrl: { type: String, default: "" },
     labelUrl: { type: String, default: "" },
     courierStatus: { type: String, default: "" },
+    /** TCG pickup from customer (delivery returns) or empty for warehouse drop-off. */
+    collectionAddress: {
+      type: returnAddressSnapshotSchema,
+      default: undefined,
+    },
+    /** Warehouse / drop-off destination for the returned goods. */
+    deliveryAddress: {
+      type: returnAddressSnapshotSchema,
+      default: undefined,
+    },
     bookedAt: { type: Date, default: null },
     receivedAt: { type: Date, default: null },
     receivedBy: {
@@ -39,4 +59,4 @@ const returnShipmentSchema = new mongoose.Schema(
   { _id: false }
 );
 
-module.exports = { returnShipmentSchema };
+module.exports = { returnShipmentSchema, returnAddressSnapshotSchema };

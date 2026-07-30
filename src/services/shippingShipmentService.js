@@ -187,6 +187,55 @@ const warehouseToShipLogicAddress = (warehouse, pickupLocation = {}) => {
   );
 };
 
+/** Human-readable snapshot for CMS / devotee return address cards. */
+const snapshotReturnEndpoint = (addr = {}, contact = {}) => {
+  const a = addr && typeof addr === "object" ? addr : {};
+  const c = contact && typeof contact === "object" ? contact : {};
+  const parts = [
+    a.company,
+    a.street_address || a.streetAddress || a.line1 || a.addressLine1,
+    a.local_area || a.localArea || a.suburb,
+    a.city,
+    a.zone || a.region || a.state,
+    a.code || a.postalCode || a.zip,
+    a.country,
+  ]
+    .map((v) => String(v || "").trim())
+    .filter(Boolean);
+  const entered = String(
+    a.entered_address || a.enteredAddress || ""
+  ).trim();
+  return {
+    label: entered || parts.join(", "),
+    contactName: String(c.name || c.fullName || a.company || "").trim(),
+    contactPhone: String(
+      c.mobile_number || c.phone || c.mobile || ""
+    ).trim(),
+    contactEmail: String(c.email || "").trim(),
+  };
+};
+
+const snapshotFromOrderShippingAddress = (shippingAddress) => {
+  if (!shippingAddress) return snapshotReturnEndpoint({}, {});
+  const a = shippingAddress.toObject?.() || shippingAddress;
+  return snapshotReturnEndpoint(
+    {
+      street_address: a.addressLine1 || a.streetAddress || a.line1 || "",
+      local_area: a.suburb || a.localArea || "",
+      city: a.city || "",
+      zone: a.region || a.state || a.province || "",
+      postalCode: a.postalCode || a.zip || "",
+      country: a.country || "",
+      enteredAddress: a.enteredAddress || "",
+    },
+    {
+      name: a.fullName || a.name || "",
+      mobile_number: a.phone || a.mobile || "",
+      email: a.email || "",
+    }
+  );
+};
+
 /**
  * Book a return shipment (customer → warehouse) for a delivery refund or replacement.
  * Mutates `requestDoc.returnShipment` but does not save.
@@ -314,6 +363,12 @@ const bookReturnShipmentForRequest = async (
     trackingUrl: buildTrackingUrl(returnShortRef || waybill),
     labelUrl,
     courierStatus,
+    collectionAddress: snapshotReturnEndpoint(collectionAddress, {
+      name: contactName,
+      mobile_number: contactPhone,
+      email: "",
+    }),
+    deliveryAddress: snapshotReturnEndpoint(deliveryAddress, deliveryContact),
     bookedAt: new Date(),
   };
 
@@ -657,6 +712,9 @@ module.exports = {
   mapShipLogicStatusToOrderStatus,
   mapShipLogicStatusToReturnShipmentStatus,
   buildTrackingUrl,
+  snapshotReturnEndpoint,
+  snapshotFromOrderShippingAddress,
+  warehouseToShipLogicAddress,
   getShippingLabelUrlForOrder,
   getShippingLabelAssetForOrder,
   rebookCourierShipmentForOrder,
