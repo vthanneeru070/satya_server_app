@@ -3,6 +3,7 @@ const Product = require("../models/Product");
 const HttpError = require("../utils/httpError");
 const inventoryService = require("./inventoryService");
 const ecommerceSettingsService = require("./ecommerceSettingsService");
+const warehouseRoutingService = require("./warehouseRoutingService");
 const { usesProductQuantity } = require("../validations/productValidation");
 
 const getOrCreateCart = async (userId) => {
@@ -94,6 +95,7 @@ const serializeCart = async (cart) => {
         title: product.title,
         slug: product.slug,
         imageUrl: product.imageUrl,
+        category: product.category,
         items: product.items,
         currency: product.currency,
         stockQuantity: product.stockQuantity,
@@ -147,6 +149,18 @@ const addItem = async (userId, { productId, quantity = 1 }) => {
   const existing = cart.items.find((it) => String(it.product) === String(productId));
   const newQty = (existing ? existing.quantity : 0) + qty;
   await assertProductBuyable(product, newQty);
+
+  if (!existing && cart.items.length > 0) {
+    const existingIds = cart.items.map((it) => it.product);
+    const existingProducts = await Product.find({
+      _id: { $in: existingIds },
+      isDeleted: { $ne: true },
+    }).select("category");
+    warehouseRoutingService.assertSingleWarehouseForProducts(
+      [...existingProducts, product],
+      { context: "cart" }
+    );
+  }
 
   const snap = unitPrice(product);
   if (existing) {

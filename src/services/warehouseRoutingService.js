@@ -21,6 +21,24 @@ const warehouseCodeForCategory = (category) => {
   return WAREHOUSE_CODE_DURBAN;
 };
 
+const MIXED_WAREHOUSE_CART_MESSAGE =
+  "You can't mix Ayurvedic products with Books or Puja Kits in one cart. Remove the other category first or checkout separately.";
+
+const MIXED_WAREHOUSE_CHECKOUT_MESSAGE =
+  "Your cart contains items from different pickup locations. Please checkout Books/Puja Kits and Ayurvedic products separately.";
+
+/** Throws 409 when products span Ayurvedic vs Book/Puja Kit warehouses. */
+const assertSingleWarehouseForProducts = (products, { context = "checkout" } = {}) => {
+  if (!products?.length) return;
+  const codes = new Set(products.map((p) => warehouseCodeForCategory(p.category)));
+  if (codes.size > 1) {
+    throw new HttpError(
+      context === "cart" ? MIXED_WAREHOUSE_CART_MESSAGE : MIXED_WAREHOUSE_CHECKOUT_MESSAGE,
+      409
+    );
+  }
+};
+
 const loadWarehouseByCode = async (code) => {
   const warehouse = await Warehouse.findOne({
     code: String(code || "").trim().toUpperCase(),
@@ -42,18 +60,9 @@ const resolveWarehouseForProducts = async (products) => {
     throw new HttpError("No products to resolve warehouse for", 400);
   }
 
-  const codes = new Set(
-    products.map((p) => warehouseCodeForCategory(p.category))
-  );
+  assertSingleWarehouseForProducts(products, { context: "checkout" });
 
-  if (codes.size > 1) {
-    throw new HttpError(
-      "Your cart contains items from different pickup locations. Please checkout Books/Puja Kits and Ayurvedic products separately.",
-      409
-    );
-  }
-
-  const [code] = [...codes];
+  const [code] = [...new Set(products.map((p) => warehouseCodeForCategory(p.category)))];
   const warehouse = await loadWarehouseByCode(code);
   return {
     warehouse,
@@ -202,6 +211,8 @@ const buildAvailabilityForProducts = async (products, quantitiesById = {}) => {
 
 module.exports = {
   warehouseCodeForCategory,
+  assertSingleWarehouseForProducts,
+  MIXED_WAREHOUSE_CART_MESSAGE,
   resolveWarehouseForProducts,
   resolveWarehouseForProductIds,
   resolveWarehouseForReturn,

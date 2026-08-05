@@ -11,7 +11,7 @@ const quoteShipping = async (req, res, next) => {
       declaredValue: req.body.declaredValue,
       productIds: req.body.productIds,
       items: req.body.items,
-      userId: req.user?._id || req.user?.id || null,
+      userId: req.user?.userId || req.user?._id || req.user?.id || null,
     });
     return sendSuccess(res, { quote }, "Shipping rates fetched");
   } catch (error) {
