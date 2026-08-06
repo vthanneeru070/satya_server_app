@@ -23,7 +23,6 @@ const CUSTOMER_INBOX_NOTIFY_STATUSES = new Set([
 ]);
 const paystackService = require("./paystackService");
 const payfastService = require("./payfastService");
-const ecommerceSettingsService = require("./ecommerceSettingsService");
 const shippingQuoteService = require("./shippingQuoteService");
 const shippingShipmentService = require("./shippingShipmentService");
 const shippingPodService = require("./shippingPodService");
@@ -318,14 +317,15 @@ const buildOrderPayload = async (userId, { items, useCart }) => {
   return { snapshots, subtotal: totalAmount, currency, products: [...productMap.values()] };
 };
 
+/** Legacy helper — delivery fee comes from TCG at checkout; keep deliveryCharge 0 here. */
 const applyDeliveryToCheckout = async ({ snapshots, subtotal, currency }) => {
-  const totals = await ecommerceSettingsService.attachDeliveryTotals(subtotal, currency);
+  const normalized = Math.round(Number(subtotal) * 100) / 100;
   return {
     snapshots,
-    subtotal: totals.subtotal,
-    deliveryCharge: totals.deliveryCharge,
-    totalAmount: totals.totalAmount,
-    currency: totals.currency,
+    subtotal: normalized,
+    deliveryCharge: 0,
+    totalAmount: normalized,
+    currency: currency || "ZAR",
   };
 };
 

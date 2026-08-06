@@ -1,12 +1,8 @@
 const express = require("express");
 const authenticate = require("../middleware/authenticate");
 const adminMiddleware = require("../middleware/adminMiddleware");
-const validate = require("../middleware/validate");
-const {
-  getEcommerceSettings,
-  updateEcommerceSettings,
-} = require("../controllers/ecommerceSettingsController");
-const { updateEcommerceSettingsSchema } = require("../validations/ecommerceSettingsValidation");
+const { sendSuccess } = require("../utils/response");
+const HttpError = require("../utils/httpError");
 
 const router = express.Router();
 
@@ -14,59 +10,48 @@ const router = express.Router();
  * @swagger
  * tags:
  *   name: Ecommerce
- *   description: E-commerce store settings (admin)
+ *   description: Legacy store settings (flat delivery fee removed — TCG rates used at checkout)
  */
 
 router.use(authenticate, adminMiddleware);
+
+const REMOVED_MESSAGE =
+  "Flat delivery fee settings have been removed. Door-to-door delivery charges come from The Courier Guy (TCG) rates at checkout.";
 
 /**
  * @swagger
  * /admin/ecommerce/settings:
  *   get:
- *     summary: Get ecommerce settings
+ *     summary: Legacy ecommerce settings (removed)
  *     tags: [Ecommerce]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Ecommerce settings including delivery_charges
+ *         description: Notice that flat delivery settings are retired
  *   put:
- *     summary: Update ecommerce settings
+ *     summary: Update ecommerce settings (removed)
  *     tags: [Ecommerce]
  *     security:
  *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               delivery_charges:
- *                 type: object
- *                 properties:
- *                   delivery_charge:
- *                     type: number
- *                     example: 50
- *                   currency:
- *                     type: string
- *                     example: ZAR
- *                   is_enabled:
- *                     type: boolean
- *                     example: true
- *                   free_delivery_minimum:
- *                     type: number
- *                     nullable: true
- *                     example: 500
  *     responses:
- *       200:
- *         description: Ecommerce settings updated
+ *       410:
+ *         description: Flat delivery settings are no longer supported
  */
-router.get("/settings", getEcommerceSettings);
-router.put(
-  "/settings",
-  validate(updateEcommerceSettingsSchema),
-  updateEcommerceSettings
+router.get("/settings", (req, res) =>
+  sendSuccess(
+    res,
+    {
+      delivery_charges: null,
+      deliveryFrom: "TCG",
+      notice: REMOVED_MESSAGE,
+    },
+    REMOVED_MESSAGE
+  )
+);
+
+router.put("/settings", (req, res, next) =>
+  next(new HttpError(REMOVED_MESSAGE, 410))
 );
 
 module.exports = router;

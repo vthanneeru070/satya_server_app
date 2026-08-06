@@ -2,9 +2,21 @@ const Cart = require("../models/Cart");
 const Product = require("../models/Product");
 const HttpError = require("../utils/httpError");
 const inventoryService = require("./inventoryService");
-const ecommerceSettingsService = require("./ecommerceSettingsService");
 const warehouseRoutingService = require("./warehouseRoutingService");
 const { usesProductQuantity } = require("../validations/productValidation");
+
+const roundMoney = (value) => Math.round(Number(value) * 100) / 100;
+
+/** Cart line totals — delivery is quoted via TCG at checkout, not a flat store fee. */
+const cartLineTotals = (subtotal, currency = "ZAR") => {
+  const normalized = roundMoney(subtotal);
+  return {
+    subtotal: normalized,
+    deliveryCharge: 0,
+    totalAmount: normalized,
+    currency: currency || "ZAR",
+  };
+};
 
 const getOrCreateCart = async (userId) => {
   let cart = await Cart.findOne({ user: userId, isDeleted: { $ne: true } });
@@ -53,10 +65,7 @@ const unitPrice = (product) =>
  */
 const serializeCart = async (cart) => {
   if (!cart || cart.items.length === 0) {
-    const totals = await ecommerceSettingsService.attachDeliveryTotals(
-      cart?.totalAmount || 0,
-      cart?.currency || "ZAR"
-    );
+    const totals = cartLineTotals(cart?.totalAmount || 0, cart?.currency || "ZAR");
     return {
       _id: cart?._id || null,
       user: cart?.user || null,
@@ -117,10 +126,7 @@ const serializeCart = async (cart) => {
     await cart.save();
   }
 
-  const totals = await ecommerceSettingsService.attachDeliveryTotals(
-    cart.totalAmount,
-    currency
-  );
+  const totals = cartLineTotals(cart.totalAmount, currency);
 
   return {
     _id: cart._id,

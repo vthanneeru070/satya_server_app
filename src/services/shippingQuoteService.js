@@ -1,7 +1,6 @@
 const HttpError = require("../utils/httpError");
 const { getTcgConfig } = require("../config/tcgConfig");
 const tcgClient = require("../integrations/tcg/tcgClient");
-const ecommerceSettingsService = require("./ecommerceSettingsService");
 
 const SA_TIMEZONE = "Africa/Johannesburg";
 
@@ -306,29 +305,15 @@ const quoteDoorToDoor = async ({
 };
 
 /**
- * Resolve customer-facing delivery charge from a selected TCG rate + ecommerce free-delivery rules.
- * Returns { deliveryCharge, shippingQuote, totalAmount, subtotal, currency, customerPaysRate }.
+ * Customer delivery charge = selected TCG rate (no flat ecommerce fee).
  */
 const resolveDeliveryChargeForQuote = async ({
   subtotal,
   currency = "ZAR",
   selectedRate,
 } = {}) => {
-  const settings = await ecommerceSettingsService.getDeliverySettings();
   const normalizedSubtotal = roundMoney(subtotal);
-  let deliveryCharge = roundMoney(selectedRate.rate);
-  let subsidized = false;
-
-  if (settings.isEnabled === false) {
-    deliveryCharge = 0;
-    subsidized = true;
-  } else if (
-    settings.freeDeliveryMinimum != null &&
-    normalizedSubtotal >= roundMoney(settings.freeDeliveryMinimum)
-  ) {
-    deliveryCharge = 0;
-    subsidized = true;
-  }
+  const deliveryCharge = roundMoney(selectedRate.rate);
 
   const quotedAt = new Date();
   const cfg = getTcgConfig();
@@ -340,8 +325,8 @@ const resolveDeliveryChargeForQuote = async ({
     subtotal: normalizedSubtotal,
     deliveryCharge,
     totalAmount: roundMoney(normalizedSubtotal + deliveryCharge),
-    currency: currency || settings.currency || "ZAR",
-    subsidized,
+    currency: currency || "ZAR",
+    subsidized: false,
     shippingQuote: {
       provider: "TCG",
       serviceLevelCode: selectedRate.serviceLevelCode,
@@ -354,7 +339,7 @@ const resolveDeliveryChargeForQuote = async ({
       quotedAt,
       expiresAt,
       customerCharged: deliveryCharge,
-      subsidized,
+      subsidized: false,
     },
   };
 };
