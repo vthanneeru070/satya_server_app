@@ -1,8 +1,14 @@
 const express = require("express");
 const authenticate = require("../middleware/authenticate");
 const adminMiddleware = require("../middleware/adminMiddleware");
-const { sendSuccess } = require("../utils/response");
-const HttpError = require("../utils/httpError");
+const validate = require("../middleware/validate");
+const {
+  getEcommerceSettings,
+  updateEcommerceSettings,
+} = require("../controllers/ecommerceSettingsController");
+const {
+  updateEcommerceSettingsSchema,
+} = require("../validations/ecommerceSettingsValidation");
 
 const router = express.Router();
 
@@ -10,48 +16,36 @@ const router = express.Router();
  * @swagger
  * tags:
  *   name: Ecommerce
- *   description: Legacy store settings (flat delivery fee removed — TCG rates used at checkout)
+ *   description: Store ecommerce settings (VAT)
  */
 
 router.use(authenticate, adminMiddleware);
-
-const REMOVED_MESSAGE =
-  "Flat delivery fee settings have been removed. Door-to-door delivery charges come from The Courier Guy (TCG) rates at checkout.";
 
 /**
  * @swagger
  * /admin/ecommerce/settings:
  *   get:
- *     summary: Legacy ecommerce settings (removed)
+ *     summary: Get ecommerce VAT settings
  *     tags: [Ecommerce]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Notice that flat delivery settings are retired
+ *         description: Settings fetched
  *   put:
- *     summary: Update ecommerce settings (removed)
+ *     summary: Update ecommerce VAT settings
  *     tags: [Ecommerce]
  *     security:
  *       - bearerAuth: []
  *     responses:
- *       410:
- *         description: Flat delivery settings are no longer supported
+ *       200:
+ *         description: Settings updated
  */
-router.get("/settings", (req, res) =>
-  sendSuccess(
-    res,
-    {
-      delivery_charges: null,
-      deliveryFrom: "TCG",
-      notice: REMOVED_MESSAGE,
-    },
-    REMOVED_MESSAGE
-  )
-);
-
-router.put("/settings", (req, res, next) =>
-  next(new HttpError(REMOVED_MESSAGE, 410))
+router.get("/settings", getEcommerceSettings);
+router.put(
+  "/settings",
+  validate(updateEcommerceSettingsSchema),
+  updateEcommerceSettings
 );
 
 module.exports = router;

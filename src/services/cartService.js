@@ -3,18 +3,26 @@ const Product = require("../models/Product");
 const HttpError = require("../utils/httpError");
 const inventoryService = require("./inventoryService");
 const warehouseRoutingService = require("./warehouseRoutingService");
+const ecommerceSettingsService = require("./ecommerceSettingsService");
 const { usesProductQuantity } = require("../validations/productValidation");
 
 const roundMoney = (value) => Math.round(Number(value) * 100) / 100;
 
-/** Cart line totals — delivery is quoted via TCG at checkout, not a flat store fee. */
-const cartLineTotals = (subtotal, currency = "ZAR") => {
-  const normalized = roundMoney(subtotal);
+/** Cart line totals — delivery via TCG at checkout; VAT applies to product subtotal. */
+const cartLineTotals = async (subtotal, currency = "ZAR") => {
+  const withVat = await ecommerceSettingsService.applyProductVat(
+    subtotal,
+    0,
+    currency
+  );
   return {
-    subtotal: normalized,
+    subtotal: withVat.subtotal,
+    taxAmount: withVat.taxAmount,
+    vatPercent: withVat.vatPercent,
+    vatNumber: withVat.vatNumber,
     deliveryCharge: 0,
-    totalAmount: normalized,
-    currency: currency || "ZAR",
+    totalAmount: withVat.totalAmount,
+    currency: withVat.currency || "ZAR",
   };
 };
 
@@ -65,7 +73,7 @@ const unitPrice = (product) =>
  */
 const serializeCart = async (cart) => {
   if (!cart || cart.items.length === 0) {
-    const totals = cartLineTotals(cart?.totalAmount || 0, cart?.currency || "ZAR");
+    const totals = await cartLineTotals(cart?.totalAmount || 0, cart?.currency || "ZAR");
     return {
       _id: cart?._id || null,
       user: cart?.user || null,
@@ -126,7 +134,7 @@ const serializeCart = async (cart) => {
     await cart.save();
   }
 
-  const totals = cartLineTotals(cart.totalAmount, currency);
+  const totals = await cartLineTotals(cart.totalAmount, currency);
 
   return {
     _id: cart._id,

@@ -289,6 +289,29 @@ const orderSchema = new mongoose.Schema(
       min: 0,
     },
 
+    /** VAT amount applied to product subtotal at checkout. */
+    taxAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    /** Snapshot of VAT % used when the order was placed. */
+    vatPercent: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
+
+    /** Snapshot of store VAT registration number at checkout. */
+    vatNumber: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 64,
+    },
+
     currency: {
       type: String,
       default: "ZAR",

@@ -28,6 +28,7 @@ const shippingShipmentService = require("./shippingShipmentService");
 const shippingPodService = require("./shippingPodService");
 const warehouseRoutingService = require("./warehouseRoutingService");
 const pickupCredentialService = require("./pickupCredentialService");
+const ecommerceSettingsService = require("./ecommerceSettingsService");
 
 const escapeRegex = (value) =>
   String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -360,6 +361,9 @@ const persistOrder = async (
     snapshots,
     subtotal,
     deliveryCharge,
+    taxAmount = 0,
+    vatPercent = 0,
+    vatNumber = "",
     totalAmount,
     currency,
     paymentMethod,
@@ -379,6 +383,9 @@ const persistOrder = async (
         items: snapshots,
         subtotal,
         deliveryCharge,
+        taxAmount,
+        vatPercent,
+        vatNumber,
         totalAmount,
         currency,
         paymentStatus: "PENDING",
@@ -422,7 +429,11 @@ const resolveFulfillmentCheckout = async ({
       linePayload.products || []
     );
     const pickupLocation = routed.pickupLocation;
-    const subtotal = linePayload.subtotal;
+    const withVat = await ecommerceSettingsService.applyProductVat(
+      linePayload.subtotal,
+      0,
+      linePayload.currency
+    );
     return {
       fulfillmentMethod: "PICKUP",
       shippingAddress: {
@@ -444,10 +455,13 @@ const resolveFulfillmentCheckout = async ({
       pickupLocation,
       warehouseId: routed.warehouseId,
       snapshots: linePayload.snapshots,
-      subtotal,
+      subtotal: withVat.subtotal,
+      taxAmount: withVat.taxAmount,
+      vatPercent: withVat.vatPercent,
+      vatNumber: withVat.vatNumber,
       deliveryCharge: 0,
-      totalAmount: subtotal,
-      currency: linePayload.currency,
+      totalAmount: withVat.totalAmount,
+      currency: withVat.currency,
     };
   }
 
@@ -468,6 +482,12 @@ const resolveFulfillmentCheckout = async ({
     products: linePayload.products || [],
   });
 
+  const withVat = await ecommerceSettingsService.applyProductVat(
+    totals.subtotal,
+    totals.deliveryCharge,
+    totals.currency
+  );
+
   return {
     fulfillmentMethod: "DELIVERY",
     shippingAddress: addr,
@@ -475,10 +495,13 @@ const resolveFulfillmentCheckout = async ({
     pickupLocation: routed.pickupLocation,
     warehouseId: routed.warehouseId,
     snapshots: linePayload.snapshots,
-    subtotal: totals.subtotal,
-    deliveryCharge: totals.deliveryCharge,
-    totalAmount: totals.totalAmount,
-    currency: totals.currency,
+    subtotal: withVat.subtotal,
+    taxAmount: withVat.taxAmount,
+    vatPercent: withVat.vatPercent,
+    vatNumber: withVat.vatNumber,
+    deliveryCharge: withVat.deliveryCharge,
+    totalAmount: withVat.totalAmount,
+    currency: withVat.currency,
   };
 };
 

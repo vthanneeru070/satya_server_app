@@ -3,43 +3,6 @@ const { SINGLETON_KEY } = require("../models/EcommerceSettings");
 
 const roundMoney = (value) => Math.round(Number(value) * 100) / 100;
 
-const formatDeliverySettings = (doc) => ({
-  deliveryCharge: roundMoney(doc.deliveryCharge),
-  currency: doc.currency || "ZAR",
-  isEnabled: doc.isEnabled !== false,
-  freeDeliveryMinimum:
-    doc.freeDeliveryMinimum == null ? null : roundMoney(doc.freeDeliveryMinimum),
-  updatedAt: doc.updatedAt,
-  updatedBy: doc.updatedBy || null,
-});
-
-const toApiDeliveryCharges = (doc) => ({
-  delivery_charge: roundMoney(doc.deliveryCharge),
-  currency: doc.currency || "ZAR",
-  is_enabled: doc.isEnabled !== false,
-  free_delivery_minimum:
-    doc.freeDeliveryMinimum == null ? null : roundMoney(doc.freeDeliveryMinimum),
-  updated_at: doc.updatedAt,
-  updated_by: doc.updatedBy || null,
-});
-
-const fromApiDeliveryCharges = (body = {}) => {
-  const next = {};
-  if (body.delivery_charge !== undefined) {
-    next.deliveryCharge = body.delivery_charge;
-  }
-  if (body.currency !== undefined) {
-    next.currency = body.currency;
-  }
-  if (body.is_enabled !== undefined) {
-    next.isEnabled = body.is_enabled;
-  }
-  if (body.free_delivery_minimum !== undefined) {
-    next.freeDeliveryMinimum = body.free_delivery_minimum;
-  }
-  return next;
-};
-
 const getSettingsDoc = async () => {
   let doc = await EcommerceSettings.findOne({ singletonKey: SINGLETON_KEY });
   if (!doc) {
@@ -48,87 +11,95 @@ const getSettingsDoc = async () => {
   return doc;
 };
 
-const getEcommerceSettings = async () => ({
-  delivery_charges: toApiDeliveryCharges(await getSettingsDoc()),
+const toApiVatSettings = (doc) => ({
+  vat_number: (doc.vatNumber || "").trim(),
+  vat_percent: roundMoney(doc.vatPercent || 0),
+  currency: doc.currency || "ZAR",
+  updated_at: doc.updatedAt,
+  updated_by: doc.updatedBy || null,
 });
 
-const getDeliverySettings = async () => {
-  const doc = await getSettingsDoc();
-  return formatDeliverySettings(doc);
+const formatVatSettings = (doc) => ({
+  vatNumber: (doc.vatNumber || "").trim(),
+  vatPercent: roundMoney(doc.vatPercent || 0),
+  currency: doc.currency || "ZAR",
+  updatedAt: doc.updatedAt,
+  updatedBy: doc.updatedBy || null,
+});
+
+const getEcommerceSettings = async () => ({
+  vat: toApiVatSettings(await getSettingsDoc()),
+});
+
+const getVatSettings = async () => formatVatSettings(await getSettingsDoc());
+
+/**
+ * VAT on product subtotal only. Courier rates are quoted separately at checkout.
+ */
+const computeProductVat = (subtotal, settings) => {
+  const amount = roundMoney(subtotal);
+  const vatPercent = roundMoney(settings?.vatPercent || 0);
+  const vatNumber = (settings?.vatNumber || "").trim();
+  const taxAmount =
+    amount > 0 && vatPercent > 0
+      ? roundMoney((amount * vatPercent) / 100)
+      : 0;
+  return { vatNumber, vatPercent, taxAmount };
 };
 
-const updateDeliverySettings = async (adminUserId, body = {}) => {
+const applyProductVat = async (subtotal, deliveryCharge = 0, currency = "ZAR") => {
+  const settings = await getVatSettings();
+  const { vatNumber, vatPercent, taxAmount } = computeProductVat(
+    subtotal,
+    settings
+  );
+  const normalizedSubtotal = roundMoney(subtotal);
+  const normalizedDelivery = roundMoney(deliveryCharge);
+  return {
+    subtotal: normalizedSubtotal,
+    taxAmount,
+    vatPercent,
+    vatNumber,
+    deliveryCharge: normalizedDelivery,
+    totalAmount: roundMoney(normalizedSubtotal + taxAmount + normalizedDelivery),
+    currency: currency || settings.currency || "ZAR",
+  };
+};
+
+const updateEcommerceSettings = async (adminUserId, body = {}) => {
+  const input = body.vat || body.settings?.vat || body;
   const doc = await getSettingsDoc();
 
-  if (body.deliveryCharge !== undefined) {
-    doc.deliveryCharge = roundMoney(body.deliveryCharge);
+  if (input.vat_number !== undefined || input.vatNumber !== undefined) {
+    doc.vatNumber = String(input.vat_number ?? input.vatNumber ?? "")
+      .trim()
+      .slice(0, 64);
   }
-  if (body.currency !== undefined) {
-    doc.currency = String(body.currency).trim().toUpperCase();
+  if (input.vat_percent !== undefined || input.vatPercent !== undefined) {
+    const raw = input.vat_percent ?? input.vatPercent;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0 || n > 100) {
+      const HttpError = require("../utils/httpError");
+      throw new HttpError("vat_percent must be between 0 and 100", 400);
+    }
+    doc.vatPercent = roundMoney(n);
   }
-  if (body.isEnabled !== undefined) {
-    doc.isEnabled = !!body.isEnabled;
-  }
-  if (body.freeDeliveryMinimum !== undefined) {
-    const raw = body.freeDeliveryMinimum;
-    doc.freeDeliveryMinimum =
-      raw === null || raw === "" ? null : roundMoney(raw);
+  if (input.currency !== undefined) {
+    doc.currency = String(input.currency).trim().toUpperCase() || "ZAR";
   }
 
   doc.updatedBy = adminUserId;
   await doc.save();
-  return formatDeliverySettings(doc);
-};
-
-const updateEcommerceSettings = async (adminUserId, body = {}) => {
-  const deliveryInput =
-    body.delivery_charges ||
-    body.settings?.delivery_charges ||
-    {};
-
-  await updateDeliverySettings(adminUserId, fromApiDeliveryCharges(deliveryInput));
   return getEcommerceSettings();
-};
-
-/**
- * Resolve the delivery fee for a cart/order subtotal.
- * Returns 0 when delivery is disabled, cart is empty, or free-delivery threshold is met.
- */
-const resolveDeliveryCharge = (settings, subtotal) => {
-  const amount = roundMoney(subtotal);
-  if (amount <= 0) return 0;
-  if (!settings || settings.isEnabled === false) return 0;
-
-  const minimum = settings.freeDeliveryMinimum;
-  if (minimum != null && amount >= roundMoney(minimum)) {
-    return 0;
-  }
-
-  return roundMoney(settings.deliveryCharge);
-};
-
-const attachDeliveryTotals = async (subtotal, currency = "ZAR") => {
-  const doc = await getSettingsDoc();
-  const settings = formatDeliverySettings(doc);
-  const normalizedSubtotal = roundMoney(subtotal);
-  const deliveryCharge = resolveDeliveryCharge(settings, normalizedSubtotal);
-
-  return {
-    subtotal: normalizedSubtotal,
-    deliveryCharge,
-    totalAmount: roundMoney(normalizedSubtotal + deliveryCharge),
-    currency: currency || settings.currency || "ZAR",
-    deliverySettings: toApiDeliveryCharges(doc),
-  };
 };
 
 module.exports = {
   getEcommerceSettings,
   updateEcommerceSettings,
-  getDeliverySettings,
-  updateDeliverySettings,
-  resolveDeliveryCharge,
-  attachDeliveryTotals,
-  formatDeliverySettings,
-  toApiDeliveryCharges,
+  getVatSettings,
+  computeProductVat,
+  applyProductVat,
+  toApiVatSettings,
+  formatVatSettings,
+  getSettingsDoc,
 };
