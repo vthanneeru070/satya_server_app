@@ -8,6 +8,14 @@ const orderService = require("./orderService");
 const orderEmailService = require("./orderEmailService");
 const fcmReplacementNotifyService = require("./fcmReplacementNotifyService");
 const adminNotificationService = require("./adminNotificationService");
+const shippingShipmentService = require("./shippingShipmentService");
+const warehouseRoutingService = require("./warehouseRoutingService");
+const Warehouse = require("../models/Warehouse");
+const {
+  resolveAffectedItems,
+  sumAffectedLineTotals,
+  assertPostFulfilmentForRequests,
+} = require("../utils/orderAffectedItems");
 
 const notDeleted = { isDeleted: { $ne: true } };
 
@@ -64,11 +72,175 @@ const BLOCKING_REPLACEMENT_REQUEST_STATUSES = [
   "REQUESTED",
   "PENDING", // legacy
   "APPROVED",
+  "AWAITING_RETURN",
+  "RETURN_RECEIVED",
   "PROCESSING",
   "SHIPPED",
 ];
 
 const APPROVE_OR_REJECTABLE_STATUSES = new Set(["REQUESTED", "PENDING"]);
+const RETURN_ACTIONABLE_STATUSES = new Set(["APPROVED", "AWAITING_RETURN"]);
+
+const canMarkReturnReceived = (request) => {
+  if (!request) return false;
+  if (["REJECTED", "CANCELLED", "DELIVERED"].includes(request.status)) return false;
+  if (request.returnShipment?.status === "RETURN_RECEIVED") return false;
+  return (
+    RETURN_ACTIONABLE_STATUSES.has(request.status) ||
+    request.returnShipment?.status === "RETURN_BOOKED"
+  );
+};
+
+const clonePlain = (doc) => {
+  if (!doc) return undefined;
+  if (typeof doc.toObject === "function") return doc.toObject();
+  return { ...doc };
+};
+
+const cloneShippingQuoteForReplacement = (quote) => {
+  const base = clonePlain(quote);
+  if (!base) return undefined;
+  return {
+    ...base,
+    customerCharged: 0,
+    rate: 0,
+    quotedTotal: 0,
+  };
+};
+
+const buildReturnInstructions = (fulfillmentMethod, { pickupLocation, warehouse } = {}) => {
+  if (fulfillmentMethod === "PICKUP") {
+    const loc = pickupLocation || {};
+    const name = warehouse?.name || loc.company || "the warehouse";
+    const addr =
+      loc.enteredAddress ||
+      [loc.streetAddress, loc.localArea, loc.city, loc.postalCode].filter(Boolean).join(", ");
+    const hours = loc.hours || warehouse?.hours || "";
+    return [
+      `Bring the damaged item to ${name}.`,
+      addr ? `Address: ${addr}` : "",
+      hours ? `Hours: ${hours}` : "",
+      "Bring your order number and a valid ID.",
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+  return "A courier will collect the damaged item from your delivery address, or an admin can mark the return received manually once it arrives.";
+};
+
+const buildReplacementOrderFields = (original) => {
+  const fulfillmentMethod = original.fulfillmentMethod || "DELIVERY";
+  const fields = {
+    fulfillmentMethod,
+    deliveryCharge: 0,
+    shippingAddress: clonePlain(original.shippingAddress),
+    shippingQuote: cloneShippingQuoteForReplacement(original.shippingQuote),
+    pickupLocation: clonePlain(original.pickupLocation),
+    warehouse: original.warehouse || null,
+  };
+  if (fulfillmentMethod === "PICKUP" && !fields.pickupLocation && original.warehouse) {
+    // pickupLocation may be missing on very old orders
+    fields.pickupLocation = undefined;
+  }
+  return fields;
+};
+
+const setupReturnShipmentOnApprove = async (lockedReq, original) => {
+  const fulfillmentMethod = original.fulfillmentMethod || "DELIVERY";
+  lockedReq.fulfillmentMethod = fulfillmentMethod;
+
+  let warehouse = null;
+  let pickupLocation = original.pickupLocation;
+  try {
+    const resolved = await warehouseRoutingService.resolveWarehouseForReturn({
+      order: original,
+      affectedItems: lockedReq.affectedItems,
+    });
+    warehouse = resolved.warehouse?.toObject?.() || resolved.warehouse;
+    pickupLocation = resolved.pickupLocation || pickupLocation;
+  } catch (err) {
+    if (original.warehouse) {
+      warehouse = await Warehouse.findById(original.warehouse).lean();
+    }
+    console.warn(
+      `[replacementService] return warehouse resolve failed for ${lockedReq.requestNumber}:`,
+      err?.message || err
+    );
+  }
+
+  const warehouseEndpoint = () => {
+    if (!warehouse && !pickupLocation) return undefined;
+    const sl = shippingShipmentService.warehouseToShipLogicAddress(
+      warehouse,
+      pickupLocation
+    );
+    return shippingShipmentService.snapshotReturnEndpoint(
+      sl,
+      warehouseRoutingService.warehouseContact(warehouse)
+    );
+  };
+
+  if (fulfillmentMethod === "PICKUP") {
+    lockedReq.returnShipment = {
+      method: "WAREHOUSE_DROP_OFF",
+      status: "AWAITING_RETURN",
+      instructions: buildReturnInstructions("PICKUP", {
+        pickupLocation,
+        warehouse,
+      }),
+      provider: "",
+      collectionAddress: {
+        label: "Customer brings item to warehouse (no courier collection)",
+        contactName: "",
+        contactPhone: "",
+        contactEmail: "",
+      },
+      deliveryAddress: warehouseEndpoint(),
+    };
+    return;
+  }
+
+  lockedReq.returnShipment = {
+    method: "COURIER_COLLECTION",
+    status: "AWAITING_RETURN",
+    instructions: buildReturnInstructions("DELIVERY"),
+    provider: "",
+    collectionAddress: shippingShipmentService.snapshotFromOrderShippingAddress(
+      original.shippingAddress
+    ),
+    deliveryAddress: warehouseEndpoint(),
+  };
+};
+
+/** Block replacement fulfilment until the damaged item is back at the warehouse. */
+const assertReplacementFulfillmentAllowed = async (order) => {
+  if (!order || order.orderType !== "REPLACEMENT") return;
+
+  const req = await ReplacementRequest.findOne({
+    replacementOrder: order._id,
+    isDeleted: { $ne: true },
+    status: { $nin: ["REJECTED", "CANCELLED", "DELIVERED"] },
+  })
+    .select("status returnShipment fulfillmentMethod requestNumber")
+    .lean();
+
+  if (!req) return;
+
+  const returnStatus = req.returnShipment?.status || "";
+  if (returnStatus === "RETURN_RECEIVED") return;
+
+  const method = req.returnShipment?.method || "";
+  if (method === "WAREHOUSE_DROP_OFF") {
+    throw new HttpError(
+      `Replacement ${order.orderNumber} is waiting for the customer to return the damaged item at the warehouse (request ${req.requestNumber}). Mark return received in Replace Requests first.`,
+      400
+    );
+  }
+  throw new HttpError(
+    `Replacement ${order.orderNumber} is waiting for the damaged item return (request ${req.requestNumber}). Book return collection or mark return received first.`,
+    400
+  );
+};
 
 const orderPopulateSummary =
   "orderNumber orderStatus paymentStatus totalAmount currency orderType replacementState latestReplacementRequest latestReplacementOrder replacementCount parentOrderNumber";
@@ -111,12 +283,7 @@ const ensureOwnedDeliveredPaidOriginal = async (orderId, userId) => {
   if (order.orderStatus === "CANCELLED") {
     throw new HttpError("Cannot request replacement for a cancelled order.", 400);
   }
-  if (order.orderStatus !== "DELIVERED" && order.orderStatus !== "FULFILLED") {
-    throw new HttpError(
-      `Replacements are only allowed after delivery (current status: ${order.orderStatus}).`,
-      400
-    );
-  }
+  assertPostFulfilmentForRequests(order, "Replacements");
   if (order.paymentStatus !== "PAID") {
     throw new HttpError("Only paid orders can request a replacement.", 400);
   }
@@ -151,9 +318,13 @@ const assertNoBlockingReplacement = async (orderId) => {
   }
 };
 
-const createRequest = async (userId, { orderId, reason = "", images = [] } = {}) => {
+const createRequest = async (
+  userId,
+  { orderId, reason = "", images = [], affectedItems: rawAffectedItems = [] } = {}
+) => {
   const order = await ensureOwnedDeliveredPaidOriginal(orderId, userId);
   await assertNoBlockingReplacement(order._id);
+  const affectedItems = resolveAffectedItems(order, rawAffectedItems);
 
   const session = await mongoose.startSession();
   let request;
@@ -166,8 +337,10 @@ const createRequest = async (userId, { orderId, reason = "", images = [] } = {})
             requestNumber,
             user: userId,
             order: order._id,
+            fulfillmentMethod: order.fulfillmentMethod || "DELIVERY",
             reason: String(reason || "").trim().slice(0, 2000),
             images: Array.isArray(images) ? images.filter(Boolean).slice(0, 12) : [],
+            affectedItems,
           },
         ],
         { session }
@@ -320,12 +493,7 @@ const approveRequest = async (requestId, { adminRemarks = "" } = {}, { actorUser
       if (original.paymentStatus !== "PAID") {
         throw new HttpError("Original order is not paid; cannot spawn replacement.", 400);
       }
-      if (!["DELIVERED", "FULFILLED"].includes(original.orderStatus)) {
-        throw new HttpError(
-          `Original order must be delivered (current: ${original.orderStatus}).`,
-          400
-        );
-      }
+      assertPostFulfilmentForRequests(original, "Replacement approval");
 
       const activeChild = await Order.findOne({
         replacementFor: original._id,
@@ -341,7 +509,11 @@ const approveRequest = async (requestId, { adminRemarks = "" } = {}, { actorUser
       }
 
       const orderNumber = await generateReplacementOrderNumber(original, session);
-      const items = original.items.map((line) => ({
+      const sourceItems =
+        lockedReq.affectedItems?.length > 0
+          ? lockedReq.affectedItems
+          : resolveAffectedItems(original, []);
+      const items = sourceItems.map((line) => ({
         product: line.product,
         title: line.title,
         imageUrl: line.imageUrl,
@@ -349,9 +521,23 @@ const approveRequest = async (requestId, { adminRemarks = "" } = {}, { actorUser
         price: line.price,
         lineTotal: line.lineTotal,
       }));
+      const replacementTotal = sumAffectedLineTotals(sourceItems);
 
       const origPayRef = original.paystackReference || "";
       const origTx = original.transactionId || "";
+      const fulfillmentFields = buildReplacementOrderFields(original);
+      if (
+        fulfillmentFields.fulfillmentMethod === "PICKUP" &&
+        !fulfillmentFields.pickupLocation &&
+        original.warehouse
+      ) {
+        const wh = await Warehouse.findById(original.warehouse).session(session);
+        if (wh) {
+          fulfillmentFields.pickupLocation = wh.toPickupLocationSnapshot();
+        }
+      }
+
+      await setupReturnShipmentOnApprove(lockedReq, original);
 
       [replacementOrder] = await Order.create(
         [
@@ -363,12 +549,12 @@ const approveRequest = async (requestId, { adminRemarks = "" } = {}, { actorUser
             parentOrderNumber: original.orderNumber || "",
             replacementReason: lockedReq.reason || "",
             items,
-            totalAmount: original.totalAmount,
+            totalAmount: replacementTotal,
             currency: original.currency,
             paymentStatus: "PAID",
             orderStatus: "PROCESSING",
             paymentMethod: original.paymentMethod || "PAYSTACK",
-            shippingAddress: original.shippingAddress,
+            ...fulfillmentFields,
             inventoryReserved: true,
             paystackReference: origPayRef,
             transactionId: origTx,
@@ -383,7 +569,10 @@ const approveRequest = async (requestId, { adminRemarks = "" } = {}, { actorUser
               {
                 status: "PROCESSING",
                 at: new Date(),
-                note: "Replacement order — processing (no new payment)",
+                note:
+                  fulfillmentFields.fulfillmentMethod === "PICKUP"
+                    ? "Replacement pickup order — awaiting warehouse return of damaged item"
+                    : "Replacement delivery — awaiting return of damaged item",
               },
             ],
           },
@@ -393,7 +582,7 @@ const approveRequest = async (requestId, { adminRemarks = "" } = {}, { actorUser
 
       await applyStock(replacementOrder, session);
 
-      lockedReq.status = "APPROVED";
+      lockedReq.status = "AWAITING_RETURN";
       lockedReq.adminRemarks = adminRemarks ? String(adminRemarks).trim().slice(0, 2000) : "";
       lockedReq.replacementOrder = replacementOrder._id;
       lockedReq.resolvedBy = actorUserId || null;
@@ -469,6 +658,85 @@ const rejectRequest = async (requestId, { adminRemarks = "" } = {}, { actorUserI
   return populated;
 };
 
+const bookReturnShipment = async (requestId, { actorUserId } = {}) => {
+  const request = await ReplacementRequest.findOne({ _id: requestId, ...notDeleted });
+  if (!request) throw new HttpError("Request not found", 404);
+  if (!RETURN_ACTIONABLE_STATUSES.has(request.status)) {
+    throw new HttpError(
+      `Cannot book return collection when request status is ${request.status}.`,
+      400
+    );
+  }
+  if (request.fulfillmentMethod !== "DELIVERY") {
+    throw new HttpError("Return courier collection applies only to delivery orders", 400);
+  }
+  if (request.returnShipment?.status === "RETURN_RECEIVED") {
+    throw new HttpError("Return already marked as received.", 400);
+  }
+  if (request.returnShipment?.shipmentId) {
+    throw new HttpError("Return shipment is already booked.", 409);
+  }
+
+  const original = await Order.findById(request.order);
+  if (!original || original.isDeleted) throw new HttpError("Original order not found", 404);
+
+  await shippingShipmentService.bookReturnShipmentForReplacement(request, original, {
+    actorUserId,
+  });
+  request.returnShipment.status = "RETURN_BOOKED";
+  await request.save();
+
+  return ReplacementRequest.findById(requestId)
+    .populate("user", "fullName email phone role")
+    .populate("order", orderPopulateSummary)
+    .populate(
+      "replacementOrder",
+      "orderNumber orderStatus paymentStatus orderType fulfillmentMethod replacementFor parentOrderNumber"
+    );
+};
+
+const markReturnReceived = async (requestId, { actorUserId } = {}) => {
+  const request = await ReplacementRequest.findOne({ _id: requestId, ...notDeleted });
+  if (!request) throw new HttpError("Request not found", 404);
+  if (!canMarkReturnReceived(request)) {
+    throw new HttpError(
+      `Cannot mark return received when request status is ${request.status}.`,
+      400
+    );
+  }
+  if (request.returnShipment?.status === "RETURN_RECEIVED") {
+    return getRequestByIdAdmin(requestId);
+  }
+
+  request.returnShipment = {
+    ...(request.returnShipment?.toObject?.() || request.returnShipment || {}),
+    status: "RETURN_RECEIVED",
+    receivedAt: new Date(),
+    receivedBy: actorUserId || null,
+  };
+  request.status = "RETURN_RECEIVED";
+  await request.save();
+
+  if (request.replacementOrder) {
+    await Order.updateOne(
+      { _id: request.replacementOrder, isDeleted: { $ne: true } },
+      {
+        $push: {
+          orderStatusHistory: {
+            status: "PROCESSING",
+            at: new Date(),
+            note: "Damaged item received — replacement can be fulfilled",
+          },
+        },
+      }
+    ).catch((err) =>
+      console.warn("[replacementService] replacement order history update:", err?.message || err)
+    );
+  }
+
+  return getRequestByIdAdmin(requestId);
+};
+
 module.exports = {
   createRequest,
   listMyRequests,
@@ -477,5 +745,12 @@ module.exports = {
   getRequestByIdAdmin,
   approveRequest,
   rejectRequest,
-  _internal: { nextReplacementRequestNumber, generateReplacementOrderNumber },
+  bookReturnShipment,
+  markReturnReceived,
+  assertReplacementFulfillmentAllowed,
+  _internal: {
+    nextReplacementRequestNumber,
+    generateReplacementOrderNumber,
+    buildReplacementOrderFields,
+  },
 };

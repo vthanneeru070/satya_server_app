@@ -13,6 +13,13 @@ const {
   updatePayment,
   setTracking,
   dispatchOrder,
+  readyForPickup,
+  markPacked,
+  verifyPickup,
+  syncDeliveryPod,
+  getShippingLabelUrl,
+  streamShippingLabel,
+  rebookCourier,
   confirmDelivery,
   adminCancelPaidOrder,
   adminInitiateRefund,
@@ -35,6 +42,9 @@ const {
   payfastVerifySchema,
   setTrackingSchema,
   dispatchOrderSchema,
+  readyForPickupSchema,
+  markPackedSchema,
+  verifyPickupSchema,
   confirmDeliverySchema,
   adminCancelPaidSchema,
   adminInitiateRefundSchema,
@@ -540,6 +550,110 @@ router.post(
   validate(orderIdParamsSchema, "params"),
   validate(dispatchOrderSchema),
   dispatchOrder
+);
+
+/**
+ * @swagger
+ * /orders/{id}/ready-for-pickup:
+ *   post:
+ *     summary: Mark a pickup order ready for customer collection (admin)
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post(
+  "/:id/ready-for-pickup",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(orderIdParamsSchema, "params"),
+  validate(readyForPickupSchema),
+  readyForPickup
+);
+
+router.post(
+  "/:id/packed",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(orderIdParamsSchema, "params"),
+  validate(markPackedSchema),
+  markPacked
+);
+
+router.post(
+  "/:id/verify-pickup",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(orderIdParamsSchema, "params"),
+  validate(verifyPickupSchema),
+  verifyPickup
+);
+
+/**
+ * @swagger
+ * /orders/{id}/sync-delivery-pod:
+ *   post:
+ *     summary: Refresh Courier Guy POD / tracking status for a delivery order (admin)
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post(
+  "/:id/sync-delivery-pod",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(orderIdParamsSchema, "params"),
+  syncDeliveryPod
+);
+
+/**
+ * @swagger
+ * /orders/{id}/shipping-label-url:
+ *   get:
+ *     summary: Fetch signed Courier Guy / ShipLogic shipping label URL (admin)
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get(
+  "/:id/shipping-label-url",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(orderIdParamsSchema, "params"),
+  getShippingLabelUrl
+);
+
+/**
+ * @swagger
+ * /orders/{id}/shipping-label:
+ *   get:
+ *     summary: Download Courier Guy shipping label PDF (admin)
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get(
+  "/:id/shipping-label",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(orderIdParamsSchema, "params"),
+  streamShippingLabel
+);
+
+/**
+ * @swagger
+ * /orders/{id}/rebook-courier:
+ *   post:
+ *     summary: Rebook Courier Guy shipment (admin) — fixes mock/stale shipment ids
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post(
+  "/:id/rebook-courier",
+  authenticate,
+  authorizeRoles("admin"),
+  validate(orderIdParamsSchema, "params"),
+  rebookCourier
 );
 
 /**

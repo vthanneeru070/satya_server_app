@@ -10,26 +10,25 @@ const ecommerceSettingsSchema = new mongoose.Schema(
       unique: true,
       immutable: true,
     },
-    deliveryCharge: {
+    /** South African (or store) VAT registration number shown on invoices. */
+    vatNumber: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 64,
+    },
+    /** VAT % applied to product subtotal at checkout (not delivery). */
+    vatPercent: {
       type: Number,
       default: 0,
       min: 0,
+      max: 100,
     },
     currency: {
       type: String,
       default: "ZAR",
       uppercase: true,
       trim: true,
-    },
-    isEnabled: {
-      type: Boolean,
-      default: true,
-    },
-    /** Orders at or above this subtotal get free delivery. Null = no free-delivery rule. */
-    freeDeliveryMinimum: {
-      type: Number,
-      default: null,
-      min: 0,
     },
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,

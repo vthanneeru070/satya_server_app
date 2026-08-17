@@ -235,6 +235,9 @@ const notifyDonationReceived = async (
  */
 const ORDER_INBOX_TYPE_BY_STATUS = {
   SHIPPED: "ORDER_SHIPPED",
+  OUT_FOR_DELIVERY: "ORDER_OUT_FOR_DELIVERY",
+  READY_FOR_PICKUP: "ORDER_READY_FOR_PICKUP",
+  COLLECTED: "ORDER_COLLECTED",
   DELIVERED: "ORDER_DELIVERED",
   PROCESSING: "ORDER_PROCESSING",
   FULFILLED: "ORDER_FULFILLED",
@@ -261,9 +264,23 @@ const STATUS_COPY = {
     title: "Your order is being prepared",
     body: (n) => `Order ${n} is now being processed.`,
   },
+  READY_FOR_PICKUP: {
+    title: "Ready for pickup",
+    body: (n) =>
+      `Order ${n} is ready for collection. Open the app for your pickup address and collection code.`,
+  },
+  COLLECTED: {
+    title: "Order picked up",
+    body: (n) =>
+      `Order ${n} was collected at the warehouse. Tap to confirm your satisfaction.`,
+  },
   SHIPPED: {
     title: "Your order is on its way",
     body: (n) => `Order ${n} has been dispatched. Track it from the app.`,
+  },
+  OUT_FOR_DELIVERY: {
+    title: "Out for delivery",
+    body: (n) => `Order ${n} is out for delivery today.`,
   },
   DELIVERED: {
     title: "Your order has been delivered",

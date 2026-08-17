@@ -2,6 +2,7 @@ const { sendSuccess } = require("../utils/response");
 const HttpError = require("../utils/httpError");
 const replacementService = require("../services/replacementService");
 const { uploadFile } = require("../services/s3Service");
+const { parseAffectedItemsInput } = require("../utils/orderAffectedItems");
 
 const parseJsonArray = (raw, field) => {
   if (raw === undefined || raw === null || raw === "") return [];
@@ -21,6 +22,10 @@ const createRequest = async (req, res, next) => {
   try {
     const { orderId, reason, imageUrls: imageUrlsRaw } = req.body;
     const fromJson = parseJsonArray(imageUrlsRaw, "imageUrls");
+    const affectedItems = parseAffectedItemsInput(
+      req.body.affectedItems,
+      "affectedItems"
+    );
     const uploaded = await Promise.all(
       (req.files || []).map((file) => uploadFile(file, "replacement-requests"))
     );
@@ -30,6 +35,7 @@ const createRequest = async (req, res, next) => {
       orderId,
       reason,
       images,
+      affectedItems,
     });
     return sendSuccess(res, { request }, "Replacement request submitted", 201);
   } catch (err) {
@@ -80,7 +86,9 @@ const approveAdmin = async (req, res, next) => {
   try {
     const request = await replacementService.approveRequest(
       req.params.id,
-      { adminRemarks: req.body?.adminRemarks },
+      {
+        adminRemarks: req.body?.adminRemarks ?? req.body?.adminNote,
+      },
       { actorUserId: req.user.userId }
     );
     return sendSuccess(res, { request }, "Replacement approved and order created");
@@ -93,10 +101,34 @@ const rejectAdmin = async (req, res, next) => {
   try {
     const request = await replacementService.rejectRequest(
       req.params.id,
-      { adminRemarks: req.body?.adminRemarks },
+      {
+        adminRemarks: req.body?.adminRemarks ?? req.body?.adminNote,
+      },
       { actorUserId: req.user.userId }
     );
     return sendSuccess(res, { request }, "Replacement request rejected");
+  } catch (err) {
+    return next(err);
+  }
+};
+
+const bookReturnAdmin = async (req, res, next) => {
+  try {
+    const request = await replacementService.bookReturnShipment(req.params.id, {
+      actorUserId: req.user.userId,
+    });
+    return sendSuccess(res, { request }, "Return collection booked with Courier Guy");
+  } catch (err) {
+    return next(err);
+  }
+};
+
+const markReturnReceivedAdmin = async (req, res, next) => {
+  try {
+    const request = await replacementService.markReturnReceived(req.params.id, {
+      actorUserId: req.user.userId,
+    });
+    return sendSuccess(res, { request }, "Return marked as received at warehouse");
   } catch (err) {
     return next(err);
   }
@@ -110,4 +142,6 @@ module.exports = {
   getOneAdmin,
   approveAdmin,
   rejectAdmin,
+  bookReturnAdmin,
+  markReturnReceivedAdmin,
 };
