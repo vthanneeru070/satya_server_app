@@ -16,10 +16,12 @@ const router = express.Router();
  *   get:
  *     summary: Get user home data
  *     description: |
- *       Returns today's date & tithi, daily sloka, latest 5 poojas,
- *       upcoming 5 approved festivals, and 5 approved donations.
- *       Optional `x-timezone` header or `timezone` query (IANA) for date/tithi
- *       and daily sloka lookup. Defaults to `Asia/Kolkata`.
+ *       Returns today's date & tithi, daily sloka, poojas, festivals, and donations
+ *       for the request timezone (`x-timezone` header or `timezone` query; IANA).
+ *       Defaults to `Africa/Johannesburg`. Daily sloka matches the local calendar day.
+ *       Poojas are daily or scheduled from local today onward. Festivals are
+ *       upcoming or still ongoing as of local today. Donations are approved and
+ *       visible.
  *     tags: [User Home]
  *     parameters:
  *       - in: header
@@ -27,7 +29,13 @@ const router = express.Router();
  *         required: false
  *         schema:
  *           type: string
- *           example: Asia/Kolkata
+ *           example: Africa/Johannesburg
+ *       - in: query
+ *         name: timezone
+ *         required: false
+ *         schema:
+ *           type: string
+ *           example: Africa/Johannesburg
  *     responses:
  *       200:
  *         description: User home data fetched successfully
@@ -50,8 +58,10 @@ const router = express.Router();
  *                     todayDateAndTithi:
  *                       type: string
  *                       example: "31st May, 2026 | Ekadashi"
- *                     timezone: { type: string, example: Asia/Kolkata }
+ *                     timezone: { type: string, example: Africa/Johannesburg }
+                     todayDateKey: { type: string, example: "18-08-2026" }
  *                     dailySloka: { type: object, nullable: true }
+ *                     dailyPoojas: { type: array, items: { type: object } }
  *                     poojas: { type: array, items: { type: object } }
  *                     festivals: { type: array, items: { type: object } }
  *                     donations: { type: array, items: { type: object } }

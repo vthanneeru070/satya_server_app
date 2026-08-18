@@ -30,12 +30,20 @@ const resolveDailyFlag = ({ daily, category, fallback = false }) => {
   return fallback;
 };
 
-const buildScheduledOrDailyPoojaFilter = ({ monthStartUtc, nextMonthStartUtc } = {}) => {
+const buildScheduledOrDailyPoojaFilter = ({
+  monthStartUtc,
+  nextMonthStartUtc,
+  fromUtc,
+} = {}) => {
   const clauses = [{ daily: true }];
 
   if (monthStartUtc && nextMonthStartUtc) {
     clauses.unshift({
       "schedules.date": { $gte: monthStartUtc, $lt: nextMonthStartUtc },
+    });
+  } else if (fromUtc) {
+    clauses.unshift({
+      "schedules.date": { $gte: fromUtc },
     });
   }
 

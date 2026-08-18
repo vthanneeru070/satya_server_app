@@ -4,7 +4,9 @@ const userStreakService = require("../services/userStreakService");
 const { getValidTimeZone } = require("../utils/timezone");
 
 const resolveTimeZone = (req) => {
-  const raw = String(req.headers["x-timezone"] || req.query?.timezone || "").trim();
+  const raw = String(
+    req.headers["x-timezone"] || req.headers["timezone"] || req.query?.timezone || ""
+  ).trim();
   return raw ? getValidTimeZone(raw) : undefined;
 };
 

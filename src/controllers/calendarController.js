@@ -3,7 +3,7 @@ const Pooja = require("../models/Pooja");
 const { sendSuccess } = require("../utils/response");
 const { buildScheduledOrDailyPoojaFilter } = require("../utils/poojaDaily");
 const {
-  getValidTimeZone,
+  resolveRequestTimeZone,
   getMonthUtcRangeForTimeZone,
 } = require("../utils/timezone");
 const { getMoonPhasesForMonth } = require("../services/moonService");
@@ -12,7 +12,7 @@ const getCalendarItems = async (req, res, next) => {
   try {
     const month = Number(req.query.month);
     const year = Number(req.query.year);
-    const timezone = getValidTimeZone(req.headers["x-timezone"] || "UTC");
+    const timezone = resolveRequestTimeZone(req);
     const { monthStartUtc, nextMonthStartUtc } = getMonthUtcRangeForTimeZone(
       year,
       month,
