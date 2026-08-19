@@ -3,6 +3,7 @@ const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const { uploadFile, deleteFile } = require("../services/s3Service");
 const { mergeSearchFilter } = require("../utils/textSearch");
+const { mergeUploadedMediaSlot, orphanedUrls } = require("../utils/mediaReplace");
 
 const DEITY_SEARCH_FIELDS = ["name", "description", "alternate_names", "roles"];
 
@@ -278,21 +279,33 @@ const updateDeity = async (req, res, next) => {
 
     if (parsed.mediaFromBody !== undefined || hasUploadedMedia) {
       const currentMedia = deity.media || { images: [], audio: [], videos: [] };
-      const mediaFromBody = parsed.mediaFromBody;
-      deity.media = {
-        images: [
-          ...((mediaFromBody && mediaFromBody.images) || currentMedia.images || []),
-          ...uploadedMedia.images,
-        ],
-        audio: [
-          ...((mediaFromBody && mediaFromBody.audio) || currentMedia.audio || []),
-          ...uploadedMedia.audio,
-        ],
-        videos: [
-          ...((mediaFromBody && mediaFromBody.videos) || currentMedia.videos || []),
-          ...uploadedMedia.videos,
-        ],
+      const mediaFromBody = parsed.mediaFromBody || {};
+      const nextMedia = {
+        images: mergeUploadedMediaSlot(
+          currentMedia.images,
+          mediaFromBody.images,
+          uploadedMedia.images
+        ),
+        audio: mergeUploadedMediaSlot(
+          currentMedia.audio,
+          mediaFromBody.audio,
+          uploadedMedia.audio
+        ),
+        videos: mergeUploadedMediaSlot(
+          currentMedia.videos,
+          mediaFromBody.videos,
+          uploadedMedia.videos
+        ),
       };
+      const orphans = [
+        ...orphanedUrls(currentMedia.images, nextMedia.images),
+        ...orphanedUrls(currentMedia.audio, nextMedia.audio),
+        ...orphanedUrls(currentMedia.videos, nextMedia.videos),
+      ];
+      deity.media = nextMedia;
+      if (orphans.length) {
+        await Promise.all(orphans.map((url) => deleteFile(url).catch(() => {})));
+      }
     }
 
     if (req.user.isSuperAdmin !== true) {

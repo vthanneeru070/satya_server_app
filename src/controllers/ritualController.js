@@ -2,6 +2,7 @@ const Ritual = require("../models/Ritual");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const { uploadFile, deleteFile } = require("../services/s3Service");
+const { mergeUploadedMediaSlot, orphanedUrls } = require("../utils/mediaReplace");
 const { parseObjectIdArrayField } = require("../utils/objectIdArray");
 const { mergeSearchFilter } = require("../utils/textSearch");
 
@@ -430,22 +431,40 @@ const updateRitual = async (req, res, next) => {
     }
 
     if (imagesFromBody !== undefined || uploadedMedia.images.length > 0) {
-      ritual.images = [
-        ...((imagesFromBody !== undefined ? imagesFromBody : ritual.images) || []),
-        ...uploadedMedia.images,
-      ];
+      const nextImages = mergeUploadedMediaSlot(
+        ritual.images,
+        imagesFromBody,
+        uploadedMedia.images
+      );
+      const orphans = orphanedUrls(ritual.images, nextImages);
+      ritual.images = nextImages;
+      if (orphans.length) {
+        await Promise.all(orphans.map((url) => deleteFile(url).catch(() => {})));
+      }
     }
     if (audioFromBody !== undefined || uploadedMedia.audio.length > 0) {
-      ritual.audio = [
-        ...((audioFromBody !== undefined ? audioFromBody : ritual.audio) || []),
-        ...uploadedMedia.audio,
-      ];
+      const nextAudio = mergeUploadedMediaSlot(
+        ritual.audio,
+        audioFromBody,
+        uploadedMedia.audio
+      );
+      const orphans = orphanedUrls(ritual.audio, nextAudio);
+      ritual.audio = nextAudio;
+      if (orphans.length) {
+        await Promise.all(orphans.map((url) => deleteFile(url).catch(() => {})));
+      }
     }
     if (videosFromBody !== undefined || uploadedMedia.videos.length > 0) {
-      ritual.videos = [
-        ...((videosFromBody !== undefined ? videosFromBody : ritual.videos) || []),
-        ...uploadedMedia.videos,
-      ];
+      const nextVideos = mergeUploadedMediaSlot(
+        ritual.videos,
+        videosFromBody,
+        uploadedMedia.videos
+      );
+      const orphans = orphanedUrls(ritual.videos, nextVideos);
+      ritual.videos = nextVideos;
+      if (orphans.length) {
+        await Promise.all(orphans.map((url) => deleteFile(url).catch(() => {})));
+      }
     }
 
     if (req.user.isSuperAdmin !== true) {
