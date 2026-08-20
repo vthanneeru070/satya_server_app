@@ -211,6 +211,9 @@ const createRitual = async (req, res, next) => {
 
     const sections = parseJsonField(req.body.sections, "sections") ?? [];
     const parsedDays = parseJsonField(req.body.days, "days") ?? [];
+    if (!parsedDays.length) {
+      throw new HttpError("At least one ritual day is required", 400);
+    }
     const days = await mergeDayImageUploads(
       parsedDays,
       req.files?.stepImage || [],
@@ -218,9 +221,6 @@ const createRitual = async (req, res, next) => {
     );
     const mediaFromBody = parseJsonField(req.body.media, "media") || {};
     const deityIds = parseObjectIdArrayField(deity, "deity") ?? [];
-    if (!deityIds.length) {
-      throw new HttpError("deity must contain at least one valid ObjectId", 400);
-    }
 
     const uploadedMedia = await getUploadedMediaUrls(req.files);
     const images = [...(mediaFromBody.images || []), ...uploadedMedia.images];
@@ -439,9 +439,6 @@ const updateRitual = async (req, res, next) => {
     const hasUploadedDayImages = (req.files?.stepImage || []).length > 0;
     const mediaFromBody = req.body.media !== undefined ? parseJsonField(req.body.media, "media") : undefined;
     const parsedDeityIds = parseObjectIdArrayField(deity, "deity");
-    if (parsedDeityIds !== undefined && !parsedDeityIds.length) {
-      throw new HttpError("deity must contain at least one valid ObjectId", 400);
-    }
 
     const uploadedMedia = await getUploadedMediaUrls(req.files);
     const hasUploadedMedia =
@@ -494,9 +491,13 @@ const updateRitual = async (req, res, next) => {
       hasUploadedDayImages ||
       req.body.stepImageMeta !== undefined
     ) {
+      const sourceDays = parsedDays !== undefined ? parsedDays : ritual.days;
+      if (!sourceDays.length && !hasUploadedDayImages) {
+        throw new HttpError("At least one ritual day is required", 400);
+      }
       const previousDays = normalizeDays(ritual.days);
       const nextDays = await mergeDayImageUploads(
-        parsedDays !== undefined ? parsedDays : ritual.days,
+        sourceDays,
         req.files?.stepImage || [],
         req.body.stepImageMeta
       );

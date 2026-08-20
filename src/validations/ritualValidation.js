@@ -47,7 +47,7 @@ const objectIdRefItem = Joi.alternatives().try(
 );
 
 const deityField = Joi.alternatives().try(
-  Joi.array().items(objectIdRefItem).min(1),
+  Joi.array().items(objectIdRefItem),
   Joi.string().trim().min(2)
 );
 
@@ -65,7 +65,7 @@ const createRitualSchema = Joi.object({
   title: Joi.string().trim().min(2).max(200).required(),
   slug: Joi.string().trim().lowercase().max(200).optional(),
   description: Joi.string().trim().allow("").max(10000).optional(),
-  deity: deityField.required(),
+  deity: deityField.optional(),
   category: Joi.string().trim().max(150).allow("").optional(),
   purpose: Joi.string().trim().max(2000).allow("").optional(),
   ritualDays: Joi.number().integer().min(1).required().messages({
