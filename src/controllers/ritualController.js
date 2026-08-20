@@ -182,6 +182,20 @@ const normalizeSections = (sections) => {
     .filter(Boolean);
 };
 
+const formatRitualForResponse = (ritual) => {
+  if (!ritual) return ritual;
+  const plain = typeof ritual.toObject === "function"
+    ? ritual.toObject({ virtuals: true })
+    : { ...ritual };
+  if (Array.isArray(plain.days)) {
+    plain.days = normalizeDays(plain.days);
+  }
+  if (Array.isArray(plain.sections)) {
+    plain.sections = normalizeSections(plain.sections);
+  }
+  return plain;
+};
+
 const collectDayImageUrls = (days = []) =>
   normalizeDays(days).flatMap((day) => day.images || []);
 
@@ -316,6 +330,10 @@ const getRituals = async (req, res, next) => {
       filter.status = req.query.status;
     }
 
+    if (req.query.deity) {
+      filter.deity = req.query.deity;
+    }
+
     mergeSearchFilter(filter, RITUAL_SEARCH_FIELDS, req.query.search);
 
     const [rituals, total] = await Promise.all([
@@ -330,7 +348,7 @@ const getRituals = async (req, res, next) => {
     return sendSuccess(
       res,
       {
-        rituals,
+        rituals: rituals.map(formatRitualForResponse),
         pagination: {
           page,
           limit,
@@ -370,7 +388,7 @@ const getAllRituals = async (req, res, next) => {
     return sendSuccess(
       res,
       {
-        rituals,
+        rituals: rituals.map(formatRitualForResponse),
         pagination: {
           page,
           limit,
@@ -410,7 +428,7 @@ const getMyRituals = async (req, res, next) => {
     return sendSuccess(
       res,
       {
-        rituals,
+        rituals: rituals.map(formatRitualForResponse),
         pagination: {
           page,
           limit,
@@ -439,7 +457,11 @@ const getRitualById = async (req, res, next) => {
       throw new HttpError("Ritual not found", 404);
     }
 
-    return sendSuccess(res, { ritual }, "Ritual fetched successfully");
+    return sendSuccess(
+      res,
+      { ritual: formatRitualForResponse(ritual) },
+      "Ritual fetched successfully"
+    );
   } catch (error) {
     return next(error);
   }

@@ -140,6 +140,7 @@ const allRitualsQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).default(10),
   status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED").optional(),
   search: Joi.string().trim().max(100).optional(),
+  deity: Joi.string().trim().hex().length(24).optional(),
 });
 
 const reviewRitualSchema = Joi.object({
