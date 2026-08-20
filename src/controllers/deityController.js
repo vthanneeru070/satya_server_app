@@ -1,11 +1,29 @@
 const Deity = require("../models/Deity");
+const Pooja = require("../models/Pooja");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const { uploadFile, deleteFile } = require("../services/s3Service");
 const { mergeSearchFilter } = require("../utils/textSearch");
 const { mergeUploadedMediaSlot, orphanedUrls } = require("../utils/mediaReplace");
+const { normalizeObjectIdArray } = require("../utils/objectIdArray");
 
 const DEITY_SEARCH_FIELDS = ["name", "description", "alternate_names", "roles"];
+
+const syncPoojaDeitiesForDeity = async (deityId, previousPoojaIds, nextPoojaIds) => {
+  const previous = new Set(normalizeObjectIdArray(previousPoojaIds));
+  const next = new Set(normalizeObjectIdArray(nextPoojaIds));
+  const removed = [...previous].filter((id) => !next.has(id));
+  const added = [...next].filter((id) => !previous.has(id));
+
+  await Promise.all([
+    ...removed.map((poojaId) =>
+      Pooja.findByIdAndUpdate(poojaId, { $pull: { deity: deityId } })
+    ),
+    ...added.map((poojaId) =>
+      Pooja.findByIdAndUpdate(poojaId, { $addToSet: { deity: deityId } })
+    ),
+  ]);
+};
 
 const getUploadedMediaUrls = async (files = {}) => ({
   images: await Promise.all((files.image || []).map((file) => uploadFile(file, "deities"))),
@@ -145,6 +163,10 @@ const createDeity = async (req, res, next) => {
       createdBy: req.user.userId,
     });
 
+    if (parsed.pujas !== undefined && parsed.pujas.length > 0) {
+      await syncPoojaDeitiesForDeity(deity._id, [], parsed.pujas);
+    }
+
     return sendSuccess(res, { deity }, "Deity created successfully", 201);
   } catch (error) {
     return next(error);
@@ -258,6 +280,9 @@ const updateDeity = async (req, res, next) => {
       throw new HttpError("Provide at least one field to update", 400);
     }
 
+    const previousPoojaIds =
+      parsed.pujas !== undefined ? normalizeObjectIdArray(deity.pujas) : null;
+
     if (body.name !== undefined) deity.name = body.name;
     if (body.description !== undefined) deity.description = body.description;
     if (body.deity_color !== undefined) deity.deity_color = body.deity_color;
@@ -314,6 +339,11 @@ const updateDeity = async (req, res, next) => {
     }
 
     await deity.save();
+
+    if (parsed.pujas !== undefined) {
+      await syncPoojaDeitiesForDeity(deity._id, previousPoojaIds, parsed.pujas);
+    }
+
     await deity.populate("createdBy", "email role");
     await deity.populate("pujas", "title");
 

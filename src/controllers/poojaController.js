@@ -362,6 +362,20 @@ const getPoojas = async (req, res, next) => {
       }
     }
 
+    if (req.query.deity) {
+      const deityId = String(req.query.deity).trim();
+      const objectIdRegex = /^[a-fA-F0-9]{24}$/;
+      if (objectIdRegex.test(deityId)) {
+        const deityDoc = await Deity.findById(deityId).select("pujas").lean();
+        const associatedIds = normalizeObjectIdArray(deityDoc?.pujas);
+        const deityClauses = [{ deity: deityId }];
+        if (associatedIds.length > 0) {
+          deityClauses.push({ _id: { $in: associatedIds } });
+        }
+        filter.$or = deityClauses;
+      }
+    }
+
     const [poojas, total] = await Promise.all([
       Pooja.find(filter)
         .sort({ createdAt: -1 })
