@@ -94,7 +94,8 @@ const ensureUniqueSlug = async (baseSlug, excludeId) => {
 };
 
 const resolvePricing = ({ accessType, price, currency }) => {
-  const finalAccessType = accessType === "PAID" || accessType === "FREE" ? accessType : "FREE";
+  const finalAccessType =
+    accessType === "PAID" || accessType === "FREE" ? accessType : "FREE";
   const finalPrice =
     finalAccessType === "PAID" ? Number(price) : price === undefined ? 0 : Number(price);
   const finalCurrency =
@@ -112,6 +113,78 @@ const resolvePricing = ({ accessType, price, currency }) => {
   }
 
   return { accessType: finalAccessType, price: finalPrice, currency: finalCurrency };
+};
+
+const normalizeDays = (days) => {
+  if (!Array.isArray(days)) return [];
+  return days.map((raw, index) => {
+    const stepNumber = Number(raw?.stepNumber ?? raw?.dayNumber ?? index + 1);
+    let subSteps = Array.isArray(raw?.subSteps)
+      ? raw.subSteps.map((item) => String(item).trim()).filter(Boolean)
+      : [];
+    if (!subSteps.length && Array.isArray(raw?.activities)) {
+      subSteps = raw.activities.map((item) => String(item).trim()).filter(Boolean);
+    }
+    const legacyBits = [raw?.mantra, raw?.affirmation]
+      .map((item) => String(item ?? "").trim())
+      .filter(Boolean);
+    if (legacyBits.length) {
+      subSteps = [...legacyBits, ...subSteps];
+    }
+
+    return {
+      stepNumber,
+      title: String(raw?.title ?? "").trim(),
+      description: String(raw?.description ?? "").trim(),
+      subSteps,
+      images: Array.isArray(raw?.images)
+        ? raw.images.map((url) => String(url).trim()).filter(Boolean)
+        : [],
+    };
+  });
+};
+
+const collectDayImageUrls = (days = []) =>
+  normalizeDays(days).flatMap((day) => day.images || []);
+
+const removedDayImageUrls = (previousDays = [], nextDays = []) => {
+  const nextUrls = new Set(collectDayImageUrls(nextDays));
+  return collectDayImageUrls(previousDays).filter((url) => !nextUrls.has(url));
+};
+
+const mergeDayImageUploads = async (days, files = [], stepImageMetaRaw) => {
+  const normalized = normalizeDays(days);
+  const dayFiles = files || [];
+
+  if (!dayFiles.length) {
+    return normalized;
+  }
+
+  const meta = parseJsonField(stepImageMetaRaw, "stepImageMeta");
+  if (!Array.isArray(meta) || meta.length !== dayFiles.length) {
+    throw new HttpError(
+      "stepImageMeta must be a JSON array with one { stepNumber } entry per stepImage file",
+      400
+    );
+  }
+
+  const uploaded = await Promise.all(dayFiles.map((file) => uploadFile(file, "rituals")));
+
+  meta.forEach((entry, index) => {
+    const stepNumber = Number(entry?.stepNumber);
+    if (!Number.isFinite(stepNumber) || stepNumber < 1) {
+      throw new HttpError("Each stepImageMeta entry must include a valid stepNumber", 400);
+    }
+
+    const day = normalized.find((row) => Number(row.stepNumber) === stepNumber);
+    if (!day) {
+      throw new HttpError(`Day step ${stepNumber} not found for stepImage upload`, 400);
+    }
+
+    day.images.push(uploaded[index]);
+  });
+
+  return normalized;
 };
 
 const notDeleted = { isDeleted: false };
@@ -137,7 +210,12 @@ const createRitual = async (req, res, next) => {
     } = req.body;
 
     const sections = parseJsonField(req.body.sections, "sections") ?? [];
-    const days = parseJsonField(req.body.days, "days") ?? [];
+    const parsedDays = parseJsonField(req.body.days, "days") ?? [];
+    const days = await mergeDayImageUploads(
+      parsedDays,
+      req.files?.stepImage || [],
+      req.body.stepImageMeta
+    );
     const mediaFromBody = parseJsonField(req.body.media, "media") || {};
     const deityIds = parseObjectIdArrayField(deity, "deity") ?? [];
     if (!deityIds.length) {
@@ -356,7 +434,9 @@ const updateRitual = async (req, res, next) => {
     } = req.body;
 
     const sections = req.body.sections !== undefined ? parseJsonField(req.body.sections, "sections") : undefined;
-    const days = req.body.days !== undefined ? parseJsonField(req.body.days, "days") : undefined;
+    const parsedDays =
+      req.body.days !== undefined ? parseJsonField(req.body.days, "days") : undefined;
+    const hasUploadedDayImages = (req.files?.stepImage || []).length > 0;
     const mediaFromBody = req.body.media !== undefined ? parseJsonField(req.body.media, "media") : undefined;
     const parsedDeityIds = parseObjectIdArrayField(deity, "deity");
     if (parsedDeityIds !== undefined && !parsedDeityIds.length) {
@@ -385,7 +465,9 @@ const updateRitual = async (req, res, next) => {
       startingDay !== undefined ||
       difficulty !== undefined ||
       sections !== undefined ||
-      days !== undefined ||
+      parsedDays !== undefined ||
+      hasUploadedDayImages ||
+      req.body.stepImageMeta !== undefined ||
       mediaFromBody !== undefined ||
       accessType !== undefined ||
       price !== undefined ||
@@ -407,7 +489,23 @@ const updateRitual = async (req, res, next) => {
     if (startingDay !== undefined) ritual.startingDay = startingDay;
     if (difficulty !== undefined) ritual.difficulty = difficulty;
     if (sections !== undefined) ritual.sections = sections;
-    if (days !== undefined) ritual.days = days;
+    if (
+      parsedDays !== undefined ||
+      hasUploadedDayImages ||
+      req.body.stepImageMeta !== undefined
+    ) {
+      const previousDays = normalizeDays(ritual.days);
+      const nextDays = await mergeDayImageUploads(
+        parsedDays !== undefined ? parsedDays : ritual.days,
+        req.files?.stepImage || [],
+        req.body.stepImageMeta
+      );
+      const orphans = removedDayImageUrls(previousDays, nextDays);
+      ritual.days = nextDays;
+      if (orphans.length) {
+        await Promise.all(orphans.map((url) => deleteFile(url).catch(() => {})));
+      }
+    }
     if (isFeatured !== undefined) ritual.isFeatured = Boolean(isFeatured);
 
     if (slugInput !== undefined) {
@@ -510,6 +608,7 @@ const deleteRitual = async (req, res, next) => {
       ...(ritual.images || []).map((url) => deleteFile(url).catch(() => {})),
       ...(ritual.audio || []).map((url) => deleteFile(url).catch(() => {})),
       ...(ritual.videos || []).map((url) => deleteFile(url).catch(() => {})),
+      ...collectDayImageUrls(ritual.days).map((url) => deleteFile(url).catch(() => {})),
     ]);
 
     await ritual.deleteOne();

@@ -45,30 +45,11 @@ const ritualSectionSchema = new mongoose.Schema(
 
 const ritualDaySchema = new mongoose.Schema(
   {
-    dayNumber: {
-      type: Number,
-      required: true,
-    },
-
-    title: {
-      type: String,
-      required: true,
-    },
-
-    activities: {
-      type: [String],
-      default: [],
-    },
-
-    mantra: {
-      type: String,
-      default: "",
-    },
-
-    affirmation: {
-      type: String,
-      default: "",
-    },
+    stepNumber: Number,
+    title: String,
+    description: String,
+    images: [String],
+    subSteps: [String],
   },
   { _id: false }
 );

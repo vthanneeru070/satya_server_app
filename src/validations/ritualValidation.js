@@ -22,13 +22,17 @@ const ritualSectionSchema = Joi.object({
   contents: Joi.array().items(ritualContentSchema).default([]),
 });
 
-const ritualDaySchema = Joi.object({
-  dayNumber: Joi.number().integer().min(1).required(),
-  title: Joi.string().trim().min(1).required(),
-  activities: Joi.array().items(Joi.string().trim()).default([]),
-  mantra: Joi.string().trim().allow("").default(""),
-  affirmation: Joi.string().trim().allow("").default(""),
-});
+const ritualDayStepSchema = Joi.object({
+  stepNumber: Joi.number().integer().min(1),
+  dayNumber: Joi.number().integer().min(1),
+  title: Joi.string().trim().allow("").required(),
+  description: Joi.string().trim().allow("").default(""),
+  images: Joi.array().items(Joi.string().trim().min(1)).default([]),
+  subSteps: Joi.array().items(Joi.string().trim()).default([]),
+  activities: Joi.array().items(Joi.string().trim()).optional(),
+  mantra: Joi.string().trim().allow("").optional(),
+  affirmation: Joi.string().trim().allow("").optional(),
+}).or("stepNumber", "dayNumber");
 
 const accessTypeField = Joi.string().trim().valid("FREE", "PAID");
 const priceField = Joi.number().min(0);
@@ -62,7 +66,7 @@ const createRitualSchema = Joi.object({
   startingDay: Joi.string().trim().max(200).allow("").optional(),
   difficulty: Joi.string().valid("BEGINNER", "INTERMEDIATE", "ADVANCED").default("BEGINNER"),
   sections: jsonArrayOrStringField(Joi.array().items(ritualSectionSchema)).optional(),
-  days: jsonArrayOrStringField(Joi.array().items(ritualDaySchema)).optional(),
+  days: jsonArrayOrStringField(Joi.array().items(ritualDayStepSchema)).optional(),
   media: jsonObjectOrStringField(mediaSchema).optional(),
   accessType: accessTypeField.default("FREE"),
   price: priceField.when("accessType", {
@@ -98,7 +102,7 @@ const updateRitualSchema = Joi.object({
   startingDay: Joi.string().trim().max(200).allow(""),
   difficulty: Joi.string().valid("BEGINNER", "INTERMEDIATE", "ADVANCED"),
   sections: jsonArrayOrStringField(Joi.array().items(ritualSectionSchema)),
-  days: jsonArrayOrStringField(Joi.array().items(ritualDaySchema)),
+  days: jsonArrayOrStringField(Joi.array().items(ritualDayStepSchema)),
   media: jsonObjectOrStringField(mediaSchema),
   accessType: accessTypeField,
   price: priceField.when("accessType", {
