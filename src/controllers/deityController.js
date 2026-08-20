@@ -154,6 +154,7 @@ const createDeity = async (req, res, next) => {
 //Only approved deities
 const getDeities = async (req, res, next) => {
   const deities = await Deity.find({ status: "APPROVED" })
+    .sort({ createdAt: -1 })
     .populate("createdBy", "email role")
     .populate("pujas", "title");
 
