@@ -6,6 +6,14 @@ const { mergeSearchFilter } = require("../utils/textSearch");
 
 const FESTIVAL_SEARCH_FIELDS = ["title", "description", "category"];
 
+const festivalPopulate = [
+  { path: "createdBy", select: "email role isSuperAdmin" },
+  {
+    path: "associate_pujas",
+    select: "title category status daily accessType price currency media",
+  },
+];
+
 const canModifyFestival = (festival, user) =>
   user.isSuperAdmin === true || festival.createdBy.toString() === user.userId;
 
@@ -67,7 +75,8 @@ const parseLocation = (value) => {
   throw new HttpError("location must be a valid object", 400);
 };
 
-const parseRituals = (value) => {
+const parseAssociatePujas = (body) => {
+  const value = body?.associate_pujas ?? body?.rituals;
   if (value === undefined) {
     return undefined;
   }
@@ -99,7 +108,10 @@ const parseRituals = (value) => {
     }
   }
 
-  throw new HttpError("rituals must be an array or comma separated string", 400);
+  throw new HttpError(
+    "associate_pujas must be an array or comma separated string",
+    400
+  );
 };
 
 const parseDdMmYyyyDate = (value, fieldName) => {
@@ -138,7 +150,7 @@ const createFestival = async (req, res, next) => {
       "notificationDaysBefore"
     );
     const location = parseLocation(req.body.location);
-    const rituals = parseRituals(req.body.rituals);
+    const associatePujas = parseAssociatePujas(req.body);
     const date = parseDdMmYyyyDate(rawDate, "date");
     const endDate = parseDdMmYyyyDate(rawEndDate, "endDate");
 
@@ -150,7 +162,7 @@ const createFestival = async (req, res, next) => {
       date,
       endDate,
       image,
-      rituals,
+      associate_pujas: associatePujas,
       category,
       isGlobal,
       location,
@@ -160,6 +172,8 @@ const createFestival = async (req, res, next) => {
       status: status || "PENDING",
       isVisible: false,
     });
+
+    await festival.populate(festivalPopulate);
 
     return sendSuccess(res, { festival }, "Festival created successfully", 201);
   } catch (error) {
@@ -185,7 +199,7 @@ const getMyFestivals = async (req, res, next) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .populate("createdBy", "email role isSuperAdmin"),
+        .populate(festivalPopulate),
       Festival.countDocuments(filter),
     ]);
 
@@ -225,7 +239,7 @@ const getAllFestivals = async (req, res, next) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .populate("createdBy", "email role isSuperAdmin"),
+        .populate(festivalPopulate),
       Festival.countDocuments(filter),
     ]);
 
@@ -268,7 +282,13 @@ const getVisibleFestivals = async (req, res, next) => {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .populate("createdBy", "email role"),
+        .populate([
+          { path: "createdBy", select: "email role" },
+          {
+            path: "associate_pujas",
+            select: "title category status daily accessType price currency media",
+          },
+        ]),
       Festival.countDocuments(filter),
     ]);
 
@@ -317,7 +337,7 @@ const updateFestival = async (req, res, next) => {
       "notificationDaysBefore"
     );
     const location = parseLocation(req.body.location);
-    const rituals = parseRituals(req.body.rituals);
+    const associatePujas = parseAssociatePujas(req.body);
     const date = parseDdMmYyyyDate(rawDate, "date");
     const endDate = parseDdMmYyyyDate(rawEndDate, "endDate");
     const hasBodyUpdates =
@@ -331,7 +351,7 @@ const updateFestival = async (req, res, next) => {
       location !== undefined ||
       notifyUsers !== undefined ||
       notificationDaysBefore !== undefined ||
-      rituals !== undefined;
+      associatePujas !== undefined;
     const hasImageUpdate = Boolean(req.file);
 
     if (!hasBodyUpdates && !hasImageUpdate) {
@@ -378,8 +398,8 @@ const updateFestival = async (req, res, next) => {
       festival.notificationDaysBefore = notificationDaysBefore;
     }
 
-    if (rituals !== undefined) {
-      festival.rituals = rituals;
+    if (associatePujas !== undefined) {
+      festival.associate_pujas = associatePujas;
     }
 
     if (req.file) {
@@ -395,7 +415,7 @@ const updateFestival = async (req, res, next) => {
     festival.reviewedAt = undefined;
 
     await festival.save();
-    await festival.populate("createdBy", "email role isSuperAdmin");
+    await festival.populate(festivalPopulate);
 
     return sendSuccess(
       res,
@@ -445,7 +465,7 @@ const reviewFestival = async (req, res, next) => {
     festival.reviewedAt = new Date();
 
     await festival.save();
-    await festival.populate("createdBy", "email role isSuperAdmin");
+    await festival.populate(festivalPopulate);
 
     return sendSuccess(res, { festival }, "Festival reviewed successfully");
   } catch (error) {

@@ -11,6 +11,7 @@ const createFestivalSchema = Joi.object({
   location: Joi.alternatives().try(Joi.object(), Joi.string()).optional(),
   notifyUsers: Joi.alternatives().try(Joi.boolean(), Joi.string().valid("true", "false")).optional(),
   notificationDaysBefore: Joi.number().min(0).optional(),
+  associate_pujas: Joi.alternatives().try(Joi.array(), Joi.string()).optional(),
   rituals: Joi.alternatives().try(Joi.array(), Joi.string()).optional(),
   status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED").optional(),
 });
@@ -25,6 +26,7 @@ const updateFestivalSchema = Joi.object({
   location: Joi.alternatives().try(Joi.object(), Joi.string()),
   notifyUsers: Joi.alternatives().try(Joi.boolean(), Joi.string().valid("true", "false")),
   notificationDaysBefore: Joi.number().min(0),
+  associate_pujas: Joi.alternatives().try(Joi.array(), Joi.string()),
   rituals: Joi.alternatives().try(Joi.array(), Joi.string()),
   status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED"),
 });

@@ -20,7 +20,7 @@ const festivalSchema = new mongoose.Schema(
       type: String,
       required: false,
     },
-    rituals: [
+    associate_pujas: [
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Pooja",
@@ -54,7 +54,7 @@ const festivalSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED","QUEUED"],
+      enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"],
       default: "PENDING",
     },
     isVisible: {
@@ -75,5 +75,24 @@ const festivalSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// Legacy festivals may still store linked pujas under `rituals`.
+festivalSchema.post("init", function (doc) {
+  const legacy = doc._doc?.rituals;
+  if (
+    (!doc.associate_pujas || doc.associate_pujas.length === 0) &&
+    Array.isArray(legacy) &&
+    legacy.length > 0
+  ) {
+    doc.associate_pujas = legacy;
+  }
+});
+
+festivalSchema.pre("save", function (next) {
+  if (this.isModified("associate_pujas")) {
+    this.set("rituals", undefined);
+  }
+  next();
+});
 
 module.exports = mongoose.model("Festival", festivalSchema);
