@@ -10,16 +10,10 @@ const mediaSchema = Joi.object({
   videos: Joi.array().items(Joi.string().trim()).default([]),
 });
 
-const ritualContentSchema = Joi.object({
-  title: Joi.string().trim().min(1).required(),
-  description: Joi.string().trim().allow("").default(""),
-  imageUrl: Joi.string().trim().allow("").default(""),
-});
-
 const ritualSectionSchema = Joi.object({
   key: Joi.string().trim().min(1).required(),
   label: Joi.string().trim().min(1).required(),
-  contents: Joi.array().items(ritualContentSchema).default([]),
+  description: Joi.string().trim().allow("").default(""),
 });
 
 const ritualDayStepSchema = Joi.object({

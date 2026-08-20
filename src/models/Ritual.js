@@ -1,26 +1,5 @@
 const mongoose = require("mongoose");
 
-const ritualContentSchema = new mongoose.Schema(
-  {
-    title: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-
-    description: {
-      type: String,
-      default: "",
-    },
-
-    imageUrl: {
-      type: String,
-      default: "",
-    }
-  },
-  { _id: false }
-);
-
 const ritualSectionSchema = new mongoose.Schema(
   {
     key: {
@@ -35,9 +14,9 @@ const ritualSectionSchema = new mongoose.Schema(
       trim: true,
     },
 
-    contents: {
-      type: [ritualContentSchema],
-      default: [],
+    description: {
+      type: String,
+      default: "",
     },
   },
   { _id: false }
