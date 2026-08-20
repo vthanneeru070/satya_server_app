@@ -144,6 +144,44 @@ const normalizeDays = (days) => {
   });
 };
 
+const slugifySectionKey = (label = "") =>
+  String(label)
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "");
+
+const normalizeSections = (sections) => {
+  if (!Array.isArray(sections)) return [];
+  return sections
+    .map((raw) => {
+      const label = String(raw?.label ?? raw?.title ?? "").trim();
+      let key = String(raw?.key ?? "").trim();
+      if (!key && label) key = slugifySectionKey(label);
+
+      let description = String(raw?.description ?? raw?.content ?? "").trim();
+      if (!description && Array.isArray(raw?.contents)) {
+        const parts = [];
+        for (const item of raw.contents) {
+          const title = String(item?.title ?? "").trim();
+          const desc = String(item?.description ?? item?.content ?? "").trim();
+          if (title && desc) parts.push(`${title}\n${desc}`);
+          else if (title) parts.push(title);
+          else if (desc) parts.push(desc);
+        }
+        description = parts.join("\n\n");
+      }
+
+      if (!key && !label && !description) return null;
+      return {
+        key: key || slugifySectionKey(label || "section"),
+        label: label || "Untitled section",
+        description,
+      };
+    })
+    .filter(Boolean);
+};
+
 const collectDayImageUrls = (days = []) =>
   normalizeDays(days).flatMap((day) => day.images || []);
 
@@ -209,7 +247,7 @@ const createRitual = async (req, res, next) => {
       status: requestedStatus,
     } = req.body;
 
-    const sections = parseJsonField(req.body.sections, "sections") ?? [];
+    const sections = normalizeSections(parseJsonField(req.body.sections, "sections") ?? []);
     const parsedDays = parseJsonField(req.body.days, "days") ?? [];
     if (!parsedDays.length) {
       throw new HttpError("At least one ritual day is required", 400);
@@ -433,7 +471,10 @@ const updateRitual = async (req, res, next) => {
       status,
     } = req.body;
 
-    const sections = req.body.sections !== undefined ? parseJsonField(req.body.sections, "sections") : undefined;
+    const sections =
+      req.body.sections !== undefined
+        ? normalizeSections(parseJsonField(req.body.sections, "sections"))
+        : undefined;
     const parsedDays =
       req.body.days !== undefined ? parseJsonField(req.body.days, "days") : undefined;
     const hasUploadedDayImages = (req.files?.stepImage || []).length > 0;

@@ -18,6 +18,19 @@ const ritualSectionSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+
+    // Legacy nested items — kept only so old documents still load.
+    // Controllers normalize these into `description` and never write them back.
+    contents: {
+      type: [
+        {
+          title: { type: String, default: "" },
+          description: { type: String, default: "" },
+          imageUrl: { type: String, default: "" },
+        },
+      ],
+      default: undefined,
+    },
   },
   { _id: false }
 );
