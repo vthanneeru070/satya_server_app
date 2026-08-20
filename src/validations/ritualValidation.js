@@ -51,6 +51,16 @@ const deityField = Joi.alternatives().try(
   Joi.string().trim().min(2)
 );
 
+const stepImageMetaField = jsonArrayOrStringField(
+  Joi.array()
+    .items(
+      Joi.object({
+        stepNumber: Joi.number().integer().min(1).required(),
+      })
+    )
+    .min(1)
+);
+
 const createRitualSchema = Joi.object({
   title: Joi.string().trim().min(2).max(200).required(),
   slug: Joi.string().trim().lowercase().max(200).optional(),
@@ -67,6 +77,7 @@ const createRitualSchema = Joi.object({
   difficulty: Joi.string().valid("BEGINNER", "INTERMEDIATE", "ADVANCED").default("BEGINNER"),
   sections: jsonArrayOrStringField(Joi.array().items(ritualSectionSchema)).optional(),
   days: jsonArrayOrStringField(Joi.array().items(ritualDayStepSchema)).optional(),
+  stepImageMeta: stepImageMetaField.optional(),
   media: jsonObjectOrStringField(mediaSchema).optional(),
   accessType: accessTypeField.default("FREE"),
   price: priceField.when("accessType", {
@@ -103,6 +114,7 @@ const updateRitualSchema = Joi.object({
   difficulty: Joi.string().valid("BEGINNER", "INTERMEDIATE", "ADVANCED"),
   sections: jsonArrayOrStringField(Joi.array().items(ritualSectionSchema)),
   days: jsonArrayOrStringField(Joi.array().items(ritualDayStepSchema)),
+  stepImageMeta: stepImageMetaField.optional(),
   media: jsonObjectOrStringField(mediaSchema),
   accessType: accessTypeField,
   price: priceField.when("accessType", {
