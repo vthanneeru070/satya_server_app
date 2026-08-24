@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { returnAddressSnapshotSchema } = require("./schemas/returnShipmentSchema");
 
 const shippingAddressSchema = new mongoose.Schema(
   {
@@ -10,6 +11,9 @@ const shippingAddressSchema = new mongoose.Schema(
 
     city: { type: String, trim: true },
     state: { type: String, trim: true },
+    suburb: { type: String, trim: true, default: "" },
+    localArea: { type: String, trim: true, default: "" },
+    enteredAddress: { type: String, trim: true, default: "" },
 
     country: {
       type: String,
@@ -18,6 +22,132 @@ const shippingAddressSchema = new mongoose.Schema(
     },
 
     postalCode: { type: String, trim: true },
+
+    lat: { type: Number, default: null },
+    lng: { type: Number, default: null },
+  },
+  { _id: false }
+);
+
+const shippingQuoteSchema = new mongoose.Schema(
+  {
+    provider: { type: String, default: "TCG" },
+    serviceLevelCode: { type: String, trim: true, default: "" },
+    serviceLevelName: { type: String, trim: true, default: "" },
+    description: { type: String, trim: true, default: "" },
+    rate: { type: Number, min: 0, default: 0 },
+    rateExcludingVat: { type: Number, min: 0, default: 0 },
+    rateRevisionId: { type: mongoose.Schema.Types.Mixed, default: null },
+    serviceLevelId: { type: mongoose.Schema.Types.Mixed, default: null },
+    quotedAt: { type: Date, default: null },
+    expiresAt: { type: Date, default: null },
+    customerCharged: { type: Number, min: 0, default: 0 },
+    subsidized: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
+const deliveryPodSchema = new mongoose.Schema(
+  {
+    status: { type: String, default: "" },
+    message: { type: String, default: "" },
+    verifiedAt: { type: Date, default: null },
+    eventId: { type: String, default: "" },
+    digitalPodUrl: { type: String, default: "" },
+    imageUrls: { type: [String], default: [] },
+    imageFileNames: { type: [String], default: [] },
+    lastSyncedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
+const deliveryTrackingEventSchema = new mongoose.Schema(
+  {
+    status: { type: String, default: "" },
+    message: { type: String, default: "" },
+    date: { type: Date, default: null },
+    eventId: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const deliverySchema = new mongoose.Schema(
+  {
+    provider: { type: String, default: "TCG" },
+    shipmentId: { type: String, default: "", index: true },
+    waybill: { type: String, default: "", index: true },
+    shortTrackingReference: { type: String, default: "" },
+    labelUrl: { type: String, default: "" },
+    stickerUrl: { type: String, default: "" },
+    status: { type: String, default: "" },
+    bookedAt: { type: Date, default: null },
+    lastSyncedAt: { type: Date, default: null },
+    bookedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    podMethod: { type: String, default: "" },
+    pod: {
+      type: deliveryPodSchema,
+      default: undefined,
+    },
+    trackingEvents: {
+      type: [deliveryTrackingEventSchema],
+      default: [],
+    },
+    /** Warehouse / TCG collection point snapshot at booking time. */
+    collectionAddress: {
+      type: returnAddressSnapshotSchema,
+      default: undefined,
+    },
+    /** Customer delivery address snapshot at booking time. */
+    deliveryAddress: {
+      type: returnAddressSnapshotSchema,
+      default: undefined,
+    },
+  },
+  { _id: false }
+);
+
+const pickupCollectionSchema = new mongoose.Schema(
+  {
+    code: { type: String, trim: true, default: "" },
+    generatedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
+const pickupCredentialsSchema = new mongoose.Schema(
+  {
+    pin: { type: String, trim: true, default: "" },
+    qrToken: { type: String, trim: true, default: "" },
+    issuedAt: { type: Date, default: null },
+    collectedAt: { type: Date, default: null },
+    collectedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+  },
+  { _id: false }
+);
+
+const pickupLocationSchema = new mongoose.Schema(
+  {
+    company: { type: String, default: "" },
+    streetAddress: { type: String, default: "" },
+    localArea: { type: String, default: "" },
+    city: { type: String, default: "" },
+    zone: { type: String, default: "" },
+    postalCode: { type: String, default: "" },
+    country: { type: String, default: "South Africa" },
+    enteredAddress: { type: String, default: "" },
+    contactName: { type: String, default: "" },
+    contactPhone: { type: String, default: "" },
+    contactEmail: { type: String, default: "" },
+    hours: { type: String, default: "" },
+    instructions: { type: String, default: "" },
   },
   { _id: false }
 );
@@ -159,6 +289,29 @@ const orderSchema = new mongoose.Schema(
       min: 0,
     },
 
+    /** VAT amount applied to product subtotal at checkout. */
+    taxAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    /** Snapshot of VAT % used when the order was placed. */
+    vatPercent: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
+
+    /** Snapshot of store VAT registration number at checkout. */
+    vatNumber: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 64,
+    },
+
     currency: {
       type: String,
       default: "ZAR",
@@ -184,6 +337,9 @@ const orderSchema = new mongoose.Schema(
       enum: [
         "PLACED",
         "PROCESSING",
+        "PACKED",
+        "READY_FOR_PICKUP",
+        "COLLECTED",
         "SHIPPED",
         "OUT_FOR_DELIVERY",
         "DELIVERED",
@@ -191,6 +347,14 @@ const orderSchema = new mongoose.Schema(
         "CANCELLED",
       ],
       default: "PLACED",
+      index: true,
+    },
+
+    /** How the customer receives the order. */
+    fulfillmentMethod: {
+      type: String,
+      enum: ["DELIVERY", "PICKUP"],
+      default: "DELIVERY",
       index: true,
     },
 
@@ -202,6 +366,44 @@ const orderSchema = new mongoose.Schema(
 
     shippingAddress: {
       type: shippingAddressSchema,
+      default: undefined,
+    },
+
+    /** Snapshot of The Courier Guy rate chosen at checkout (Delivery only). */
+    shippingQuote: {
+      type: shippingQuoteSchema,
+      default: undefined,
+    },
+
+    /** Live courier shipment / waybill details (Delivery only). */
+    delivery: {
+      type: deliverySchema,
+      default: undefined,
+    },
+
+    /** Warehouse snapshot for Pickup orders. */
+    pickupLocation: {
+      type: pickupLocationSchema,
+      default: undefined,
+    },
+
+    /** Assigned pickup warehouse (Pickup orders). */
+    warehouse: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Warehouse",
+      default: null,
+      index: true,
+    },
+
+    /** One-time code for warehouse pickup verification. */
+    pickupCollection: {
+      type: pickupCollectionSchema,
+      default: undefined,
+    },
+
+    /** PIN + QR metadata for pickup verification. */
+    pickupCredentials: {
+      type: pickupCredentialsSchema,
       default: undefined,
     },
 

@@ -52,12 +52,39 @@ const getRequestById = async (req, res, next) => {
 
 const approveRequest = async (req, res, next) => {
   try {
-    const request = await orderRequestService.approveRequest(
+    const result = await orderRequestService.approveRequest(
       req.params.requestId,
       req.body,
       { actorUserId: req.user.userId }
     );
-    return sendSuccess(res, { request }, "Request approved");
+    const request = result?.request || result;
+    const refund = result?.refund || null;
+
+    let message = "Request approved";
+    if (request?.type === "REFUND") {
+      if (result?.returnBooked) {
+        message =
+          "Return approved — Courier Guy collection booked. Refund starts after the warehouse receives the item.";
+      } else if (result?.returnBookError) {
+        message = `Return approved — awaiting item return. Courier booking failed (${result.returnBookError}). Retry booking or mark return received manually.`;
+      } else {
+        message =
+          request.fulfillmentMethod === "PICKUP"
+            ? "Return approved — customer should drop the item at the warehouse. Mark return received to start the refund."
+            : "Return approved — awaiting return. Refund starts after the item is received.";
+      }
+    }
+
+    return sendSuccess(
+      res,
+      {
+        request,
+        refund,
+        returnBooked: result?.returnBooked ?? null,
+        returnBookError: result?.returnBookError ?? null,
+      },
+      message
+    );
   } catch (error) {
     return next(error);
   }
@@ -76,6 +103,80 @@ const rejectRequest = async (req, res, next) => {
   }
 };
 
+const bookReturn = async (req, res, next) => {
+  try {
+    const request = await orderRequestService.bookReturnShipment(
+      req.params.requestId,
+      { actorUserId: req.user.userId }
+    );
+    return sendSuccess(
+      res,
+      { request },
+      "Return collection booked with Courier Guy"
+    );
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const markReturnReceived = async (req, res, next) => {
+  try {
+    const result = await orderRequestService.markReturnReceived(
+      req.params.requestId,
+      { actorUserId: req.user.userId }
+    );
+    const request = result.request;
+    const refund = result.refund;
+    let message = "Return received";
+    if (refund?.outcome === "REFUNDED") {
+      message = "Return received — PayFast refund completed.";
+    } else if (refund?.outcome === "PENDING") {
+      message = refund.manual
+        ? "Return received — complete the refund in the PayFast merchant portal."
+        : "Return received — PayFast refund submitted. Funds usually return in 5–10 business days.";
+    } else if (result.alreadyDone) {
+      message = "Return already processed for this request.";
+    }
+    return sendSuccess(res, { request, refund }, message);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const syncReturn = async (req, res, next) => {
+  try {
+    const result = await orderRequestService.syncReturnShipment(
+      req.params.requestId,
+      { actorUserId: req.user.userId }
+    );
+    const status = result.courierStatus || "";
+    let message = result.changed
+      ? `Return tracking refreshed (${status || "updated"}).`
+      : `Return tracking checked (${status || "unchanged"}).`;
+    if (result.refund?.outcome === "REFUNDED") {
+      message =
+        "Return delivered to warehouse — PayFast refund completed.";
+    } else if (result.refund?.outcome === "PENDING") {
+      message =
+        "Return delivered to warehouse — PayFast refund submitted.";
+    } else if (result.alreadyDone) {
+      message = "Return already completed for this request.";
+    }
+    return sendSuccess(
+      res,
+      {
+        request: result.request,
+        refund: result.refund,
+        changed: result.changed,
+        courierStatus: result.courierStatus,
+      },
+      message
+    );
+  } catch (error) {
+    return next(error);
+  }
+};
+
 module.exports = {
   createRequest,
   listMyRequests,
@@ -83,4 +184,7 @@ module.exports = {
   getRequestById,
   approveRequest,
   rejectRequest,
+  bookReturn,
+  markReturnReceived,
+  syncReturn,
 };

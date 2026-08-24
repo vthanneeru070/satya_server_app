@@ -2,8 +2,29 @@ const Cart = require("../models/Cart");
 const Product = require("../models/Product");
 const HttpError = require("../utils/httpError");
 const inventoryService = require("./inventoryService");
+const warehouseRoutingService = require("./warehouseRoutingService");
 const ecommerceSettingsService = require("./ecommerceSettingsService");
 const { usesProductQuantity } = require("../validations/productValidation");
+
+const roundMoney = (value) => Math.round(Number(value) * 100) / 100;
+
+/** Cart line totals — delivery via TCG at checkout; VAT applies to product subtotal. */
+const cartLineTotals = async (subtotal, currency = "ZAR") => {
+  const withVat = await ecommerceSettingsService.applyProductVat(
+    subtotal,
+    0,
+    currency
+  );
+  return {
+    subtotal: withVat.subtotal,
+    taxAmount: withVat.taxAmount,
+    vatPercent: withVat.vatPercent,
+    vatNumber: withVat.vatNumber,
+    deliveryCharge: 0,
+    totalAmount: withVat.totalAmount,
+    currency: withVat.currency || "ZAR",
+  };
+};
 
 const getOrCreateCart = async (userId) => {
   let cart = await Cart.findOne({ user: userId, isDeleted: { $ne: true } });
@@ -52,10 +73,7 @@ const unitPrice = (product) =>
  */
 const serializeCart = async (cart) => {
   if (!cart || cart.items.length === 0) {
-    const totals = await ecommerceSettingsService.attachDeliveryTotals(
-      cart?.totalAmount || 0,
-      cart?.currency || "ZAR"
-    );
+    const totals = await cartLineTotals(cart?.totalAmount || 0, cart?.currency || "ZAR");
     return {
       _id: cart?._id || null,
       user: cart?.user || null,
@@ -94,6 +112,7 @@ const serializeCart = async (cart) => {
         title: product.title,
         slug: product.slug,
         imageUrl: product.imageUrl,
+        category: product.category,
         items: product.items,
         currency: product.currency,
         stockQuantity: product.stockQuantity,
@@ -115,10 +134,7 @@ const serializeCart = async (cart) => {
     await cart.save();
   }
 
-  const totals = await ecommerceSettingsService.attachDeliveryTotals(
-    cart.totalAmount,
-    currency
-  );
+  const totals = await cartLineTotals(cart.totalAmount, currency);
 
   return {
     _id: cart._id,
@@ -147,6 +163,18 @@ const addItem = async (userId, { productId, quantity = 1 }) => {
   const existing = cart.items.find((it) => String(it.product) === String(productId));
   const newQty = (existing ? existing.quantity : 0) + qty;
   await assertProductBuyable(product, newQty);
+
+  if (!existing && cart.items.length > 0) {
+    const existingIds = cart.items.map((it) => it.product);
+    const existingProducts = await Product.find({
+      _id: { $in: existingIds },
+      isDeleted: { $ne: true },
+    }).select("category");
+    warehouseRoutingService.assertSingleWarehouseForProducts(
+      [...existingProducts, product],
+      { context: "cart" }
+    );
+  }
 
   const snap = unitPrice(product);
   if (existing) {

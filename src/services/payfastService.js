@@ -522,6 +522,66 @@ const createRefund = async (
   return sendApiRequest("POST", `refunds/${encodeURIComponent(pfPaymentId)}`, { body });
 };
 
+/**
+ * Interpret PayFast `POST /refunds/:id` JSON.
+ * Success may be `data.response: "true"` (legacy) or an object with `status: COMPLETE`.
+ * Failure may use `data.response: { code, reason }` while HTTP code is still 200.
+ */
+const parseCreateRefundResponse = (refundData) => {
+  const responsePayload = refundData?.data?.response;
+  const topStatus = String(refundData?.status || "").toLowerCase();
+
+  const failureReason =
+    typeof responsePayload === "object" &&
+    responsePayload !== null &&
+    (responsePayload.reason || responsePayload.message || responsePayload.code)
+      ? String(
+          responsePayload.reason ||
+            responsePayload.message ||
+            responsePayload.code
+        )
+      : null;
+
+  const legacySuccess =
+    responsePayload === true ||
+    String(responsePayload || "").toLowerCase() === "true";
+
+  const objectSuccess =
+    typeof responsePayload === "object" &&
+    responsePayload !== null &&
+    !failureReason;
+
+  const apiSuccess =
+    topStatus === "success" && (legacySuccess || objectSuccess);
+
+  let refundStatus = "pending";
+  if (typeof responsePayload === "object" && responsePayload?.status) {
+    refundStatus = String(responsePayload.status).toLowerCase();
+  } else if (refundData?.data?.status) {
+    refundStatus = String(refundData.data.status).toLowerCase();
+  }
+
+  const refundId =
+    (typeof responsePayload === "object" &&
+      (responsePayload?.refund_id ||
+        responsePayload?.id ||
+        responsePayload?.refundId)) ||
+    refundData?.data?.refund_id ||
+    "";
+
+  const terminalSuccess =
+    apiSuccess &&
+    ["completed", "processed", "success", "complete"].includes(refundStatus);
+
+  return {
+    apiSuccess,
+    terminalSuccess,
+    refundStatus,
+    refundId: refundId != null ? String(refundId) : "",
+    failureReason,
+  };
+};
+
 // ── Transaction history (merchant dashboard data via REST API) ───────────────
 
 const formatApiDate = (date = new Date()) => {
@@ -674,6 +734,7 @@ module.exports = {
   sendApiRequest,
   queryRefund,
   createRefund,
+  parseCreateRefundResponse,
   formatApiDate,
   parseTransactionHistoryCsv,
   getTransactionHistoryRange,

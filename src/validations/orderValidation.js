@@ -7,11 +7,17 @@ const shippingAddressSchema = Joi.object({
   phone: Joi.string().trim().min(5).max(20).required(),
   addressLine1: Joi.string().trim().min(2).max(200).optional(),
   line1: Joi.string().trim().min(2).max(200).optional(),
+  addressLine2: Joi.string().trim().max(200).allow("").optional(),
   city: Joi.string().trim().min(1).max(80).required(),
   state: Joi.string().trim().min(1).max(80).required(),
+  suburb: Joi.string().trim().max(120).allow("").optional(),
+  localArea: Joi.string().trim().max(120).allow("").optional(),
+  enteredAddress: Joi.string().trim().max(500).allow("").optional(),
   postalCode: Joi.string().trim().min(3).max(20).optional(),
   pincode: Joi.string().trim().min(3).max(20).optional(),
   country: Joi.string().trim().min(2).max(80).default("South Africa"),
+  lat: Joi.number().min(-90).max(90).optional().allow(null),
+  lng: Joi.number().min(-180).max(180).optional().allow(null),
 }).custom((value, helpers) => {
   const addressLine1 = (value.addressLine1 || value.line1 || "").trim();
   const postalCode = (value.postalCode || value.pincode || "").trim();
@@ -24,9 +30,95 @@ const shippingAddressSchema = Joi.object({
   return { ...value, addressLine1, postalCode };
 });
 
-const checkoutOrderSchema = Joi.object({
-  shippingAddress: shippingAddressSchema.required(),
+/** Pickup checkout: name + phone only — warehouse address is resolved server-side. */
+const pickupShippingAddressSchema = Joi.object({
+  fullName: Joi.string().trim().min(2).max(120).required(),
+  phone: Joi.string().trim().min(5).max(20).required(),
+  addressLine1: Joi.string().trim().max(200).allow("").optional(),
+  line1: Joi.string().trim().max(200).allow("").optional(),
+  addressLine2: Joi.string().trim().max(200).allow("").optional(),
+  city: Joi.string().trim().max(80).allow("").optional(),
+  state: Joi.string().trim().max(80).allow("").optional(),
+  suburb: Joi.string().trim().max(120).allow("").optional(),
+  localArea: Joi.string().trim().max(120).allow("").optional(),
+  enteredAddress: Joi.string().trim().max(500).allow("").optional(),
+  postalCode: Joi.string().trim().max(20).allow("").optional(),
+  pincode: Joi.string().trim().max(20).allow("").optional(),
+  country: Joi.string().trim().max(80).allow("").default("South Africa"),
+  lat: Joi.number().min(-90).max(90).optional().allow(null),
+  lng: Joi.number().min(-180).max(180).optional().allow(null),
 });
+
+const pickupContactSchema = Joi.object({
+  fullName: Joi.string().trim().min(2).max(120).required(),
+  phone: Joi.string().trim().min(5).max(20).required(),
+});
+
+const fulfillmentFields = {
+  fulfillmentMethod: Joi.string().valid("DELIVERY", "PICKUP").default("DELIVERY"),
+  shippingServiceLevelCode: Joi.string().trim().uppercase().max(20).optional(),
+  contact: pickupContactSchema.optional(),
+  /** Validated in assertFulfillmentPayload (delivery vs pickup schemas differ). */
+  shippingAddress: Joi.object().unknown(true).optional(),
+};
+
+const assertFulfillmentPayload = (value, helpers) => {
+  const method = value.fulfillmentMethod || "DELIVERY";
+  if (method === "DELIVERY") {
+    if (!value.shippingAddress) {
+      return helpers.message({ custom: "shippingAddress is required for delivery" });
+    }
+    if (!value.shippingServiceLevelCode) {
+      return helpers.message({
+        custom: "shippingServiceLevelCode is required for delivery",
+      });
+    }
+    const { error, value: validatedAddress } = shippingAddressSchema.validate(
+      value.shippingAddress,
+      { abortEarly: false }
+    );
+    if (error) {
+      return helpers.message({
+        custom: error.details.map((d) => d.message).join(", "),
+      });
+    }
+    value.shippingAddress = validatedAddress;
+  } else {
+    const hasContact =
+      value.contact?.fullName &&
+      value.contact?.phone;
+    const hasAddrContact =
+      value.shippingAddress?.fullName && value.shippingAddress?.phone;
+    if (!hasContact && !hasAddrContact) {
+      return helpers.message({
+        custom: "contact (fullName, phone) is required for pickup",
+      });
+    }
+    if (value.shippingAddress) {
+      const { error, value: validatedAddress } = pickupShippingAddressSchema.validate(
+        value.shippingAddress,
+        { abortEarly: false }
+      );
+      if (error) {
+        return helpers.message({
+          custom: error.details.map((d) => d.message).join(", "),
+        });
+      }
+      value.shippingAddress = validatedAddress;
+    }
+    if (!value.contact?.fullName && value.shippingAddress?.fullName) {
+      value.contact = {
+        fullName: value.shippingAddress.fullName,
+        phone: value.shippingAddress.phone,
+      };
+    }
+  }
+  return value;
+};
+
+const checkoutOrderSchema = Joi.object({
+  ...fulfillmentFields,
+}).custom(assertFulfillmentPayload);
 
 const createOrderSchema = Joi.object({
   items: Joi.array()
@@ -37,9 +129,9 @@ const createOrderSchema = Joi.object({
       })
     )
     .optional(),
-  shippingAddress: shippingAddressSchema.required(),
   paymentMethod: Joi.string().valid("COD", "EFT", "PAYSTACK", "PAYFAST").default("PAYFAST"),
-});
+  ...fulfillmentFields,
+}).custom(assertFulfillmentPayload);
 
 const orderIdParamsSchema = Joi.object({
   id: objectIdHex.required(),
@@ -47,7 +139,14 @@ const orderIdParamsSchema = Joi.object({
 
 const updateOrderStatusSchema = Joi.object({
   status: Joi.string()
-    .valid("PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED")
+    .valid(
+      "PROCESSING",
+      "READY_FOR_PICKUP",
+      "SHIPPED",
+      "OUT_FOR_DELIVERY",
+      "DELIVERED",
+      "CANCELLED"
+    )
     .required(),
   note: Joi.string().trim().max(300).allow("").optional(),
 });
@@ -70,11 +169,30 @@ const listOrdersQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(10),
   orderStatus: Joi.string()
-    .valid("PLACED", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED")
+    .valid(
+      "PLACED",
+      "PROCESSING",
+      "READY_FOR_PICKUP",
+      "SHIPPED",
+      "OUT_FOR_DELIVERY",
+      "DELIVERED",
+      "FULFILLED",
+      "CANCELLED"
+    )
     .optional(),
   status: Joi.string()
-    .valid("PLACED", "PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED")
+    .valid(
+      "PLACED",
+      "PROCESSING",
+      "READY_FOR_PICKUP",
+      "SHIPPED",
+      "OUT_FOR_DELIVERY",
+      "DELIVERED",
+      "FULFILLED",
+      "CANCELLED"
+    )
     .optional(),
+  fulfillmentMethod: Joi.string().valid("DELIVERY", "PICKUP").optional(),
   paymentStatus: Joi.string()
     .valid(
       "PENDING",
@@ -112,13 +230,44 @@ const setTrackingSchema = Joi.object({
   trackingUrl: Joi.string().trim().uri().max(2048).allow("").optional(),
 });
 
-const dispatchOrderSchema = setTrackingSchema.keys({
+const dispatchOrderSchema = Joi.object({
+  courier: Joi.string().trim().min(2).max(120).optional(),
+  trackingNumber: Joi.string().trim().min(2).max(120).optional(),
+  trackingUrl: Joi.string().trim().uri().max(2048).allow("").optional(),
   note: Joi.string().trim().max(300).allow("").optional(),
+  bookCourier: Joi.boolean().optional(),
+}).custom((value, helpers) => {
+  const hasCourier = Boolean(value.courier && value.trackingNumber);
+  const hasNeither = !value.courier && !value.trackingNumber;
+  if (!hasCourier && !hasNeither) {
+    return helpers.message({
+      custom: "Provide both courier and trackingNumber, or omit both to book The Courier Guy",
+    });
+  }
+  return value;
+});
+
+const readyForPickupSchema = Joi.object({
+  note: Joi.string().trim().max(300).allow("").optional(),
+});
+
+const markPackedSchema = Joi.object({
+  note: Joi.string().trim().max(300).allow("").optional(),
+});
+
+const verifyPickupSchema = Joi.object({
+  pin: Joi.string().trim().pattern(/^\d{6}$/).required().messages({
+    "any.required": "Pickup PIN is required",
+    "string.pattern.base": "pin must be a 6-digit code",
+  }),
 });
 
 const confirmDeliverySchema = Joi.object({
   satisfied: Joi.boolean().required(),
   feedback: Joi.string().trim().max(2000).allow("").optional(),
+  collectionCode: Joi.string().trim().pattern(/^\d{6}$/).optional().messages({
+    "string.pattern.base": "collectionCode must be a 6-digit code",
+  }),
 });
 
 const adminCancelPaidSchema = Joi.object({
@@ -138,8 +287,25 @@ const cancelMyOrderSchema = Joi.object({
   }),
 });
 
+const shippingQuoteSchema = Joi.object({
+  shippingAddress: shippingAddressSchema.required(),
+  declaredValue: Joi.number().min(0).optional(),
+  productIds: Joi.array().items(objectIdHex.required()).max(100).optional(),
+  items: Joi.array()
+    .items(
+      Joi.object({
+        productId: objectIdHex.optional(),
+        product: objectIdHex.optional(),
+        quantity: Joi.number().integer().min(1).optional(),
+      }).or("productId", "product")
+    )
+    .max(100)
+    .optional(),
+});
+
 module.exports = {
   shippingAddressSchema,
+  pickupShippingAddressSchema,
   checkoutOrderSchema,
   createOrderSchema,
   orderIdParamsSchema,
@@ -153,8 +319,12 @@ module.exports = {
   paystackVerifySchema,
   setTrackingSchema,
   dispatchOrderSchema,
+  readyForPickupSchema,
+  markPackedSchema,
+  verifyPickupSchema,
   confirmDeliverySchema,
   adminCancelPaidSchema,
   adminInitiateRefundSchema,
   cancelMyOrderSchema,
+  shippingQuoteSchema,
 };

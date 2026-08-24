@@ -115,16 +115,14 @@ const resolveTrackingUrl = (order) => {
   const explicit = toTrimmedOrNull(tracking.trackingUrl);
   if (explicit) return explicit;
 
-  const waybill =
+  const ref =
+    toTrimmedOrNull(order?.delivery?.shortTrackingReference) ||
     toTrimmedOrNull(tracking.trackingNumber) ||
     toTrimmedOrNull(order?.delivery?.waybill);
-  if (!waybill) return null;
+  if (!ref) return null;
 
-  const base = (
-    process.env.TCG_TRACKING_PUBLIC_BASE_URL ||
-    "https://www.thecourierguy.co.za/track"
-  ).replace(/\/$/, "");
-  return `${base}?waybill=${encodeURIComponent(waybill)}`;
+  const { buildTrackingUrl } = require("./shippingShipmentService");
+  return buildTrackingUrl(ref);
 };
 
 const toTrimmedOrNull = (value) => {
@@ -281,6 +279,67 @@ const sendDeliveryConfirmationPrompt = async (order) => {
     subject,
     html: cardShell({ accent: "#059669", banner: "Did your order arrive okay?", title: subject, body }),
     text: `Your order ${order.orderNumber} is marked delivered. Confirm receipt or raise a refund / replacement request in the app.`,
+  });
+};
+
+/**
+ * Email when a pickup order is ready for customer collection.
+ */
+const sendReadyForPickup = async (order) => {
+  if (!order) return { delivered: false, reason: "no-order" };
+  const user = await loadRecipientEmail(order.user);
+  const to = user?.email;
+  if (!to) return { delivered: false, reason: "no-recipient-email" };
+
+  const loc = order.pickupLocation || {};
+  const collectionCode = String(order.pickupCollection?.code || "").trim();
+  const addressLine = [
+    loc.company,
+    loc.streetAddress || loc.enteredAddress,
+    loc.localArea,
+    loc.city,
+    loc.postalCode,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  const subject = `Your ${appName()} order ${order.orderNumber} is ready for pickup`;
+  const body = `
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">Hi <strong>${escapeHtml(user.fullName || "there")}</strong>,</p>
+    <p style="margin:0 0 14px;font-size:15px;line-height:1.6;">
+      Your order <strong>${escapeHtml(order.orderNumber)}</strong> is ready for collection.
+    </p>
+    <div style="margin-top:18px;font-size:13px;color:#6b7280;text-transform:uppercase;letter-spacing:1px;">Pickup location</div>
+    <div style="margin-top:6px;font-size:14px;line-height:1.5;">${escapeHtml(addressLine || "See the app for details")}</div>
+    ${loc.hours ? `<p style="margin:12px 0 0;font-size:14px;line-height:1.5;"><strong>Hours:</strong> ${escapeHtml(loc.hours)}</p>` : ""}
+    ${loc.instructions ? `<p style="margin:8px 0 0;font-size:14px;line-height:1.5;">${escapeHtml(loc.instructions)}</p>` : ""}
+    ${
+      collectionCode
+        ? `<div style="margin:18px 0 0;padding:14px 16px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;">
+      <div style="font-size:12px;color:#92400e;text-transform:uppercase;letter-spacing:1px;">Collection code</div>
+      <div style="margin-top:6px;font-size:28px;font-weight:700;letter-spacing:6px;color:#78350f;">${escapeHtml(collectionCode)}</div>
+      <p style="margin:8px 0 0;font-size:13px;line-height:1.5;color:#92400e;">Show this code at the warehouse. You will also need it to confirm collection in the app.</p>
+    </div>`
+        : ""
+    }
+    <p style="margin:18px 0 0;font-size:14px;line-height:1.6;">
+      Please bring your order number, collection code, and a valid ID. Enter the collection code in the app once you have picked up your order.
+    </p>`;
+
+  return safeSend({
+    to,
+    subject,
+    html: cardShell({
+      accent: "#d97706",
+      banner: "Ready for pickup",
+      title: subject,
+      body,
+    }),
+    text:
+      `Your order ${order.orderNumber} is ready for pickup` +
+      (addressLine ? ` at ${addressLine}.` : ".") +
+      (collectionCode ? ` Collection code: ${collectionCode}.` : "") +
+      (loc.hours ? ` Hours: ${loc.hours}.` : ""),
   });
 };
 
@@ -580,6 +639,7 @@ module.exports = {
   sendOrderAdminNotification,
   sendTrackingShared,
   sendDeliveryConfirmationPrompt,
+  sendReadyForPickup,
   sendRequestStatusUpdate,
   sendOrderCancelledByAdmin,
   sendRefundProcessed,

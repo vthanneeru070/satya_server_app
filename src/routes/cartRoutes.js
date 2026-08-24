@@ -34,7 +34,7 @@ const router = express.Router();
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Cart returned with subtotal, deliveryCharge, totalAmount, and deliverySettings
+ *         description: Cart returned with subtotal, deliveryCharge (0 until TCG checkout), and totalAmount
  *       401:
  *         description: Unauthorized
  *   delete:

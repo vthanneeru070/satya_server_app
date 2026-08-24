@@ -98,8 +98,9 @@ router.get("/", authenticate, validate(allFestivalsQuerySchema, "query"), getVis
  *                 type: boolean
  *               notificationDaysBefore:
  *                 type: number
- *               rituals:
+ *               associate_pujas:
  *                 type: string
+ *                 description: JSON array or comma-separated list of Pooja ObjectIds
  *               image:
  *                 type: string
  *                 format: binary
@@ -238,8 +239,9 @@ router.get(
  *                 type: boolean
  *               notificationDaysBefore:
  *                 type: number
- *               rituals:
+ *               associate_pujas:
  *                 type: string
+ *                 description: JSON array or comma-separated list of Pooja ObjectIds
  *               image:
  *                 type: string
  *                 format: binary

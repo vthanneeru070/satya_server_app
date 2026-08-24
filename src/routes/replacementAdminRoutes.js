@@ -7,6 +7,8 @@ const {
   getOneAdmin,
   approveAdmin,
   rejectAdmin,
+  bookReturnAdmin,
+  markReturnReceivedAdmin,
 } = require("../controllers/replacementController");
 const {
   replacementRequestIdParamsSchema,
@@ -99,6 +101,32 @@ router.put(
   validate(replacementRequestIdParamsSchema, "params"),
   validate(adminDecideReplacementSchema),
   rejectAdmin
+);
+
+/**
+ * @swagger
+ * /admin/replacements/{id}/book-return:
+ *   post:
+ *     summary: Book Courier Guy return collection (delivery orders)
+ *     tags: [AdminReplacements]
+ */
+router.post(
+  "/:id/book-return",
+  validate(replacementRequestIdParamsSchema, "params"),
+  bookReturnAdmin
+);
+
+/**
+ * @swagger
+ * /admin/replacements/{id}/mark-return-received:
+ *   post:
+ *     summary: Mark damaged item received at warehouse
+ *     tags: [AdminReplacements]
+ */
+router.post(
+  "/:id/mark-return-received",
+  validate(replacementRequestIdParamsSchema, "params"),
+  markReturnReceivedAdmin
 );
 
 module.exports = router;

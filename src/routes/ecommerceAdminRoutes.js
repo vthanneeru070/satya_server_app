@@ -6,7 +6,9 @@ const {
   getEcommerceSettings,
   updateEcommerceSettings,
 } = require("../controllers/ecommerceSettingsController");
-const { updateEcommerceSettingsSchema } = require("../validations/ecommerceSettingsValidation");
+const {
+  updateEcommerceSettingsSchema,
+} = require("../validations/ecommerceSettingsValidation");
 
 const router = express.Router();
 
@@ -14,7 +16,7 @@ const router = express.Router();
  * @swagger
  * tags:
  *   name: Ecommerce
- *   description: E-commerce store settings (admin)
+ *   description: Store ecommerce settings (VAT)
  */
 
 router.use(authenticate, adminMiddleware);
@@ -23,44 +25,21 @@ router.use(authenticate, adminMiddleware);
  * @swagger
  * /admin/ecommerce/settings:
  *   get:
- *     summary: Get ecommerce settings
+ *     summary: Get ecommerce VAT settings
  *     tags: [Ecommerce]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Ecommerce settings including delivery_charges
+ *         description: Settings fetched
  *   put:
- *     summary: Update ecommerce settings
+ *     summary: Update ecommerce VAT settings
  *     tags: [Ecommerce]
  *     security:
  *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               delivery_charges:
- *                 type: object
- *                 properties:
- *                   delivery_charge:
- *                     type: number
- *                     example: 50
- *                   currency:
- *                     type: string
- *                     example: ZAR
- *                   is_enabled:
- *                     type: boolean
- *                     example: true
- *                   free_delivery_minimum:
- *                     type: number
- *                     nullable: true
- *                     example: 500
  *     responses:
  *       200:
- *         description: Ecommerce settings updated
+ *         description: Settings updated
  */
 router.get("/settings", getEcommerceSettings);
 router.put(

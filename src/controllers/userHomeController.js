@@ -4,45 +4,52 @@ const Festival = require("../models/Festival");
 const Donation = require("../models/Donation");
 const { sendSuccess } = require("../utils/response");
 const {
-  getValidTimeZone,
-  getDdMmYyyyInTimeZone,
-  getTodayUtcRangeForTimeZone,
+  resolveRequestTimeZone,
+  getCalendarDayUtcRangeForTimeZone,
 } = require("../utils/timezone");
+const { buildScheduledOrDailyPoojaFilter } = require("../utils/poojaDaily");
 const { getTodayPanchang } = require("../services/panchangService");
 
-const resolveTimeZone = (req) => {
-  const tz = String(req.headers["x-timezone"] || req.query?.timezone || "").trim();
-  return getValidTimeZone(tz || "Asia/Kolkata");
-};
+const populatePooja = (query) =>
+  query.populate("createdBy", "email role").populate("deity", "name deity_color");
 
 const getUserHome = async (req, res, next) => {
   try {
-    const timezone = resolveTimeZone(req);
-    const now = new Date();
-    const { startUtc: todayStartUtc } = getTodayUtcRangeForTimeZone(timezone);
-    const todayDateKey = getDdMmYyyyInTimeZone(now, timezone);
+    const timezone = resolveRequestTimeZone(req);
+    const { startUtc, nextDayStartUtc, dateKey: todayDateKey } =
+      getCalendarDayUtcRangeForTimeZone(timezone);
     const panchang = getTodayPanchang(timezone);
 
+    const poojaFilter = {
+      status: "APPROVED",
+      ...buildScheduledOrDailyPoojaFilter({ fromUtc: startUtc }),
+    };
+
+    const festivalFilter = {
+      status: "APPROVED",
+      isVisible: true,
+      isDeleted: false,
+      $or: [{ date: { $gte: startUtc } }, { endDate: { $gte: startUtc } }],
+    };
+
     const [dailySloka, dailyPoojas, poojas, festivals, donations] = await Promise.all([
-      DailySloka.findOne({ dateKey: todayDateKey }).populate("createdBy", "email role"),
-      Pooja.find({ status: "APPROVED", daily: true })
-        .sort({ createdAt: -1 })
-        .populate("createdBy", "email role")
-        .populate("deity", "name deity_color"),
-      Pooja.find({ status: "APPROVED" })
-        .sort({ daily: -1, createdAt: -1 })
-        .limit(5)
-        .populate("createdBy", "email role")
-        .populate("deity", "name deity_color"),
-      Festival.find({
-        date: { $gte: todayStartUtc },
-        status: "APPROVED",
-        isDeleted: false,
+      DailySloka.findOne({
+        $or: [
+          { dateKey: todayDateKey },
+          { date: { $gte: startUtc, $lt: nextDayStartUtc } },
+        ],
       })
+        .sort({ date: -1 })
+        .populate("createdBy", "email role"),
+      populatePooja(Pooja.find({ status: "APPROVED", daily: true }).sort({ createdAt: -1 })),
+      populatePooja(
+        Pooja.find(poojaFilter).sort({ daily: -1, "schedules.date": 1, createdAt: -1 }).limit(5)
+      ),
+      Festival.find(festivalFilter)
         .sort({ date: 1 })
         .limit(5)
         .populate("createdBy", "email role"),
-      Donation.find({ status: "APPROVED" })
+      Donation.find({ status: "APPROVED", isVisible: true })
         .sort({ createdAt: -1 })
         .limit(5)
         .populate("createdBy", "email role"),
@@ -55,6 +62,7 @@ const getUserHome = async (req, res, next) => {
         todayTithi: panchang.todayTithi,
         todayDateAndTithi: panchang.todayDateAndTithi,
         timezone,
+        todayDateKey,
         dailySloka,
         dailyPoojas,
         poojas,

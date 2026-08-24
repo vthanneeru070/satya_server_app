@@ -10,25 +10,23 @@ const mediaSchema = Joi.object({
   videos: Joi.array().items(Joi.string().trim()).default([]),
 });
 
-const ritualContentSchema = Joi.object({
-  title: Joi.string().trim().min(1).required(),
-  description: Joi.string().trim().allow("").default(""),
-  imageUrl: Joi.string().trim().allow("").default(""),
-});
-
 const ritualSectionSchema = Joi.object({
   key: Joi.string().trim().min(1).required(),
   label: Joi.string().trim().min(1).required(),
-  contents: Joi.array().items(ritualContentSchema).default([]),
+  description: Joi.string().trim().allow("").default(""),
 });
 
-const ritualDaySchema = Joi.object({
-  dayNumber: Joi.number().integer().min(1).required(),
-  title: Joi.string().trim().min(1).required(),
-  activities: Joi.array().items(Joi.string().trim()).default([]),
-  mantra: Joi.string().trim().allow("").default(""),
-  affirmation: Joi.string().trim().allow("").default(""),
-});
+const ritualDayStepSchema = Joi.object({
+  stepNumber: Joi.number().integer().min(1),
+  dayNumber: Joi.number().integer().min(1),
+  title: Joi.string().trim().allow("").required(),
+  description: Joi.string().trim().allow("").default(""),
+  images: Joi.array().items(Joi.string().trim().min(1)).default([]),
+  subSteps: Joi.array().items(Joi.string().trim()).default([]),
+  activities: Joi.array().items(Joi.string().trim()).optional(),
+  mantra: Joi.string().trim().allow("").optional(),
+  affirmation: Joi.string().trim().allow("").optional(),
+}).or("stepNumber", "dayNumber");
 
 const accessTypeField = Joi.string().trim().valid("FREE", "PAID");
 const priceField = Joi.number().min(0);
@@ -43,15 +41,25 @@ const objectIdRefItem = Joi.alternatives().try(
 );
 
 const deityField = Joi.alternatives().try(
-  Joi.array().items(objectIdRefItem).min(1),
+  Joi.array().items(objectIdRefItem),
   Joi.string().trim().min(2)
+);
+
+const stepImageMetaField = jsonArrayOrStringField(
+  Joi.array()
+    .items(
+      Joi.object({
+        stepNumber: Joi.number().integer().min(1).required(),
+      })
+    )
+    .min(1)
 );
 
 const createRitualSchema = Joi.object({
   title: Joi.string().trim().min(2).max(200).required(),
   slug: Joi.string().trim().lowercase().max(200).optional(),
   description: Joi.string().trim().allow("").max(10000).optional(),
-  deity: deityField.required(),
+  deity: deityField.optional(),
   category: Joi.string().trim().max(150).allow("").optional(),
   purpose: Joi.string().trim().max(2000).allow("").optional(),
   ritualDays: Joi.number().integer().min(1).required().messages({
@@ -62,7 +70,8 @@ const createRitualSchema = Joi.object({
   startingDay: Joi.string().trim().max(200).allow("").optional(),
   difficulty: Joi.string().valid("BEGINNER", "INTERMEDIATE", "ADVANCED").default("BEGINNER"),
   sections: jsonArrayOrStringField(Joi.array().items(ritualSectionSchema)).optional(),
-  days: jsonArrayOrStringField(Joi.array().items(ritualDaySchema)).optional(),
+  days: jsonArrayOrStringField(Joi.array().items(ritualDayStepSchema)).optional(),
+  stepImageMeta: stepImageMetaField.optional(),
   media: jsonObjectOrStringField(mediaSchema).optional(),
   accessType: accessTypeField.default("FREE"),
   price: priceField.when("accessType", {
@@ -98,7 +107,8 @@ const updateRitualSchema = Joi.object({
   startingDay: Joi.string().trim().max(200).allow(""),
   difficulty: Joi.string().valid("BEGINNER", "INTERMEDIATE", "ADVANCED"),
   sections: jsonArrayOrStringField(Joi.array().items(ritualSectionSchema)),
-  days: jsonArrayOrStringField(Joi.array().items(ritualDaySchema)),
+  days: jsonArrayOrStringField(Joi.array().items(ritualDayStepSchema)),
+  stepImageMeta: stepImageMetaField.optional(),
   media: jsonObjectOrStringField(mediaSchema),
   accessType: accessTypeField,
   price: priceField.when("accessType", {
@@ -130,6 +140,7 @@ const allRitualsQuerySchema = Joi.object({
   limit: Joi.number().integer().min(1).max(100).default(10),
   status: Joi.string().valid("DRAFT", "PENDING", "APPROVED", "REJECTED").optional(),
   search: Joi.string().trim().max(100).optional(),
+  deity: Joi.string().trim().hex().length(24).optional(),
 });
 
 const reviewRitualSchema = Joi.object({

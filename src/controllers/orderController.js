@@ -108,6 +108,89 @@ const dispatchOrder = async (req, res, next) => {
   }
 };
 
+const readyForPickup = async (req, res, next) => {
+  try {
+    const order = await orderService.readyForPickup(req.params.id, req.body, {
+      actorUserId: req.user.userId,
+    });
+    return sendSuccess(res, { order }, "Order marked ready for pickup");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const markPacked = async (req, res, next) => {
+  try {
+    const order = await orderService.markPacked(req.params.id, req.body, {
+      actorUserId: req.user.userId,
+    });
+    return sendSuccess(res, { order }, "Order marked packed");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const verifyPickup = async (req, res, next) => {
+  try {
+    const order = await orderService.verifyPickup(req.params.id, req.body, {
+      actorUserId: req.user.userId,
+    });
+    return sendSuccess(res, { order }, "Pickup verified — order completed");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const syncDeliveryPod = async (req, res, next) => {
+  try {
+    const order = await orderService.syncDeliveryPod(req.params.id, {
+      actorUserId: req.user.userId,
+    });
+    return sendSuccess(res, { order }, "Delivery POD status refreshed");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const getShippingLabelUrl = async (req, res, next) => {
+  try {
+    const data = await orderService.getShippingLabelUrl(req.params.id);
+    return sendSuccess(res, data, "Shipping label URL fetched");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const rebookCourier = async (req, res, next) => {
+  try {
+    const order = await orderService.rebookCourierShipment(req.params.id, {
+      actorUserId: req.user.userId,
+    });
+    return sendSuccess(res, { order }, "Courier shipment rebooked");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const streamShippingLabel = async (req, res, next) => {
+  try {
+    const asset = await orderService.getShippingLabelStream(req.params.id);
+    // Always stream PDF bytes — never redirect to labels.shiplogic.com (CORS on Flutter web).
+    if (asset.type !== "pdf" || !asset.data) {
+      const HttpError = require("../utils/httpError");
+      throw new HttpError("Courier shipping label PDF was not available", 502);
+    }
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${asset.filename || "shipping-label.pdf"}"`
+    );
+    return res.send(asset.data);
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const confirmDelivery = async (req, res, next) => {
   try {
     const order = await orderService.confirmDelivery(
@@ -223,6 +306,13 @@ module.exports = {
   updatePayment,
   setTracking,
   dispatchOrder,
+  readyForPickup,
+  markPacked,
+  verifyPickup,
+  syncDeliveryPod,
+  getShippingLabelUrl,
+  streamShippingLabel,
+  rebookCourier,
   confirmDelivery,
   adminCancelPaidOrder,
   adminInitiateRefund,

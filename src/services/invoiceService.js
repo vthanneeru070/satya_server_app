@@ -255,6 +255,9 @@ const drawOrderMeta = (doc, order, { invoiceNumber = "", customerEmail = "" } = 
     "Payment Method:",
     mapPaymentMethod(order.paymentMethod)
   );
+  if ((order.vatNumber || "").trim()) {
+    drawMetaRow(doc, "VAT Number:", String(order.vatNumber).trim(), "", "");
+  }
   doc.y += 8;
 };
 
@@ -421,12 +424,13 @@ const drawProductRow = (doc, line, imageBuffer) => {
   doc.y = rowTop + rowHeight;
 };
 
-const drawTotals = (doc, { subtotal, deliveryCharge = 0, total }) => {
+const drawTotals = (doc, { subtotal, taxAmount = 0, vatPercent = 0, deliveryCharge = 0, total }) => {
   let y = doc.y + 12;
   const labelX = COL_X.price;
   const valueX = COL_X.total;
   const labelWidth = PRODUCT_COLS.price.width;
   const valueWidth = PRODUCT_COLS.total.width;
+  const fmtPct = (value) => Math.round(Number(value) * 100) / 100;
 
   const drawRow = (label, value, bold = false) => {
     doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(9).fillColor("#000000");
@@ -436,6 +440,10 @@ const drawTotals = (doc, { subtotal, deliveryCharge = 0, total }) => {
   };
 
   drawRow("Sub-Total", formatZar(subtotal));
+  if (Number(taxAmount) > 0) {
+    const pct = Number(vatPercent) > 0 ? ` (${fmtPct(vatPercent)}%)` : "";
+    drawRow(`VAT${pct}`, formatZar(taxAmount));
+  }
   if (Number(deliveryCharge) > 0) {
     drawRow("Delivery Charge", formatZar(deliveryCharge));
   }
@@ -479,6 +487,8 @@ const resolveInvoiceTotals = (order, itemsSubtotal) => {
   const linesSubtotal = Math.round(Number(itemsSubtotal) * 100) / 100;
   const storedSubtotal = Number(order?.subtotal);
   const storedDelivery = Number(order?.deliveryCharge);
+  const storedTax = Number(order?.taxAmount);
+  const storedVatPercent = Number(order?.vatPercent);
   const storedTotal = Number(order?.totalAmount);
 
   const subtotal =
@@ -486,19 +496,31 @@ const resolveInvoiceTotals = (order, itemsSubtotal) => {
       ? Math.round(storedSubtotal * 100) / 100
       : linesSubtotal;
 
+  const taxAmount =
+    Number.isFinite(storedTax) && storedTax > 0
+      ? Math.round(storedTax * 100) / 100
+      : 0;
+  const vatPercent =
+    Number.isFinite(storedVatPercent) && storedVatPercent > 0
+      ? Math.round(storedVatPercent * 100) / 100
+      : 0;
+
   let deliveryCharge = 0;
   if (Number.isFinite(storedDelivery) && storedDelivery >= 0) {
     deliveryCharge = Math.round(storedDelivery * 100) / 100;
-  } else if (Number.isFinite(storedTotal) && storedTotal > subtotal) {
-    deliveryCharge = Math.round((storedTotal - subtotal) * 100) / 100;
+  } else if (
+    Number.isFinite(storedTotal) &&
+    storedTotal > subtotal + taxAmount
+  ) {
+    deliveryCharge = Math.round((storedTotal - subtotal - taxAmount) * 100) / 100;
   }
 
   const total =
     Number.isFinite(storedTotal) && storedTotal > 0
       ? Math.round(storedTotal * 100) / 100
-      : Math.round((subtotal + deliveryCharge) * 100) / 100;
+      : Math.round((subtotal + taxAmount + deliveryCharge) * 100) / 100;
 
-  return { subtotal, deliveryCharge, total };
+  return { subtotal, taxAmount, vatPercent, deliveryCharge, total };
 };
 
 /**
@@ -528,7 +550,8 @@ const buildInvoicePdf = async ({
     (sum, line) => sum + Number(line.lineTotal || 0),
     0
   );
-  const { subtotal, deliveryCharge, total } = resolveInvoiceTotals(order, itemsSubtotal);
+  const { subtotal, taxAmount, vatPercent, deliveryCharge, total } =
+    resolveInvoiceTotals(order, itemsSubtotal);
 
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "A4", margin: MARGIN });
@@ -557,7 +580,7 @@ const buildInvoicePdf = async ({
       doc.addPage();
     }
 
-    drawTotals(doc, { subtotal, deliveryCharge, total });
+    drawTotals(doc, { subtotal, taxAmount, vatPercent, deliveryCharge, total });
     drawInvoiceFooter(doc);
 
     doc.end();

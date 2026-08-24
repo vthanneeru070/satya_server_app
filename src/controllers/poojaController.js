@@ -4,6 +4,7 @@ const Deity = require("../models/Deity");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const { uploadFile, deleteFile } = require("../services/s3Service");
+const { mergeUploadedMediaSlot, orphanedUrls } = require("../utils/mediaReplace");
 const {
   normalizeObjectIdArray,
   parseObjectIdArrayField,
@@ -361,9 +362,23 @@ const getPoojas = async (req, res, next) => {
       }
     }
 
+    if (req.query.deity) {
+      const deityId = String(req.query.deity).trim();
+      const objectIdRegex = /^[a-fA-F0-9]{24}$/;
+      if (objectIdRegex.test(deityId)) {
+        const deityDoc = await Deity.findById(deityId).select("pujas").lean();
+        const associatedIds = normalizeObjectIdArray(deityDoc?.pujas);
+        const deityClauses = [{ deity: deityId }];
+        if (associatedIds.length > 0) {
+          deityClauses.push({ _id: { $in: associatedIds } });
+        }
+        filter.$or = deityClauses;
+      }
+    }
+
     const [poojas, total] = await Promise.all([
       Pooja.find(filter)
-        .sort({ daily: -1, createdAt: -1 })
+        .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .populate(poojaPopulate),
@@ -410,7 +425,7 @@ const getAllPoojas = async (req, res, next) => {
 
     const [poojas, total] = await Promise.all([
       Pooja.find(filter)
-        .sort({ daily: -1, createdAt: -1 })
+        .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .populate(poojaPopulate),
@@ -457,7 +472,7 @@ const getMyPoojas = async (req, res, next) => {
 
     const [poojas, total] = await Promise.all([
       Pooja.find(filter)
-        .sort({ daily: -1, createdAt: -1 })
+        .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .populate(poojaPopulate),
@@ -703,17 +718,32 @@ const updatePooja = async (req, res, next) => {
 
     if (mediaFromBody !== undefined || hasUploadedMedia) {
       const currentMedia = pooja.media || { images: [], audio: [], videos: [] };
-      pooja.media = {
-        images: [
-          ...((mediaFromBody && mediaFromBody.images) || currentMedia.images || []),
-          ...uploadedMedia.images,
-        ],
-        audio: [...((mediaFromBody && mediaFromBody.audio) || currentMedia.audio || []), ...uploadedMedia.audio],
-        videos: [
-          ...((mediaFromBody && mediaFromBody.videos) || currentMedia.videos || []),
-          ...uploadedMedia.videos,
-        ],
+      const nextMedia = {
+        images: mergeUploadedMediaSlot(
+          currentMedia.images,
+          mediaFromBody?.images,
+          uploadedMedia.images
+        ),
+        audio: mergeUploadedMediaSlot(
+          currentMedia.audio,
+          mediaFromBody?.audio,
+          uploadedMedia.audio
+        ),
+        videos: mergeUploadedMediaSlot(
+          currentMedia.videos,
+          mediaFromBody?.videos,
+          uploadedMedia.videos
+        ),
       };
+      const orphans = [
+        ...orphanedUrls(currentMedia.images, nextMedia.images),
+        ...orphanedUrls(currentMedia.audio, nextMedia.audio),
+        ...orphanedUrls(currentMedia.videos, nextMedia.videos),
+      ];
+      pooja.media = nextMedia;
+      if (orphans.length) {
+        await Promise.all(orphans.map((url) => deleteFile(url).catch(() => {})));
+      }
     }
 
     if (req.user.isSuperAdmin !== true) {

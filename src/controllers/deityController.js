@@ -1,10 +1,29 @@
 const Deity = require("../models/Deity");
+const Pooja = require("../models/Pooja");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const { uploadFile, deleteFile } = require("../services/s3Service");
 const { mergeSearchFilter } = require("../utils/textSearch");
+const { mergeUploadedMediaSlot, orphanedUrls } = require("../utils/mediaReplace");
+const { normalizeObjectIdArray } = require("../utils/objectIdArray");
 
 const DEITY_SEARCH_FIELDS = ["name", "description", "alternate_names", "roles"];
+
+const syncPoojaDeitiesForDeity = async (deityId, previousPoojaIds, nextPoojaIds) => {
+  const previous = new Set(normalizeObjectIdArray(previousPoojaIds));
+  const next = new Set(normalizeObjectIdArray(nextPoojaIds));
+  const removed = [...previous].filter((id) => !next.has(id));
+  const added = [...next].filter((id) => !previous.has(id));
+
+  await Promise.all([
+    ...removed.map((poojaId) =>
+      Pooja.findByIdAndUpdate(poojaId, { $pull: { deity: deityId } })
+    ),
+    ...added.map((poojaId) =>
+      Pooja.findByIdAndUpdate(poojaId, { $addToSet: { deity: deityId } })
+    ),
+  ]);
+};
 
 const getUploadedMediaUrls = async (files = {}) => ({
   images: await Promise.all((files.image || []).map((file) => uploadFile(file, "deities"))),
@@ -144,6 +163,10 @@ const createDeity = async (req, res, next) => {
       createdBy: req.user.userId,
     });
 
+    if (parsed.pujas !== undefined && parsed.pujas.length > 0) {
+      await syncPoojaDeitiesForDeity(deity._id, [], parsed.pujas);
+    }
+
     return sendSuccess(res, { deity }, "Deity created successfully", 201);
   } catch (error) {
     return next(error);
@@ -153,6 +176,7 @@ const createDeity = async (req, res, next) => {
 //Only approved deities
 const getDeities = async (req, res, next) => {
   const deities = await Deity.find({ status: "APPROVED" })
+    .sort({ createdAt: -1 })
     .populate("createdBy", "email role")
     .populate("pujas", "title");
 
@@ -256,6 +280,9 @@ const updateDeity = async (req, res, next) => {
       throw new HttpError("Provide at least one field to update", 400);
     }
 
+    const previousPoojaIds =
+      parsed.pujas !== undefined ? normalizeObjectIdArray(deity.pujas) : null;
+
     if (body.name !== undefined) deity.name = body.name;
     if (body.description !== undefined) deity.description = body.description;
     if (body.deity_color !== undefined) deity.deity_color = body.deity_color;
@@ -278,21 +305,33 @@ const updateDeity = async (req, res, next) => {
 
     if (parsed.mediaFromBody !== undefined || hasUploadedMedia) {
       const currentMedia = deity.media || { images: [], audio: [], videos: [] };
-      const mediaFromBody = parsed.mediaFromBody;
-      deity.media = {
-        images: [
-          ...((mediaFromBody && mediaFromBody.images) || currentMedia.images || []),
-          ...uploadedMedia.images,
-        ],
-        audio: [
-          ...((mediaFromBody && mediaFromBody.audio) || currentMedia.audio || []),
-          ...uploadedMedia.audio,
-        ],
-        videos: [
-          ...((mediaFromBody && mediaFromBody.videos) || currentMedia.videos || []),
-          ...uploadedMedia.videos,
-        ],
+      const mediaFromBody = parsed.mediaFromBody || {};
+      const nextMedia = {
+        images: mergeUploadedMediaSlot(
+          currentMedia.images,
+          mediaFromBody.images,
+          uploadedMedia.images
+        ),
+        audio: mergeUploadedMediaSlot(
+          currentMedia.audio,
+          mediaFromBody.audio,
+          uploadedMedia.audio
+        ),
+        videos: mergeUploadedMediaSlot(
+          currentMedia.videos,
+          mediaFromBody.videos,
+          uploadedMedia.videos
+        ),
       };
+      const orphans = [
+        ...orphanedUrls(currentMedia.images, nextMedia.images),
+        ...orphanedUrls(currentMedia.audio, nextMedia.audio),
+        ...orphanedUrls(currentMedia.videos, nextMedia.videos),
+      ];
+      deity.media = nextMedia;
+      if (orphans.length) {
+        await Promise.all(orphans.map((url) => deleteFile(url).catch(() => {})));
+      }
     }
 
     if (req.user.isSuperAdmin !== true) {
@@ -300,6 +339,11 @@ const updateDeity = async (req, res, next) => {
     }
 
     await deity.save();
+
+    if (parsed.pujas !== undefined) {
+      await syncPoojaDeitiesForDeity(deity._id, previousPoojaIds, parsed.pujas);
+    }
+
     await deity.populate("createdBy", "email role");
     await deity.populate("pujas", "title");
 
