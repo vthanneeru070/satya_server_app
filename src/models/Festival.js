@@ -88,11 +88,10 @@ festivalSchema.post("init", function (doc) {
   }
 });
 
-festivalSchema.pre("save", function (next) {
+festivalSchema.pre("save", function () {
   if (this.isModified("associate_pujas")) {
-    this.set("rituals", undefined);
+    this.set("rituals", undefined, { strict: false });
   }
-  next();
 });
 
 module.exports = mongoose.model("Festival", festivalSchema);

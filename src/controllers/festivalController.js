@@ -133,6 +133,28 @@ const parseDdMmYyyyDate = (value, fieldName) => {
   return new Date(Date.UTC(year, month - 1, day));
 };
 
+const utcDayKey = (date) =>
+  Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+
+const todayUtcDayKey = () => {
+  const now = new Date();
+  return Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+};
+
+const assertFestivalDates = (date, endDate, { requireStartDate = false } = {}) => {
+  if (requireStartDate && !date) {
+    throw new HttpError("date is required", 400);
+  }
+
+  if (date && utcDayKey(date) < todayUtcDayKey()) {
+    throw new HttpError("date cannot be in the past", 400);
+  }
+
+  if (date && endDate && utcDayKey(endDate) < utcDayKey(date)) {
+    throw new HttpError("endDate cannot be before date", 400);
+  }
+};
+
 const createFestival = async (req, res, next) => {
   try {
     const {
@@ -153,6 +175,7 @@ const createFestival = async (req, res, next) => {
     const associatePujas = parseAssociatePujas(req.body);
     const date = parseDdMmYyyyDate(rawDate, "date");
     const endDate = parseDdMmYyyyDate(rawEndDate, "endDate");
+    assertFestivalDates(date, endDate, { requireStartDate: true });
 
     const image = req.file ? await uploadFile(req.file, "festivals") : undefined;
 
@@ -340,6 +363,10 @@ const updateFestival = async (req, res, next) => {
     const associatePujas = parseAssociatePujas(req.body);
     const date = parseDdMmYyyyDate(rawDate, "date");
     const endDate = parseDdMmYyyyDate(rawEndDate, "endDate");
+    assertFestivalDates(
+      date ?? festival.date,
+      endDate !== undefined ? endDate : festival.endDate
+    );
     const hasBodyUpdates =
       title !== undefined ||
       description !== undefined ||
