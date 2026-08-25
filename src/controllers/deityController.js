@@ -9,6 +9,40 @@ const { normalizeObjectIdArray } = require("../utils/objectIdArray");
 
 const DEITY_SEARCH_FIELDS = ["name", "description", "alternate_names", "roles"];
 
+/** Strip spaces and lowercase so "Lord Shiva", "LordShiva", "lord shiva" match. */
+const normalizeDeityNameKey = (name) =>
+  String(name || "")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Regex that matches names equal after removing spaces (case-insensitive).
+ * e.g. key "lordshiva" → /^l\s*o\s*r\s*d\s*s\s*h\s*i\s*v\s*a$/i
+ */
+const deityNameCollisionRegex = (name) => {
+  const key = normalizeDeityNameKey(name);
+  if (!key) return null;
+  const pattern = [...key].map(escapeRegex).join("\\s*");
+  return new RegExp(`^${pattern}$`, "i");
+};
+
+const assertDeityNameAvailable = async (name, { excludeId } = {}) => {
+  const regex = deityNameCollisionRegex(name);
+  if (!regex) return;
+
+  const filter = { name: regex };
+  if (excludeId) {
+    filter._id = { $ne: excludeId };
+  }
+
+  const existing = await Deity.findOne(filter).select("_id name").lean();
+  if (existing) {
+    throw new HttpError("Deity name is already have", 409);
+  }
+};
+
 const syncPoojaDeitiesForDeity = async (deityId, previousPoojaIds, nextPoojaIds) => {
   const previous = new Set(normalizeObjectIdArray(previousPoojaIds));
   const next = new Set(normalizeObjectIdArray(nextPoojaIds));
@@ -133,6 +167,8 @@ const buildDeityPayloadFromRequest = async (req) => {
 const createDeity = async (req, res, next) => {
   try {
     const { body, parsed, uploadedMedia } = await buildDeityPayloadFromRequest(req);
+
+    await assertDeityNameAvailable(body.name);
 
     const media = {
       images: [...((parsed.mediaFromBody && parsed.mediaFromBody.images) || []), ...uploadedMedia.images],
@@ -283,7 +319,10 @@ const updateDeity = async (req, res, next) => {
     const previousPoojaIds =
       parsed.pujas !== undefined ? normalizeObjectIdArray(deity.pujas) : null;
 
-    if (body.name !== undefined) deity.name = body.name;
+    if (body.name !== undefined) {
+      await assertDeityNameAvailable(body.name, { excludeId: deity._id });
+      deity.name = body.name;
+    }
     if (body.description !== undefined) deity.description = body.description;
     if (body.deity_color !== undefined) deity.deity_color = body.deity_color;
     if (parsed.alternateNames !== undefined) deity.alternate_names = parsed.alternateNames;
