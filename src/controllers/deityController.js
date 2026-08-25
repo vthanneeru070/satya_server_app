@@ -227,7 +227,7 @@ const getDeities = async (req, res, next) => {
 
     const [deities, total] = await Promise.all([
       Deity.find(filter)
-        .sort({ createdAt: -1 })
+        .sort({ name: 1 })
         .skip(skip)
         .limit(limit)
         .populate("createdBy", "email role")
@@ -268,7 +268,7 @@ const getAllDeities = async (req, res, next) => {
 
     const [deities, total] = await Promise.all([
       Deity.find(filter)
-        .sort({ createdAt: -1 })
+        .sort({ name: 1 })
         .skip(skip)
         .limit(limit)
         .populate("createdBy", "email role")
