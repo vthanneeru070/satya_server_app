@@ -9,6 +9,40 @@ const { normalizeObjectIdArray } = require("../utils/objectIdArray");
 
 const DEITY_SEARCH_FIELDS = ["name", "description", "alternate_names", "roles"];
 
+/** Strip spaces and lowercase so "Lord Shiva", "LordShiva", "lord shiva" match. */
+const normalizeDeityNameKey = (name) =>
+  String(name || "")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Regex that matches names equal after removing spaces (case-insensitive).
+ * e.g. key "lordshiva" → /^l\s*o\s*r\s*d\s*s\s*h\s*i\s*v\s*a$/i
+ */
+const deityNameCollisionRegex = (name) => {
+  const key = normalizeDeityNameKey(name);
+  if (!key) return null;
+  const pattern = [...key].map(escapeRegex).join("\\s*");
+  return new RegExp(`^${pattern}$`, "i");
+};
+
+const assertDeityNameAvailable = async (name, { excludeId } = {}) => {
+  const regex = deityNameCollisionRegex(name);
+  if (!regex) return;
+
+  const filter = { name: regex };
+  if (excludeId) {
+    filter._id = { $ne: excludeId };
+  }
+
+  const existing = await Deity.findOne(filter).select("_id name").lean();
+  if (existing) {
+    throw new HttpError("Deity name is already have", 409);
+  }
+};
+
 const syncPoojaDeitiesForDeity = async (deityId, previousPoojaIds, nextPoojaIds) => {
   const previous = new Set(normalizeObjectIdArray(previousPoojaIds));
   const next = new Set(normalizeObjectIdArray(nextPoojaIds));
@@ -134,13 +168,21 @@ const createDeity = async (req, res, next) => {
   try {
     const { body, parsed, uploadedMedia } = await buildDeityPayloadFromRequest(req);
 
+    await assertDeityNameAvailable(body.name);
+
     const media = {
       images: [...((parsed.mediaFromBody && parsed.mediaFromBody.images) || []), ...uploadedMedia.images],
       audio: [...((parsed.mediaFromBody && parsed.mediaFromBody.audio) || []), ...uploadedMedia.audio],
       videos: [...((parsed.mediaFromBody && parsed.mediaFromBody.videos) || []), ...uploadedMedia.videos],
     };
 
-    const status = req.user.isSuperAdmin === true ? body.status || "APPROVED" : "PENDING";
+    const requestedStatus = String(body.status || "").trim().toUpperCase();
+    const status =
+      req.user.isSuperAdmin === true
+        ? requestedStatus || "APPROVED"
+        : requestedStatus === "DRAFT"
+          ? "DRAFT"
+          : "PENDING";
 
     const deity = await Deity.create({
       name: body.name,
@@ -173,14 +215,42 @@ const createDeity = async (req, res, next) => {
   }
 };
 
-//Only approved deities
+// Approved deities (paginated) — used by the mobile app / public list.
 const getDeities = async (req, res, next) => {
-  const deities = await Deity.find({ status: "APPROVED" })
-    .sort({ createdAt: -1 })
-    .populate("createdBy", "email role")
-    .populate("pujas", "title");
+  try {
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const skip = (page - 1) * limit;
+    const filter = { status: "APPROVED" };
 
-  return sendSuccess(res, { deities }, "Deities fetched successfully");
+    mergeSearchFilter(filter, DEITY_SEARCH_FIELDS, req.query.search);
+
+    const [deities, total] = await Promise.all([
+      Deity.find(filter)
+        .sort({ name: 1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("createdBy", "email role")
+        .populate("pujas", "title"),
+      Deity.countDocuments(filter),
+    ]);
+
+    return sendSuccess(
+      res,
+      {
+        deities,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / limit) || 1),
+        },
+      },
+      "Deities fetched successfully"
+    );
+  } catch (error) {
+    return next(error);
+  }
 };
 
 const getAllDeities = async (req, res, next) => {
@@ -214,7 +284,7 @@ const getAllDeities = async (req, res, next) => {
           page,
           limit,
           total,
-          totalPages: Math.ceil(total / limit),
+          totalPages: Math.max(1, Math.ceil(total / limit) || 1),
         },
       },
       "Deities fetched successfully"
@@ -283,7 +353,10 @@ const updateDeity = async (req, res, next) => {
     const previousPoojaIds =
       parsed.pujas !== undefined ? normalizeObjectIdArray(deity.pujas) : null;
 
-    if (body.name !== undefined) deity.name = body.name;
+    if (body.name !== undefined) {
+      await assertDeityNameAvailable(body.name, { excludeId: deity._id });
+      deity.name = body.name;
+    }
     if (body.description !== undefined) deity.description = body.description;
     if (body.deity_color !== undefined) deity.deity_color = body.deity_color;
     if (parsed.alternateNames !== undefined) deity.alternate_names = parsed.alternateNames;
@@ -298,10 +371,6 @@ const updateDeity = async (req, res, next) => {
     if (parsed.devotionalExperience !== undefined) deity.devotional_experience = parsed.devotionalExperience;
     if (parsed.stories !== undefined) deity.stories = parsed.stories;
     if (parsed.pujas !== undefined) deity.pujas = parsed.pujas;
-
-    if (body.status !== undefined && req.user.isSuperAdmin === true) {
-      deity.status = body.status;
-    }
 
     if (parsed.mediaFromBody !== undefined || hasUploadedMedia) {
       const currentMedia = deity.media || { images: [], audio: [], videos: [] };
@@ -334,7 +403,14 @@ const updateDeity = async (req, res, next) => {
       }
     }
 
-    if (req.user.isSuperAdmin !== true) {
+    if (req.user.isSuperAdmin === true) {
+      if (body.status !== undefined) {
+        deity.status = body.status;
+      }
+    } else if (body.status !== undefined) {
+      const requested = String(body.status).trim().toUpperCase();
+      deity.status = requested === "DRAFT" ? "DRAFT" : "PENDING";
+    } else {
       deity.status = "PENDING";
     }
 

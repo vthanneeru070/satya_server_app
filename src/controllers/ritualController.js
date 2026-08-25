@@ -280,7 +280,13 @@ const createRitual = async (req, res, next) => {
     const videos = [...(mediaFromBody.videos || []), ...uploadedMedia.videos];
 
     const pricing = resolvePricing({ accessType, price, currency });
-    const status = req.user.isSuperAdmin === true ? requestedStatus || "APPROVED" : "PENDING";
+    const requested = String(requestedStatus || "").trim().toUpperCase();
+    const status =
+      req.user.isSuperAdmin === true
+        ? requested || "APPROVED"
+        : requested === "DRAFT"
+          ? "DRAFT"
+          : "PENDING";
 
     const baseSlug = slugify(slugInput || title);
     const slug = await ensureUniqueSlug(baseSlug);
@@ -577,10 +583,6 @@ const updateRitual = async (req, res, next) => {
       ritual.slug = await ensureUniqueSlug(base, ritual._id);
     }
 
-    if (status !== undefined && req.user.isSuperAdmin === true) {
-      ritual.status = status;
-    }
-
     if (accessType !== undefined || price !== undefined || currency !== undefined) {
       const pricing = resolvePricing({
         accessType: accessType !== undefined ? accessType : ritual.accessType,
@@ -629,7 +631,14 @@ const updateRitual = async (req, res, next) => {
       }
     }
 
-    if (req.user.isSuperAdmin !== true) {
+    if (req.user.isSuperAdmin === true) {
+      if (status !== undefined) {
+        ritual.status = status;
+      }
+    } else if (status !== undefined) {
+      const requested = String(status).trim().toUpperCase();
+      ritual.status = requested === "DRAFT" ? "DRAFT" : "PENDING";
+    } else {
       ritual.status = "PENDING";
     }
 
