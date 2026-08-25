@@ -176,7 +176,13 @@ const createDeity = async (req, res, next) => {
       videos: [...((parsed.mediaFromBody && parsed.mediaFromBody.videos) || []), ...uploadedMedia.videos],
     };
 
-    const status = req.user.isSuperAdmin === true ? body.status || "APPROVED" : "PENDING";
+    const requestedStatus = String(body.status || "").trim().toUpperCase();
+    const status =
+      req.user.isSuperAdmin === true
+        ? requestedStatus || "APPROVED"
+        : requestedStatus === "DRAFT"
+          ? "DRAFT"
+          : "PENDING";
 
     const deity = await Deity.create({
       name: body.name,
@@ -209,14 +215,42 @@ const createDeity = async (req, res, next) => {
   }
 };
 
-//Only approved deities
+// Approved deities (paginated) — used by the mobile app / public list.
 const getDeities = async (req, res, next) => {
-  const deities = await Deity.find({ status: "APPROVED" })
-    .sort({ createdAt: -1 })
-    .populate("createdBy", "email role")
-    .populate("pujas", "title");
+  try {
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const skip = (page - 1) * limit;
+    const filter = { status: "APPROVED" };
 
-  return sendSuccess(res, { deities }, "Deities fetched successfully");
+    mergeSearchFilter(filter, DEITY_SEARCH_FIELDS, req.query.search);
+
+    const [deities, total] = await Promise.all([
+      Deity.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("createdBy", "email role")
+        .populate("pujas", "title"),
+      Deity.countDocuments(filter),
+    ]);
+
+    return sendSuccess(
+      res,
+      {
+        deities,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / limit) || 1),
+        },
+      },
+      "Deities fetched successfully"
+    );
+  } catch (error) {
+    return next(error);
+  }
 };
 
 const getAllDeities = async (req, res, next) => {
@@ -250,7 +284,7 @@ const getAllDeities = async (req, res, next) => {
           page,
           limit,
           total,
-          totalPages: Math.ceil(total / limit),
+          totalPages: Math.max(1, Math.ceil(total / limit) || 1),
         },
       },
       "Deities fetched successfully"
@@ -338,10 +372,6 @@ const updateDeity = async (req, res, next) => {
     if (parsed.stories !== undefined) deity.stories = parsed.stories;
     if (parsed.pujas !== undefined) deity.pujas = parsed.pujas;
 
-    if (body.status !== undefined && req.user.isSuperAdmin === true) {
-      deity.status = body.status;
-    }
-
     if (parsed.mediaFromBody !== undefined || hasUploadedMedia) {
       const currentMedia = deity.media || { images: [], audio: [], videos: [] };
       const mediaFromBody = parsed.mediaFromBody || {};
@@ -373,7 +403,14 @@ const updateDeity = async (req, res, next) => {
       }
     }
 
-    if (req.user.isSuperAdmin !== true) {
+    if (req.user.isSuperAdmin === true) {
+      if (body.status !== undefined) {
+        deity.status = body.status;
+      }
+    } else if (body.status !== undefined) {
+      const requested = String(body.status).trim().toUpperCase();
+      deity.status = requested === "DRAFT" ? "DRAFT" : "PENDING";
+    } else {
       deity.status = "PENDING";
     }
 

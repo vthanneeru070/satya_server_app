@@ -109,6 +109,7 @@ router.post(
  *         schema:
  *           type: integer
  *           default: 10
+ *           maximum: 1000
  *       - in: query
  *         name: status
  *         schema:
@@ -137,7 +138,7 @@ router.get(
  * @swagger
  * /deities:
  *   get:
- *     summary: Get all deities
+ *     summary: Get approved deities (paginated)
  *     tags: [Deities]
  *     security:
  *       - bearerAuth: []
@@ -151,7 +152,13 @@ router.get(
  *         name: limit
  *         schema:
  *           type: integer
- *           default: 10    
+ *           default: 10
+ *           maximum: 1000
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search by name, description, alternate names, or roles
  *     responses:
  *       200:
  *         description: Deities fetched successfully
