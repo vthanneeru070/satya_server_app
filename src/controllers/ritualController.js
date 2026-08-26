@@ -85,7 +85,7 @@ const slugify = (str) =>
 const ensureUniqueSlug = async (baseSlug, excludeId) => {
   for (let i = 0; i < 5000; i += 1) {
     const slug = i === 0 ? baseSlug : `${baseSlug}-${i}`;
-    const q = { slug, isDeleted: false };
+    const q = { slug, isDeleted: { $ne: true } };
     if (excludeId) q._id = { $ne: excludeId };
     const exists = await Ritual.findOne(q).select("_id").lean();
     if (!exists) return slug;
@@ -247,7 +247,10 @@ const mergeDayImageUploads = async (days, files = [], stepImageMetaRaw) => {
   return normalized;
 };
 
-const notDeleted = { isDeleted: false };
+const notDeleted = { isDeleted: { $ne: true } };
+
+const isCmsStaff = (user) =>
+  user?.role === "admin" || user?.role === "superadmin" || user?.isSuperAdmin === true;
 
 const createRitual = async (req, res, next) => {
   try {
@@ -341,7 +344,8 @@ const getRituals = async (req, res, next) => {
     const skip = (page - 1) * limit;
     const filter = { ...notDeleted };
 
-    if (req.user?.role !== "admin") {
+    // Public/mobile list is APPROVED only. CMS staff can pass status filters.
+    if (!isCmsStaff(req.user)) {
       filter.status = "APPROVED";
     } else if (req.query.status) {
       filter.status = req.query.status;
@@ -465,7 +469,8 @@ const getRitualById = async (req, res, next) => {
   try {
     const filter = { _id: req.params.id, ...notDeleted };
 
-    if (req.user?.role !== "admin") {
+    // CMS admin/superadmin can open any status; app users only see APPROVED.
+    if (!isCmsStaff(req.user)) {
       filter.status = "APPROVED";
     }
 
