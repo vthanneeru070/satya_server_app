@@ -193,6 +193,14 @@ const formatRitualForResponse = (ritual) => {
   if (Array.isArray(plain.sections)) {
     plain.sections = normalizeSections(plain.sections);
   }
+  if (
+    (plain.ritualDay == null || plain.ritualDay === "") &&
+    plain.ritualDays != null &&
+    plain.ritualDays !== ""
+  ) {
+    plain.ritualDay = String(plain.ritualDays);
+  }
+  delete plain.ritualDays;
   return plain;
 };
 
@@ -250,7 +258,7 @@ const createRitual = async (req, res, next) => {
       deity,
       category,
       purpose,
-      ritualDays,
+      ritualDay,
       bestDayTime,
       startingDay,
       difficulty,
@@ -301,7 +309,7 @@ const createRitual = async (req, res, next) => {
       festivalIds,
       category: category ?? "",
       purpose: purpose ?? "",
-      ritualDays: Number(ritualDays),
+      ritualDay: ritualDay ?? "",
       bestDayTime: bestDayTime ?? "",
       startingDay: startingDay ?? "",
       difficulty: difficulty || "BEGINNER",
@@ -492,7 +500,7 @@ const updateRitual = async (req, res, next) => {
       deity,
       category,
       purpose,
-      ritualDays,
+      ritualDay,
       bestDayTime,
       startingDay,
       difficulty,
@@ -535,7 +543,7 @@ const updateRitual = async (req, res, next) => {
       parsedFestivalIds !== undefined ||
       category !== undefined ||
       purpose !== undefined ||
-      ritualDays !== undefined ||
+      ritualDay !== undefined ||
       bestDayTime !== undefined ||
       startingDay !== undefined ||
       difficulty !== undefined ||
@@ -560,7 +568,7 @@ const updateRitual = async (req, res, next) => {
     if (parsedFestivalIds !== undefined) ritual.festivalIds = parsedFestivalIds;
     if (category !== undefined) ritual.category = category;
     if (purpose !== undefined) ritual.purpose = purpose;
-    if (ritualDays !== undefined) ritual.ritualDays = Number(ritualDays);
+    if (ritualDay !== undefined) ritual.ritualDay = ritualDay;
     if (bestDayTime !== undefined) ritual.bestDayTime = bestDayTime;
     if (startingDay !== undefined) ritual.startingDay = startingDay;
     if (difficulty !== undefined) ritual.difficulty = difficulty;
