@@ -201,6 +201,15 @@ const formatRitualForResponse = (ritual) => {
     plain.ritualDay = String(plain.ritualDays);
   }
   delete plain.ritualDays;
+
+  // Expose a convenience cover URL for CMS/clients that read `imageUrl`.
+  const coverFromImages = Array.isArray(plain.images)
+    ? plain.images.map((url) => String(url || "").trim()).find(Boolean)
+    : null;
+  if ((!plain.imageUrl || !String(plain.imageUrl).trim()) && coverFromImages) {
+    plain.imageUrl = coverFromImages;
+  }
+
   return plain;
 };
 
@@ -288,7 +297,14 @@ const createRitual = async (req, res, next) => {
       parseObjectIdArrayField(req.body.festivalIds, "festivalIds") ?? [];
 
     const uploadedMedia = await getUploadedMediaUrls(req.files);
-    const images = [...(mediaFromBody.images || []), ...uploadedMedia.images];
+    const coverUrl = [req.body.imageUrl, req.body.image]
+      .map((v) => (v == null ? "" : String(v).trim()))
+      .find(Boolean);
+    const images = [
+      ...((mediaFromBody.images || []).map((url) => String(url).trim()).filter(Boolean)),
+      ...(coverUrl ? [coverUrl] : []),
+      ...uploadedMedia.images,
+    ].filter((url, index, arr) => url && arr.indexOf(url) === index);
     const audio = [...(mediaFromBody.audio || []), ...uploadedMedia.audio];
     const videos = [...(mediaFromBody.videos || []), ...uploadedMedia.videos];
 
@@ -536,7 +552,25 @@ const updateRitual = async (req, res, next) => {
       uploadedMedia.audio.length > 0 ||
       uploadedMedia.videos.length > 0;
 
-    const imagesFromBody = mediaFromBody?.images;
+    const coverUrlRaw = req.body.imageUrl !== undefined
+      ? req.body.imageUrl
+      : req.body.image !== undefined
+        ? req.body.image
+        : undefined;
+    const coverUrl =
+      coverUrlRaw === undefined
+        ? undefined
+        : String(coverUrlRaw || "").trim();
+
+    let imagesFromBody = mediaFromBody?.images;
+    if (coverUrl !== undefined) {
+      // Explicit imageUrl/image wins; empty string means clear cover.
+      imagesFromBody = coverUrl ? [coverUrl] : [];
+    } else if (Array.isArray(imagesFromBody) && imagesFromBody.length === 0 && !hasUploadedMedia) {
+      // Avoid wiping existing cover when client sends empty media.images by mistake.
+      imagesFromBody = undefined;
+    }
+
     const audioFromBody = mediaFromBody?.audio;
     const videosFromBody = mediaFromBody?.videos;
 
@@ -557,6 +591,7 @@ const updateRitual = async (req, res, next) => {
       hasUploadedDayImages ||
       req.body.stepImageMeta !== undefined ||
       mediaFromBody !== undefined ||
+      coverUrl !== undefined ||
       accessType !== undefined ||
       price !== undefined ||
       currency !== undefined ||
