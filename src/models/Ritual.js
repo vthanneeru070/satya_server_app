@@ -76,6 +76,13 @@ const ritualSchema = new mongoose.Schema(
       default: [],
     },
 
+    festivalIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Festival",
+      },
+    ],
+
     category: {
       type: String,
       default: "",

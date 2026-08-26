@@ -273,6 +273,8 @@ const createRitual = async (req, res, next) => {
     );
     const mediaFromBody = parseJsonField(req.body.media, "media") || {};
     const deityIds = parseObjectIdArrayField(deity, "deity") ?? [];
+    const festivalIds =
+      parseObjectIdArrayField(req.body.festivalIds, "festivalIds") ?? [];
 
     const uploadedMedia = await getUploadedMediaUrls(req.files);
     const images = [...(mediaFromBody.images || []), ...uploadedMedia.images];
@@ -296,6 +298,7 @@ const createRitual = async (req, res, next) => {
       slug,
       description: description ?? "",
       deity: deityIds,
+      festivalIds,
       category: category ?? "",
       purpose: purpose ?? "",
       ritualDays: Number(ritualDays),
@@ -509,6 +512,10 @@ const updateRitual = async (req, res, next) => {
     const hasUploadedDayImages = (req.files?.stepImage || []).length > 0;
     const mediaFromBody = req.body.media !== undefined ? parseJsonField(req.body.media, "media") : undefined;
     const parsedDeityIds = parseObjectIdArrayField(deity, "deity");
+    const parsedFestivalIds = parseObjectIdArrayField(
+      req.body.festivalIds,
+      "festivalIds"
+    );
 
     const uploadedMedia = await getUploadedMediaUrls(req.files);
     const hasUploadedMedia =
@@ -525,6 +532,7 @@ const updateRitual = async (req, res, next) => {
       slugInput !== undefined ||
       description !== undefined ||
       parsedDeityIds !== undefined ||
+      parsedFestivalIds !== undefined ||
       category !== undefined ||
       purpose !== undefined ||
       ritualDays !== undefined ||
@@ -549,6 +557,7 @@ const updateRitual = async (req, res, next) => {
     if (title !== undefined) ritual.title = title;
     if (description !== undefined) ritual.description = description;
     if (parsedDeityIds !== undefined) ritual.deity = parsedDeityIds;
+    if (parsedFestivalIds !== undefined) ritual.festivalIds = parsedFestivalIds;
     if (category !== undefined) ritual.category = category;
     if (purpose !== undefined) ritual.purpose = purpose;
     if (ritualDays !== undefined) ritual.ritualDays = Number(ritualDays);
