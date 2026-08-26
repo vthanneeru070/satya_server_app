@@ -344,7 +344,7 @@ const getRituals = async (req, res, next) => {
 
     const [rituals, total] = await Promise.all([
       Ritual.find(filter)
-        .sort({ createdAt: -1 })
+        .sort({ title: 1 })
         .skip(skip)
         .limit(limit)
         .populate(ritualPopulate),

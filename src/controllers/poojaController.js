@@ -378,7 +378,7 @@ const getPoojas = async (req, res, next) => {
 
     const [poojas, total] = await Promise.all([
       Pooja.find(filter)
-        .sort({ createdAt: -1 })
+        .sort({ title: 1 })
         .skip(skip)
         .limit(limit)
         .populate(poojaPopulate),
