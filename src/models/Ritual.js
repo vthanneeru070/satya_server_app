@@ -76,6 +76,13 @@ const ritualSchema = new mongoose.Schema(
       default: [],
     },
 
+    festivalIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Festival",
+      },
+    ],
+
     category: {
       type: String,
       default: "",
@@ -86,9 +93,9 @@ const ritualSchema = new mongoose.Schema(
       default: "",
     },
 
-    ritualDays: {
-      type: Number,
-      required: true,
+    ritualDay: {
+      type: String,
+      default: "",
     },
 
     bestDayTime: {
@@ -201,6 +208,14 @@ const ritualSchema = new mongoose.Schema(
         if (ret.deity && !Array.isArray(ret.deity)) {
           ret.deity = [ret.deity];
         }
+        if (
+          (ret.ritualDay == null || ret.ritualDay === "") &&
+          ret.ritualDays != null &&
+          ret.ritualDays !== ""
+        ) {
+          ret.ritualDay = String(ret.ritualDays);
+        }
+        delete ret.ritualDays;
         return ret;
       },
     },
@@ -209,6 +224,14 @@ const ritualSchema = new mongoose.Schema(
         if (ret.deity && !Array.isArray(ret.deity)) {
           ret.deity = [ret.deity];
         }
+        if (
+          (ret.ritualDay == null || ret.ritualDay === "") &&
+          ret.ritualDays != null &&
+          ret.ritualDays !== ""
+        ) {
+          ret.ritualDay = String(ret.ritualDays);
+        }
+        delete ret.ritualDays;
         return ret;
       },
     },

@@ -607,7 +607,7 @@ const options = {
             },
             category: { type: "string" },
             purpose: { type: "string" },
-            ritualDays: { type: "integer", minimum: 1, description: "Programme length in days" },
+            ritualDay: { type: "string", description: "Ritual day / timing description" },
             bestDayTime: { type: "string" },
             startingDay: { type: "string" },
             difficulty: {
@@ -657,12 +657,10 @@ const options = {
             },
             category: { type: "string" },
             purpose: { type: "string" },
-            ritualDays: {
-              type: "integer",
-              minimum: 1,
-              description:
-                "Total days in the ritual programme (required on create). In multipart/form-data you may send a numeric string.",
-              example: 7,
+            ritualDay: {
+              type: "string",
+              description: "Optional ritual day / timing description",
+              example: "During the 3rd month of pregnancy",
             },
             bestDayTime: { type: "string" },
             startingDay: { type: "string" },
@@ -717,7 +715,7 @@ const options = {
             { $ref: "#/components/schemas/RitualMultipartFields" },
             {
               type: "object",
-              required: ["title", "deity", "ritualDays"],
+              required: ["title", "deity"],
             },
           ],
         },

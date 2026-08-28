@@ -85,7 +85,7 @@ const slugify = (str) =>
 const ensureUniqueSlug = async (baseSlug, excludeId) => {
   for (let i = 0; i < 5000; i += 1) {
     const slug = i === 0 ? baseSlug : `${baseSlug}-${i}`;
-    const q = { slug, isDeleted: false };
+    const q = { slug, isDeleted: { $ne: true } };
     if (excludeId) q._id = { $ne: excludeId };
     const exists = await Ritual.findOne(q).select("_id").lean();
     if (!exists) return slug;
@@ -193,6 +193,23 @@ const formatRitualForResponse = (ritual) => {
   if (Array.isArray(plain.sections)) {
     plain.sections = normalizeSections(plain.sections);
   }
+  if (
+    (plain.ritualDay == null || plain.ritualDay === "") &&
+    plain.ritualDays != null &&
+    plain.ritualDays !== ""
+  ) {
+    plain.ritualDay = String(plain.ritualDays);
+  }
+  delete plain.ritualDays;
+
+  // Expose a convenience cover URL for CMS/clients that read `imageUrl`.
+  const coverFromImages = Array.isArray(plain.images)
+    ? plain.images.map((url) => String(url || "").trim()).find(Boolean)
+    : null;
+  if ((!plain.imageUrl || !String(plain.imageUrl).trim()) && coverFromImages) {
+    plain.imageUrl = coverFromImages;
+  }
+
   return plain;
 };
 
@@ -239,7 +256,10 @@ const mergeDayImageUploads = async (days, files = [], stepImageMetaRaw) => {
   return normalized;
 };
 
-const notDeleted = { isDeleted: false };
+const notDeleted = { isDeleted: { $ne: true } };
+
+const isCmsStaff = (user) =>
+  user?.role === "admin" || user?.role === "superadmin" || user?.isSuperAdmin === true;
 
 const createRitual = async (req, res, next) => {
   try {
@@ -250,7 +270,7 @@ const createRitual = async (req, res, next) => {
       deity,
       category,
       purpose,
-      ritualDays,
+      ritualDay,
       bestDayTime,
       startingDay,
       difficulty,
@@ -273,9 +293,18 @@ const createRitual = async (req, res, next) => {
     );
     const mediaFromBody = parseJsonField(req.body.media, "media") || {};
     const deityIds = parseObjectIdArrayField(deity, "deity") ?? [];
+    const festivalIds =
+      parseObjectIdArrayField(req.body.festivalIds, "festivalIds") ?? [];
 
     const uploadedMedia = await getUploadedMediaUrls(req.files);
-    const images = [...(mediaFromBody.images || []), ...uploadedMedia.images];
+    const coverUrl = [req.body.imageUrl, req.body.image]
+      .map((v) => (v == null ? "" : String(v).trim()))
+      .find(Boolean);
+    const images = [
+      ...((mediaFromBody.images || []).map((url) => String(url).trim()).filter(Boolean)),
+      ...(coverUrl ? [coverUrl] : []),
+      ...uploadedMedia.images,
+    ].filter((url, index, arr) => url && arr.indexOf(url) === index);
     const audio = [...(mediaFromBody.audio || []), ...uploadedMedia.audio];
     const videos = [...(mediaFromBody.videos || []), ...uploadedMedia.videos];
 
@@ -296,9 +325,10 @@ const createRitual = async (req, res, next) => {
       slug,
       description: description ?? "",
       deity: deityIds,
+      festivalIds,
       category: category ?? "",
       purpose: purpose ?? "",
-      ritualDays: Number(ritualDays),
+      ritualDay: ritualDay ?? "",
       bestDayTime: bestDayTime ?? "",
       startingDay: startingDay ?? "",
       difficulty: difficulty || "BEGINNER",
@@ -330,7 +360,8 @@ const getRituals = async (req, res, next) => {
     const skip = (page - 1) * limit;
     const filter = { ...notDeleted };
 
-    if (req.user?.role !== "admin") {
+    // Public/mobile list is APPROVED only. CMS staff can pass status filters.
+    if (!isCmsStaff(req.user)) {
       filter.status = "APPROVED";
     } else if (req.query.status) {
       filter.status = req.query.status;
@@ -344,6 +375,7 @@ const getRituals = async (req, res, next) => {
 
     const [rituals, total] = await Promise.all([
       Ritual.find(filter)
+        .collation({ locale: "en", strength: 2 })
         .sort({ title: 1 })
         .skip(skip)
         .limit(limit)
@@ -453,7 +485,8 @@ const getRitualById = async (req, res, next) => {
   try {
     const filter = { _id: req.params.id, ...notDeleted };
 
-    if (req.user?.role !== "admin") {
+    // CMS admin/superadmin can open any status; app users only see APPROVED.
+    if (!isCmsStaff(req.user)) {
       filter.status = "APPROVED";
     }
 
@@ -488,7 +521,7 @@ const updateRitual = async (req, res, next) => {
       deity,
       category,
       purpose,
-      ritualDays,
+      ritualDay,
       bestDayTime,
       startingDay,
       difficulty,
@@ -508,6 +541,10 @@ const updateRitual = async (req, res, next) => {
     const hasUploadedDayImages = (req.files?.stepImage || []).length > 0;
     const mediaFromBody = req.body.media !== undefined ? parseJsonField(req.body.media, "media") : undefined;
     const parsedDeityIds = parseObjectIdArrayField(deity, "deity");
+    const parsedFestivalIds = parseObjectIdArrayField(
+      req.body.festivalIds,
+      "festivalIds"
+    );
 
     const uploadedMedia = await getUploadedMediaUrls(req.files);
     const hasUploadedMedia =
@@ -515,7 +552,25 @@ const updateRitual = async (req, res, next) => {
       uploadedMedia.audio.length > 0 ||
       uploadedMedia.videos.length > 0;
 
-    const imagesFromBody = mediaFromBody?.images;
+    const coverUrlRaw = req.body.imageUrl !== undefined
+      ? req.body.imageUrl
+      : req.body.image !== undefined
+        ? req.body.image
+        : undefined;
+    const coverUrl =
+      coverUrlRaw === undefined
+        ? undefined
+        : String(coverUrlRaw || "").trim();
+
+    let imagesFromBody = mediaFromBody?.images;
+    if (coverUrl !== undefined) {
+      // Explicit imageUrl/image wins; empty string means clear cover.
+      imagesFromBody = coverUrl ? [coverUrl] : [];
+    } else if (Array.isArray(imagesFromBody) && imagesFromBody.length === 0 && !hasUploadedMedia) {
+      // Avoid wiping existing cover when client sends empty media.images by mistake.
+      imagesFromBody = undefined;
+    }
+
     const audioFromBody = mediaFromBody?.audio;
     const videosFromBody = mediaFromBody?.videos;
 
@@ -524,9 +579,10 @@ const updateRitual = async (req, res, next) => {
       slugInput !== undefined ||
       description !== undefined ||
       parsedDeityIds !== undefined ||
+      parsedFestivalIds !== undefined ||
       category !== undefined ||
       purpose !== undefined ||
-      ritualDays !== undefined ||
+      ritualDay !== undefined ||
       bestDayTime !== undefined ||
       startingDay !== undefined ||
       difficulty !== undefined ||
@@ -535,6 +591,7 @@ const updateRitual = async (req, res, next) => {
       hasUploadedDayImages ||
       req.body.stepImageMeta !== undefined ||
       mediaFromBody !== undefined ||
+      coverUrl !== undefined ||
       accessType !== undefined ||
       price !== undefined ||
       currency !== undefined ||
@@ -548,9 +605,10 @@ const updateRitual = async (req, res, next) => {
     if (title !== undefined) ritual.title = title;
     if (description !== undefined) ritual.description = description;
     if (parsedDeityIds !== undefined) ritual.deity = parsedDeityIds;
+    if (parsedFestivalIds !== undefined) ritual.festivalIds = parsedFestivalIds;
     if (category !== undefined) ritual.category = category;
     if (purpose !== undefined) ritual.purpose = purpose;
-    if (ritualDays !== undefined) ritual.ritualDays = Number(ritualDays);
+    if (ritualDay !== undefined) ritual.ritualDay = ritualDay;
     if (bestDayTime !== undefined) ritual.bestDayTime = bestDayTime;
     if (startingDay !== undefined) ritual.startingDay = startingDay;
     if (difficulty !== undefined) ritual.difficulty = difficulty;

@@ -227,6 +227,7 @@ const getDeities = async (req, res, next) => {
 
     const [deities, total] = await Promise.all([
       Deity.find(filter)
+        .collation({ locale: "en", strength: 2 })
         .sort({ name: 1 })
         .skip(skip)
         .limit(limit)

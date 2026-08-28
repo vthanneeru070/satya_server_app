@@ -45,6 +45,11 @@ const deityField = Joi.alternatives().try(
   Joi.string().trim().min(2)
 );
 
+const festivalIdsField = Joi.alternatives().try(
+  Joi.array().items(Joi.string().trim().hex().length(24)).default([]),
+  Joi.string().trim().min(2)
+);
+
 const stepImageMetaField = jsonArrayOrStringField(
   Joi.array()
     .items(
@@ -60,12 +65,10 @@ const createRitualSchema = Joi.object({
   slug: Joi.string().trim().lowercase().max(200).optional(),
   description: Joi.string().trim().allow("").max(10000).optional(),
   deity: deityField.optional(),
+  festivalIds: festivalIdsField.optional(),
   category: Joi.string().trim().max(150).allow("").optional(),
   purpose: Joi.string().trim().max(2000).allow("").optional(),
-  ritualDays: Joi.number().integer().min(1).required().messages({
-    "number.base": "ritualDays must be a number",
-    "any.required": "ritualDays is required",
-  }),
+  ritualDay: Joi.string().trim().max(500).allow("").optional(),
   bestDayTime: Joi.string().trim().max(200).allow("").optional(),
   startingDay: Joi.string().trim().max(200).allow("").optional(),
   difficulty: Joi.string().valid("BEGINNER", "INTERMEDIATE", "ADVANCED").default("BEGINNER"),
@@ -100,9 +103,10 @@ const updateRitualSchema = Joi.object({
   slug: Joi.string().trim().lowercase().max(200),
   description: Joi.string().trim().allow("").max(10000),
   deity: deityField.optional(),
+  festivalIds: festivalIdsField.optional(),
   category: Joi.string().trim().max(150).allow(""),
   purpose: Joi.string().trim().max(2000).allow(""),
-  ritualDays: Joi.number().integer().min(1),
+  ritualDay: Joi.string().trim().max(500).allow(""),
   bestDayTime: Joi.string().trim().max(200).allow(""),
   startingDay: Joi.string().trim().max(200).allow(""),
   difficulty: Joi.string().valid("BEGINNER", "INTERMEDIATE", "ADVANCED"),

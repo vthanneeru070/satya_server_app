@@ -378,6 +378,7 @@ const getPoojas = async (req, res, next) => {
 
     const [poojas, total] = await Promise.all([
       Pooja.find(filter)
+        .collation({ locale: "en", strength: 2 })
         .sort({ title: 1 })
         .skip(skip)
         .limit(limit)
