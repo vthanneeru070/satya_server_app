@@ -49,6 +49,16 @@ const router = express.Router();
  *     responses:
  *       201:
  *         description: Ritual created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     ritual:
+ *                       $ref: "#/components/schemas/Ritual"
  *       400:
  *         description: Invalid payload
  *       401:
@@ -74,8 +84,11 @@ router.post(
  * @swagger
  * /rituals:
  *   get:
- *     summary: Get rituals
+ *     summary: List approved rituals (paginated)
+ *     description: Authenticated users receive APPROVED rituals. Admins may filter by status.
  *     tags: [Rituals]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: page
@@ -92,9 +105,34 @@ router.post(
  *         schema:
  *           type: string
  *           enum: [DRAFT, PENDING, APPROVED, REJECTED]
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search by title, description, category, or purpose
  *     responses:
  *       200:
  *         description: Rituals fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     rituals:
+ *                       type: array
+ *                       items: { $ref: "#/components/schemas/Ritual" }
+ *                     pagination:
+ *                       type: object
+ *                       properties:
+ *                         page: { type: integer }
+ *                         limit: { type: integer }
+ *                         total: { type: integer }
+ *                         totalPages: { type: integer }
+ *       401:
+ *         description: Unauthorized
  */
 router.get("/", authenticate, validate(allRitualsQuerySchema, "query"), getRituals);
 
@@ -191,6 +229,8 @@ router.get(
  *   get:
  *     summary: Get ritual by id
  *     tags: [Rituals]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -200,6 +240,18 @@ router.get(
  *     responses:
  *       200:
  *         description: Ritual fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     ritual:
+ *                       $ref: "#/components/schemas/Ritual"
+ *       401:
+ *         description: Unauthorized
  *       404:
  *         description: Ritual not found
  */
@@ -229,6 +281,16 @@ router.get("/:id", authenticate, validate(ritualIdParamsSchema, "params"), getRi
  *     responses:
  *       200:
  *         description: Ritual updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     ritual:
+ *                       $ref: "#/components/schemas/Ritual"
  *       400:
  *         description: Invalid payload
  *       401:

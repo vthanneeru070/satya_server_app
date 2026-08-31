@@ -253,6 +253,110 @@ const options = {
             updatedAt: { type: "string", format: "date-time" },
           },
         },
+        RitualHistoryOverview: {
+          type: "object",
+          properties: {
+            pendingCount: { type: "integer", example: 1 },
+            finishedCount: { type: "integer", example: 3 },
+            totalCount: { type: "integer", example: 4 },
+            pending: {
+              type: "array",
+              items: { $ref: "#/components/schemas/UserRitualSession" },
+            },
+            finished: {
+              type: "array",
+              items: { $ref: "#/components/schemas/UserRitualSession" },
+            },
+            pagination: {
+              type: "object",
+              properties: {
+                pending: {
+                  type: "object",
+                  properties: {
+                    page: { type: "integer" },
+                    limit: { type: "integer" },
+                    total: { type: "integer" },
+                    totalPages: { type: "integer" },
+                  },
+                },
+                finished: {
+                  type: "object",
+                  properties: {
+                    page: { type: "integer" },
+                    limit: { type: "integer" },
+                    total: { type: "integer" },
+                    totalPages: { type: "integer" },
+                  },
+                },
+              },
+            },
+          },
+        },
+        UserRitualSession: {
+          type: "object",
+          description: "User ritual tracking session (one attempt per row)",
+          properties: {
+            _id: { type: "string" },
+            status: {
+              type: "string",
+              enum: ["PENDING", "FINISHED", "ABANDONED"],
+            },
+            abandonReason: {
+              type: "string",
+              nullable: true,
+              example: "MISSED_DAY",
+            },
+            attemptNumber: { type: "integer", example: 1 },
+            currentDay: {
+              type: "integer",
+              example: 2,
+              description: "Day currently in progress (1-based)",
+            },
+            currentStep: {
+              type: "integer",
+              example: 1,
+              description: "Last completed step within the current day",
+            },
+            completedDays: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  dayNumber: { type: "integer" },
+                  completedAt: { type: "string", format: "date-time" },
+                  dateKey: {
+                    type: "string",
+                    example: "2026-08-31",
+                    description: "YYYY-MM-DD in user timezone",
+                  },
+                },
+              },
+            },
+            lastCompletedDayDateKey: {
+              type: "string",
+              nullable: true,
+              example: "2026-08-31",
+            },
+            nextDayDueDateKey: {
+              type: "string",
+              nullable: true,
+              description: "Calendar date by which the current day must be completed",
+              example: "2026-09-01",
+            },
+            totalDays: { type: "integer", example: 3 },
+            daySteps: { type: "integer", example: 4 },
+            dayProgressPercent: { type: "integer", example: 50 },
+            overallProgressPercent: { type: "integer", example: 33 },
+            isMultiDay: { type: "boolean", example: true },
+            timezone: { type: "string", nullable: true, example: "Asia/Kolkata" },
+            startedAt: { type: "string", format: "date-time" },
+            lastActivityAt: { type: "string", format: "date-time" },
+            finishedAt: { type: "string", format: "date-time", nullable: true },
+            ritual: { $ref: "#/components/schemas/Ritual" },
+            createdAt: { type: "string", format: "date-time" },
+            updatedAt: { type: "string", format: "date-time" },
+          },
+        },
         DeitySummary: {
           type: "object",
           properties: {
@@ -575,19 +679,61 @@ const options = {
             },
           },
         },
+        RitualDayStep: {
+          type: "object",
+          properties: {
+            stepNumber: { type: "integer", minimum: 1, example: 1 },
+            title: { type: "string", example: "Light the lamp" },
+            description: { type: "string", example: "Rich text step instructions" },
+            images: {
+              type: "array",
+              items: { type: "string", format: "uri" },
+            },
+            subSteps: {
+              type: "array",
+              items: { type: "string" },
+            },
+          },
+        },
         RitualDay: {
           type: "object",
           required: ["dayNumber", "title"],
           properties: {
             dayNumber: { type: "integer", minimum: 1, example: 1 },
+            stepNumber: {
+              type: "integer",
+              minimum: 1,
+              example: 1,
+              description: "Same as dayNumber in API responses",
+            },
             title: { type: "string", example: "Day 1 — Invocation" },
+            description: { type: "string" },
+            requiredItems: {
+              type: "array",
+              items: { type: "string" },
+              example: ["Flowers", "Incense", "Lamp"],
+            },
+            steps: {
+              type: "array",
+              items: { $ref: "#/components/schemas/RitualDayStep" },
+            },
             activities: {
               type: "array",
               items: { type: "string" },
+              description: "Legacy flat step lines",
               example: ["Light lamp", "Offer flowers"],
+            },
+            subSteps: {
+              type: "array",
+              items: { type: "string" },
+              description: "Legacy flat step lines",
             },
             mantra: { type: "string", example: "" },
             affirmation: { type: "string", example: "" },
+            images: {
+              type: "array",
+              items: { type: "string", format: "uri" },
+            },
           },
         },
         Ritual: {
@@ -620,6 +766,12 @@ const options = {
               type: "string",
               enum: ["BEGINNER", "INTERMEDIATE", "ADVANCED"],
             },
+            festivalIds: {
+              type: "array",
+              items: { type: "string" },
+              description: "Associated Festival ObjectIds",
+            },
+            recommendedDuration: { type: "string", example: "7 days" },
             sections: {
               type: "array",
               items: { $ref: "#/components/schemas/RitualSection" },
@@ -685,7 +837,16 @@ const options = {
             days: {
               type: "string",
               description:
-                "JSON array of RitualDay objects (dayNumber, title, activities[], mantra, affirmation).",
+                "JSON array of ritual day objects (stepNumber/dayNumber, title, requiredItems[], steps[]). See RitualDay schema.",
+            },
+            stepImageMeta: {
+              type: "string",
+              description:
+                "JSON array describing step image uploads — [{ dayNumber, stepNumber }] paired with stepImage files",
+            },
+            festivalIds: {
+              type: "string",
+              description: "ObjectId, comma list, or JSON array string",
             },
             media: {
               type: "string",
@@ -716,6 +877,11 @@ const options = {
             image: { type: "string", format: "binary", description: "Optional; merged into images[]" },
             audio: { type: "string", format: "binary", description: "Optional; merged into audio[]" },
             video: { type: "string", format: "binary", description: "Optional; merged into videos[]" },
+            stepImage: {
+              type: "array",
+              items: { type: "string", format: "binary" },
+              description: "Optional nested step images; pair with stepImageMeta",
+            },
           },
         },
         RitualCreateMultipart: {
