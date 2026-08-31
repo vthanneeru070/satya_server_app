@@ -406,6 +406,7 @@ const notifyRefundProcessed = async (userId, { order } = {}) => {
 };
 
 module.exports = {
+  pushWithInbox,
   notifyOrderPlaced,
   notifyDonationReceived,
   notifyOrderStatusChanged,

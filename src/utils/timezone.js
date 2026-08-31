@@ -112,6 +112,14 @@ const getPreviousIsoDateKey = (isoDateKey, timeZone) => {
   return getIsoDateKeyInTimeZone(prev, timeZone);
 };
 
+/** Next calendar day key relative to `isoDateKey` in `timeZone`. */
+const getNextIsoDateKey = (isoDateKey, timeZone) => {
+  const [year, month, day] = String(isoDateKey).split("-").map(Number);
+  const noonUtc = zonedDateTimeToUtc({ year, month, day, hour: 12, minute: 0, second: 0 }, timeZone);
+  const next = new Date(noonUtc.getTime() + 24 * 60 * 60 * 1000);
+  return getIsoDateKeyInTimeZone(next, timeZone);
+};
+
 const getTimeZoneOffsetMs = (date, timeZone) => {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -191,6 +199,8 @@ module.exports = {
   getDdMmYyyyInTimeZone,
   getIsoDateKeyInTimeZone,
   getPreviousIsoDateKey,
+  getNextIsoDateKey,
+  zonedDateTimeToUtc,
   getTodayUtcRangeForTimeZone,
   getMonthUtcRangeForTimeZone,
   getCalendarDayUtcRangeForTimeZone,

@@ -2,6 +2,7 @@ const app = require("./app");
 const connectDatabase = require("./config/db");
 const { port } = require("./config/env");
 const notificationBroadcastService = require("./services/notificationBroadcastService");
+const { runRitualTrackingJobs } = require("./services/userRitualHistoryService");
 const { ensureWarehousesSeeded } = require("./services/warehouseSeedService");
 
 const startServer = async () => {
@@ -12,6 +13,7 @@ const startServer = async () => {
   // Scheduler must start AFTER DB connect so scheduled notifications can be
   // queried. Runs every 60s; safe across restarts thanks to atomic claim.
   notificationBroadcastService.startScheduler({ intervalMs: 60_000 });
+  setInterval(() => runRitualTrackingJobs(), 60_000);
   try {
     require("./jobs/tcgTrackingSyncJob").startTcgTrackingSyncJob();
   } catch (err) {
