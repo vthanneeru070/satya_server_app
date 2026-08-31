@@ -607,7 +607,13 @@ const options = {
             },
             category: { type: "string" },
             purpose: { type: "string" },
-            ritualDay: { type: "string", description: "Ritual day / timing description" },
+            ritualDay: {
+              type: "string",
+              enum: ["1 day ritual", "Multiple days ritual"],
+              description:
+                "Ritual duration type. 1 day ritual allows only one entry in days[].",
+              example: "1 day ritual",
+            },
             bestDayTime: { type: "string" },
             startingDay: { type: "string" },
             difficulty: {
@@ -659,8 +665,10 @@ const options = {
             purpose: { type: "string" },
             ritualDay: {
               type: "string",
-              description: "Optional ritual day / timing description",
-              example: "During the 3rd month of pregnancy",
+              enum: ["1 day ritual", "Multiple days ritual"],
+              description:
+                "Ritual duration type. 1 day ritual allows only one entry in days[].",
+              example: "Multiple days ritual",
             },
             bestDayTime: { type: "string" },
             startingDay: { type: "string" },

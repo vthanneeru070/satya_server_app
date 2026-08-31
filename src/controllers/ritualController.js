@@ -5,6 +5,10 @@ const { uploadFile, deleteFile } = require("../services/s3Service");
 const { mergeUploadedMediaSlot, orphanedUrls } = require("../utils/mediaReplace");
 const { parseObjectIdArrayField } = require("../utils/objectIdArray");
 const { mergeSearchFilter } = require("../utils/textSearch");
+const {
+  normalizeRitualDayType,
+  resolveRitualDaysForType,
+} = require("../utils/ritualDayType");
 
 const RITUAL_SEARCH_FIELDS = ["title", "description", "category", "purpose"];
 
@@ -115,6 +119,21 @@ const resolvePricing = ({ accessType, price, currency }) => {
   return { accessType: finalAccessType, price: finalPrice, currency: finalCurrency };
 };
 
+const normalizeRitualInnerSteps = (steps) => {
+  if (!Array.isArray(steps)) return [];
+  return steps.map((step, index) => ({
+    stepNumber: Number(step?.stepNumber ?? index + 1),
+    title: String(step?.title ?? "").trim(),
+    description: String(step?.description ?? "").trim(),
+    subSteps: Array.isArray(step?.subSteps)
+      ? step.subSteps.map((item) => String(item).trim()).filter(Boolean)
+      : [],
+    images: Array.isArray(step?.images)
+      ? step.images.map((url) => String(url).trim()).filter(Boolean)
+      : [],
+  }));
+};
+
 const normalizeDays = (days) => {
   if (!Array.isArray(days)) return [];
   return days.map((raw, index) => {
@@ -132,11 +151,29 @@ const normalizeDays = (days) => {
       subSteps = [...legacyBits, ...subSteps];
     }
 
+    const requiredItems = Array.isArray(raw?.requiredItems)
+      ? raw.requiredItems.map((item) => String(item).trim()).filter(Boolean)
+      : [];
+
+    let steps = normalizeRitualInnerSteps(raw?.steps);
+    if (!steps.length && subSteps.length) {
+      steps = subSteps.map((line, stepIdx) => ({
+        stepNumber: stepIdx + 1,
+        title: `Step ${stepIdx + 1}`,
+        description: line,
+        subSteps: [],
+        images: [],
+      }));
+      subSteps = [];
+    }
+
     return {
       stepNumber,
       title: String(raw?.title ?? "").trim(),
       description: String(raw?.description ?? "").trim(),
       subSteps,
+      requiredItems,
+      steps,
       images: Array.isArray(raw?.images)
         ? raw.images.map((url) => String(url).trim()).filter(Boolean)
         : [],
@@ -202,6 +239,9 @@ const formatRitualForResponse = (ritual) => {
   }
   delete plain.ritualDays;
 
+  const daysCount = Array.isArray(plain.days) ? plain.days.length : 0;
+  plain.ritualDay = normalizeRitualDayType(plain.ritualDay, daysCount);
+
   // Expose a convenience cover URL for CMS/clients that read `imageUrl`.
   const coverFromImages = Array.isArray(plain.images)
     ? plain.images.map((url) => String(url || "").trim()).find(Boolean)
@@ -214,7 +254,10 @@ const formatRitualForResponse = (ritual) => {
 };
 
 const collectDayImageUrls = (days = []) =>
-  normalizeDays(days).flatMap((day) => day.images || []);
+  normalizeDays(days).flatMap((day) => [
+    ...(day.images || []),
+    ...(day.steps || []).flatMap((step) => step.images || []),
+  ]);
 
 const removedDayImageUrls = (previousDays = [], nextDays = []) => {
   const nextUrls = new Set(collectDayImageUrls(nextDays));
@@ -240,17 +283,40 @@ const mergeDayImageUploads = async (days, files = [], stepImageMetaRaw) => {
   const uploaded = await Promise.all(dayFiles.map((file) => uploadFile(file, "rituals")));
 
   meta.forEach((entry, index) => {
-    const stepNumber = Number(entry?.stepNumber);
-    if (!Number.isFinite(stepNumber) || stepNumber < 1) {
-      throw new HttpError("Each stepImageMeta entry must include a valid stepNumber", 400);
+    const dayNumber = Number(entry?.dayNumber ?? entry?.stepNumber);
+    if (!Number.isFinite(dayNumber) || dayNumber < 1) {
+      throw new HttpError(
+        "Each stepImageMeta entry must include a valid dayNumber or stepNumber",
+        400
+      );
     }
 
-    const day = normalized.find((row) => Number(row.stepNumber) === stepNumber);
+    const day = normalized.find((row) => Number(row.stepNumber) === dayNumber);
     if (!day) {
-      throw new HttpError(`Day step ${stepNumber} not found for stepImage upload`, 400);
+      throw new HttpError(`Day ${dayNumber} not found for stepImage upload`, 400);
     }
 
-    day.images.push(uploaded[index]);
+    const nestedStepNumber =
+      entry?.dayNumber != null ? Number(entry?.stepNumber) : NaN;
+    const isNestedStep =
+      entry?.dayNumber != null &&
+      Number.isFinite(nestedStepNumber) &&
+      nestedStepNumber >= 1;
+
+    if (isNestedStep) {
+      const ritualStep = (day.steps || []).find(
+        (row) => Number(row.stepNumber) === nestedStepNumber
+      );
+      if (!ritualStep) {
+        throw new HttpError(
+          `Step ${nestedStepNumber} not found in day ${dayNumber} for stepImage upload`,
+          400
+        );
+      }
+      ritualStep.images.push(uploaded[index]);
+    } else {
+      day.images.push(uploaded[index]);
+    }
   });
 
   return normalized;
@@ -286,10 +352,15 @@ const createRitual = async (req, res, next) => {
     if (!parsedDays.length) {
       throw new HttpError("At least one ritual day is required", 400);
     }
-    const days = await mergeDayImageUploads(
+    const daysAfterUpload = await mergeDayImageUploads(
       parsedDays,
       req.files?.stepImage || [],
       req.body.stepImageMeta
+    );
+    const { ritualDay: resolvedRitualDay, days } = resolveRitualDaysForType(
+      ritualDay,
+      daysAfterUpload,
+      normalizeDays
     );
     const mediaFromBody = parseJsonField(req.body.media, "media") || {};
     const deityIds = parseObjectIdArrayField(deity, "deity") ?? [];
@@ -328,7 +399,7 @@ const createRitual = async (req, res, next) => {
       festivalIds,
       category: category ?? "",
       purpose: purpose ?? "",
-      ritualDay: ritualDay ?? "",
+      ritualDay: resolvedRitualDay,
       bestDayTime: bestDayTime ?? "",
       startingDay: startingDay ?? "",
       difficulty: difficulty || "BEGINNER",
@@ -608,7 +679,6 @@ const updateRitual = async (req, res, next) => {
     if (parsedFestivalIds !== undefined) ritual.festivalIds = parsedFestivalIds;
     if (category !== undefined) ritual.category = category;
     if (purpose !== undefined) ritual.purpose = purpose;
-    if (ritualDay !== undefined) ritual.ritualDay = ritualDay;
     if (bestDayTime !== undefined) ritual.bestDayTime = bestDayTime;
     if (startingDay !== undefined) ritual.startingDay = startingDay;
     if (difficulty !== undefined) ritual.difficulty = difficulty;
@@ -623,16 +693,32 @@ const updateRitual = async (req, res, next) => {
         throw new HttpError("At least one ritual day is required", 400);
       }
       const previousDays = normalizeDays(ritual.days);
-      const nextDays = await mergeDayImageUploads(
+      const daysAfterUpload = await mergeDayImageUploads(
         sourceDays,
         req.files?.stepImage || [],
         req.body.stepImageMeta
       );
-      const orphans = removedDayImageUrls(previousDays, nextDays);
-      ritual.days = nextDays;
+      const effectiveRitualDay =
+        ritualDay !== undefined ? ritualDay : ritual.ritualDay;
+      const resolved = resolveRitualDaysForType(
+        effectiveRitualDay,
+        daysAfterUpload,
+        normalizeDays
+      );
+      const orphans = removedDayImageUrls(previousDays, resolved.days);
+      ritual.days = resolved.days;
+      ritual.ritualDay = resolved.ritualDay;
       if (orphans.length) {
         await Promise.all(orphans.map((url) => deleteFile(url).catch(() => {})));
       }
+    } else if (ritualDay !== undefined) {
+      const resolved = resolveRitualDaysForType(
+        ritualDay,
+        ritual.days,
+        normalizeDays
+      );
+      ritual.ritualDay = resolved.ritualDay;
+      ritual.days = resolved.days;
     }
     if (isFeatured !== undefined) ritual.isFeatured = Boolean(isFeatured);
 
