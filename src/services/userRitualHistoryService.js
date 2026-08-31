@@ -559,6 +559,20 @@ const completeDay = async (userId, sessionId, { timeZone: timeZoneOverride } = {
     attemptNumber: session.attemptNumber,
   });
 
+  if (!isLastDay) {
+    const nextDayNum = session.currentDay;
+    const nextDayDef = getDayDefinition(ritual, nextDayNum);
+    await notifyRitualNextDayRequiredItems(session.user, {
+      ritualId: ritual._id,
+      ritualTitle: ritual.title,
+      dayNumber: nextDayNum,
+      requiredItems: nextDayDef?.requiredItems || [],
+      sessionId: session._id,
+      attemptNumber: session.attemptNumber,
+      variant: "upcoming",
+    });
+  }
+
   return {
     session: formatSession(session, { timeZone }),
     dayCompleted: dayNumber,

@@ -50,19 +50,35 @@ const notifyRitualDayCompleted = async (
 
 /**
  * Remind user of required items for the next ritual day.
+ * variant `upcoming` — sent right after the previous day is completed.
+ * variant `today` — sent on the morning of the ritual day (scheduled job).
  */
 const notifyRitualNextDayRequiredItems = async (
   userId,
-  { ritualId, ritualTitle, dayNumber, requiredItems, sessionId, attemptNumber }
+  {
+    ritualId,
+    ritualTitle,
+    dayNumber,
+    requiredItems,
+    sessionId,
+    attemptNumber,
+    variant = "today",
+  }
 ) => {
   try {
     if (!userId || !ritualId || !sessionId) return;
 
-    const title = `Day ${dayNumber} — ${ritualTitle}`;
-    const body = formatRequiredItemsBody(requiredItems);
+    const itemsBody = formatRequiredItemsBody(requiredItems);
+    const isUpcoming = variant === "upcoming";
+    const title = isUpcoming
+      ? `Up next: Day ${dayNumber} — ${ritualTitle}`
+      : `Day ${dayNumber} — ${ritualTitle}`;
+    const body = isUpcoming
+      ? `Prepare for tomorrow. ${itemsBody}`
+      : itemsBody;
 
     const data = {
-      type: "RITUAL_NEXT_DAY_REMINDER",
+      type: isUpcoming ? "RITUAL_UPCOMING_DAY_REMINDER" : "RITUAL_NEXT_DAY_REMINDER",
       userId: String(userId),
       ritualId: String(ritualId),
       sessionId: String(sessionId),
@@ -71,11 +87,17 @@ const notifyRitualNextDayRequiredItems = async (
       requiredItems: JSON.stringify(requiredItems || []),
     };
 
+    const sourceKey = isUpcoming
+      ? `ritual:${sessionId}:day:${dayNumber}:upcoming`
+      : `ritual:${sessionId}:day:${dayNumber}:reminder`;
+
     await pushWithInbox(userId, {
       notification: { title, body },
       data,
-      sourceKey: `ritual:${sessionId}:day:${dayNumber}:reminder`,
-      logTag: "notifyRitualNextDayRequiredItems",
+      sourceKey,
+      logTag: isUpcoming
+        ? "notifyRitualUpcomingDayRequiredItems"
+        : "notifyRitualNextDayRequiredItems",
     });
   } catch (err) {
     console.warn("[fcm] notifyRitualNextDayRequiredItems failed:", err?.message || err);

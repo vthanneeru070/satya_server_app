@@ -14,6 +14,9 @@ const startServer = async () => {
   // queried. Runs every 60s; safe across restarts thanks to atomic claim.
   notificationBroadcastService.startScheduler({ intervalMs: 60_000 });
   setInterval(() => runRitualTrackingJobs(), 60_000);
+  runRitualTrackingJobs().catch((err) =>
+    console.warn("[server] ritual tracking job failed:", err?.message || err)
+  );
   try {
     require("./jobs/tcgTrackingSyncJob").startTcgTrackingSyncJob();
   } catch (err) {
