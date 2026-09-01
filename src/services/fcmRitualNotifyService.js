@@ -105,6 +105,43 @@ const notifyRitualNextDayRequiredItems = async (
 };
 
 /**
+ * Morning reminder that the ritual day is today (scheduled at 5:00 local).
+ */
+const notifyRitualTodayReminder = async (
+  userId,
+  { ritualId, ritualTitle, dayNumber, totalDays, sessionId, attemptNumber }
+) => {
+  try {
+    if (!userId || !ritualId || !sessionId) return;
+
+    const title = `Your "${ritualTitle}" is today`;
+    const body =
+      totalDays > 1
+        ? `Day ${dayNumber} of your ritual is today. Open the app to continue.`
+        : "Your ritual is today. Open the app to begin.";
+
+    const data = {
+      type: "RITUAL_TODAY_REMINDER",
+      userId: String(userId),
+      ritualId: String(ritualId),
+      sessionId: String(sessionId),
+      dayNumber: String(dayNumber),
+      totalDays: String(totalDays || 1),
+      attemptNumber: String(attemptNumber || 1),
+    };
+
+    await pushWithInbox(userId, {
+      notification: { title, body },
+      data,
+      sourceKey: `ritual:${sessionId}:day:${dayNumber}:today`,
+      logTag: "notifyRitualTodayReminder",
+    });
+  } catch (err) {
+    console.warn("[fcm] notifyRitualTodayReminder failed:", err?.message || err);
+  }
+};
+
+/**
  * Notify user that they missed a day and must restart from Day 1.
  */
 const notifyRitualRestartedAfterMiss = async (
@@ -140,5 +177,6 @@ const notifyRitualRestartedAfterMiss = async (
 module.exports = {
   notifyRitualDayCompleted,
   notifyRitualNextDayRequiredItems,
+  notifyRitualTodayReminder,
   notifyRitualRestartedAfterMiss,
 };

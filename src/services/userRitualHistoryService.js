@@ -12,12 +12,14 @@ const { isSingleDayRitualType } = require("../utils/ritualDayType");
 const {
   notifyRitualDayCompleted,
   notifyRitualNextDayRequiredItems,
+  notifyRitualTodayReminder,
   notifyRitualRestartedAfterMiss,
 } = require("./fcmRitualNotifyService");
 
 const notDeleted = { isDeleted: { $ne: true } };
 const DEFAULT_TIMEZONE = "Asia/Kolkata";
-const NEXT_DAY_REMINDER_HOUR = 8;
+const NEXT_DAY_TODAY_REMINDER_HOUR = 5;
+const NEXT_DAY_REQUIRED_ITEMS_REMINDER_HOUR = 6;
 
 const RITUAL_POPULATE = {
   path: "ritual",
@@ -78,21 +80,41 @@ const shouldRestartForMiss = (session, ritual, todayKey, timeZone) => {
   return todayKey > deadlineKey;
 };
 
+const zonedTimeOnNextDueDate = (lastCompletedDayDateKey, timeZone, hour) => {
+  const nextDateKey = getNextIsoDateKey(lastCompletedDayDateKey, timeZone);
+  const [year, month, day] = nextDateKey.split("-").map(Number);
+  return zonedDateTimeToUtc(
+    { year, month, day, hour, minute: 0, second: 0 },
+    timeZone
+  );
+};
+
+const clearNextDayReminders = (session) => {
+  session.nextDayReminderAt = null;
+  session.nextDayReminderDayNumber = null;
+  session.nextDayReminderSent = false;
+  session.nextDayStartReminderAt = null;
+  session.nextDayStartReminderSent = false;
+};
+
 const scheduleNextDayReminder = (session, ritual, timeZone) => {
   const nextDayNum = session.currentDay;
   const totalDays = totalDaysFor(ritual);
   if (nextDayNum > totalDays) {
-    session.nextDayReminderAt = null;
-    session.nextDayReminderDayNumber = null;
-    session.nextDayReminderSent = false;
+    clearNextDayReminders(session);
     return;
   }
 
-  const nextDateKey = getNextIsoDateKey(session.lastCompletedDayDateKey, timeZone);
-  const [year, month, day] = nextDateKey.split("-").map(Number);
-  session.nextDayReminderAt = zonedDateTimeToUtc(
-    { year, month, day, hour: NEXT_DAY_REMINDER_HOUR, minute: 0, second: 0 },
-    timeZone
+  session.nextDayStartReminderAt = zonedTimeOnNextDueDate(
+    session.lastCompletedDayDateKey,
+    timeZone,
+    NEXT_DAY_TODAY_REMINDER_HOUR
+  );
+  session.nextDayStartReminderSent = false;
+  session.nextDayReminderAt = zonedTimeOnNextDueDate(
+    session.lastCompletedDayDateKey,
+    timeZone,
+    NEXT_DAY_REQUIRED_ITEMS_REMINDER_HOUR
   );
   session.nextDayReminderDayNumber = nextDayNum;
   session.nextDayReminderSent = false;
@@ -147,9 +169,9 @@ const abandonSessionForMiss = async (session, ritual, timeZone) => {
   session.status = "ABANDONED";
   session.abandonReason = "MISSED_DAY";
   session.abandonedAt = new Date();
-  session.nextDayReminderAt = null;
-  session.nextDayReminderDayNumber = null;
+  clearNextDayReminders(session);
   session.nextDayReminderSent = true;
+  session.nextDayStartReminderSent = true;
   await session.save();
 
   await notifyRitualRestartedAfterMiss(session.user, {
@@ -537,9 +559,9 @@ const completeDay = async (userId, sessionId, { timeZone: timeZoneOverride } = {
     session.status = "FINISHED";
     session.finishedAt = now;
     session.currentStep = daySteps > 0 ? daySteps : session.currentStep;
-    session.nextDayReminderAt = null;
-    session.nextDayReminderDayNumber = null;
+    clearNextDayReminders(session);
     session.nextDayReminderSent = true;
+    session.nextDayStartReminderSent = true;
   } else {
     session.currentDay = dayNumber + 1;
     session.currentStep = 0;
@@ -614,8 +636,9 @@ const finishRitual = async (userId, ritualId, { timeZone: timeZoneOverride } = {
 
   session.status = "FINISHED";
   session.finishedAt = new Date();
-  session.nextDayReminderAt = null;
+  clearNextDayReminders(session);
   session.nextDayReminderSent = true;
+  session.nextDayStartReminderSent = true;
   await session.save();
 
   return { session: formatSession(session, { timeZone }) };
@@ -638,7 +661,48 @@ const finishRitualBySession = async (userId, sessionId, options = {}) => {
 };
 
 /**
- * Background job: send due next-day required-items reminders.
+ * Background job: send due "ritual is today" reminders (5:00 local).
+ */
+const processDueTodayReminders = async () => {
+  const now = new Date();
+  const dueSessions = await UserRitualSession.find({
+    status: "PENDING",
+    nextDayStartReminderAt: { $lte: now },
+    nextDayStartReminderSent: { $ne: true },
+    ...notDeleted,
+  })
+    .limit(50)
+    .populate(RITUAL_POPULATE);
+
+  for (const session of dueSessions) {
+    const claimed = await UserRitualSession.findOneAndUpdate(
+      {
+        _id: session._id,
+        nextDayStartReminderSent: { $ne: true },
+        status: "PENDING",
+      },
+      { $set: { nextDayStartReminderSent: true } },
+      { new: true }
+    );
+
+    if (!claimed) continue;
+
+    const ritual = session.ritual;
+    const dayNumber = session.nextDayReminderDayNumber || session.currentDay;
+
+    await notifyRitualTodayReminder(session.user, {
+      ritualId: ritual._id,
+      ritualTitle: ritual.title,
+      dayNumber,
+      totalDays: totalDaysFor(ritual),
+      sessionId: session._id,
+      attemptNumber: session.attemptNumber,
+    });
+  }
+};
+
+/**
+ * Background job: send due next-day required-items reminders (6:00 local).
  */
 const processDueReminders = async () => {
   const now = new Date();
@@ -711,6 +775,7 @@ const processMissedSessions = async () => {
 
 const runRitualTrackingJobs = async () => {
   try {
+    await processDueTodayReminders();
     await processDueReminders();
     await processMissedSessions();
   } catch (err) {

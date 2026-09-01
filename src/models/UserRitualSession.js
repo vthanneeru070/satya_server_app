@@ -87,7 +87,7 @@ const userRitualSessionSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
-    /** Scheduled push/inbox for next day's required items (multi-day rituals). */
+    /** Scheduled push/inbox at 6:00 — next day's required items (multi-day rituals). */
     nextDayReminderAt: {
       type: Date,
       default: null,
@@ -98,6 +98,16 @@ const userRitualSessionSchema = new mongoose.Schema(
       default: null,
     },
     nextDayReminderSent: {
+      type: Boolean,
+      default: false,
+    },
+    /** Scheduled push/inbox at 5:00 — "your ritual is today" reminder. */
+    nextDayStartReminderAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    nextDayStartReminderSent: {
       type: Boolean,
       default: false,
     },
@@ -122,6 +132,11 @@ userRitualSessionSchema.index({
   status: 1,
   nextDayReminderSent: 1,
   nextDayReminderAt: 1,
+});
+userRitualSessionSchema.index({
+  status: 1,
+  nextDayStartReminderSent: 1,
+  nextDayStartReminderAt: 1,
 });
 
 module.exports = mongoose.model("UserRitualSession", userRitualSessionSchema);
