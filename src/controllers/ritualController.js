@@ -419,7 +419,7 @@ const createRitual = async (req, res, next) => {
 
     await ritual.populate(ritualPopulate);
 
-    return sendSuccess(res, { ritual }, "Ritual created successfully", 201);
+    return sendSuccess(res, { ritual: formatRitualForResponse(ritual) }, "Ritual created successfully", 201);
   } catch (error) {
     return next(error);
   }
@@ -790,7 +790,7 @@ const updateRitual = async (req, res, next) => {
     await ritual.save();
     await ritual.populate(ritualPopulate);
 
-    return sendSuccess(res, { ritual }, "Ritual updated successfully");
+    return sendSuccess(res, { ritual: formatRitualForResponse(ritual) }, "Ritual updated successfully");
   } catch (error) {
     return next(error);
   }
