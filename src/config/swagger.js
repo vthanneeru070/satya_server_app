@@ -671,7 +671,7 @@ const options = {
           required: ["key", "label"],
           properties: {
             key: { type: "string", example: "overview", description: "Stable machine key" },
-            label: { type: "string", example: "Overview", description: "Human-readable heading" },
+            label: { type: "string", example: "Why is this ritual performed?", description: "Human-readable heading" },
             contents: {
               type: "array",
               items: { $ref: "#/components/schemas/RitualContent" },
@@ -712,6 +712,11 @@ const options = {
               type: "array",
               items: { type: "string" },
               example: ["Flowers", "Incense", "Lamp"],
+            },
+            satyaBlessings: {
+              type: "string",
+              description: "Blessings from Sathya shown after completing this day",
+              example: "May divine grace fill your home with peace.",
             },
             steps: {
               type: "array",

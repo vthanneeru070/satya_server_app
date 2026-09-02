@@ -32,6 +32,7 @@ const ritualDayStepSchema = Joi.object({
   images: Joi.array().items(Joi.string().trim().min(1)).default([]),
   subSteps: Joi.array().items(Joi.string().trim()).default([]),
   requiredItems: Joi.array().items(Joi.string().trim()).default([]),
+  satyaBlessings: Joi.string().trim().allow("").default(""),
   steps: Joi.array().items(ritualInnerStepSchema).default([]),
   activities: Joi.array().items(Joi.string().trim()).optional(),
   mantra: Joi.string().trim().allow("").optional(),

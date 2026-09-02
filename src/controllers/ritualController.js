@@ -171,6 +171,7 @@ const normalizeDays = (days) => {
       stepNumber,
       title: String(raw?.title ?? "").trim(),
       description: String(raw?.description ?? "").trim(),
+      satyaBlessings: String(raw?.satyaBlessings ?? "").trim(),
       subSteps,
       requiredItems,
       steps,

@@ -55,6 +55,10 @@ const ritualDaySchema = new mongoose.Schema(
   /** Legacy flat step lines — kept for old documents; prefer `steps`. */
     subSteps: [String],
     requiredItems: [String],
+    satyaBlessings: {
+      type: String,
+      default: "",
+    },
     steps: {
       type: [ritualDayStepSchema],
       default: [],
