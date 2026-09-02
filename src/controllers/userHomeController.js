@@ -2,6 +2,9 @@ const DailySloka = require("../models/DailySloka");
 const Pooja = require("../models/Pooja");
 const Festival = require("../models/Festival");
 const Donation = require("../models/Donation");
+const UserPoojaSession = require("../models/UserPoojaSession");
+const UserRitualSession = require("../models/UserRitualSession");
+const userStreakService = require("../services/userStreakService");
 const { sendSuccess } = require("../utils/response");
 const {
   resolveRequestTimeZone,
@@ -12,6 +15,41 @@ const { getTodayPanchang } = require("../services/panchangService");
 
 const populatePooja = (query) =>
   query.populate("createdBy", "email role").populate("deity", "name deity_color");
+
+const notDeleted = { isDeleted: { $ne: true } };
+
+const getCompletedCounts = async (userId) => {
+  const baseFilter = { user: userId, ...notDeleted };
+  const [completedPujas, completedRituals] = await Promise.all([
+    UserPoojaSession.distinct("pooja", { ...baseFilter, status: "FINISHED" }),
+    UserRitualSession.distinct("ritual", { ...baseFilter, status: "FINISHED" }),
+  ]);
+
+  return {
+    completedPujasCount: completedPujas.length,
+    completedRitualsCount: completedRituals.length,
+  };
+};
+
+const getStreakForHome = async (userId, timezone) => {
+  try {
+    return await userStreakService.getStreakStatus(userId, { timeZone: timezone });
+  } catch {
+    return null;
+  }
+};
+
+const getPersonalizedHomeData = async (userId, timezone) => {
+  const [completedCounts, streak] = await Promise.all([
+    getCompletedCounts(userId),
+    getStreakForHome(userId, timezone),
+  ]);
+
+  return {
+    ...completedCounts,
+    streak,
+  };
+};
 
 const getUserHome = async (req, res, next) => {
   try {
@@ -32,7 +70,8 @@ const getUserHome = async (req, res, next) => {
       $or: [{ date: { $gte: startUtc } }, { endDate: { $gte: startUtc } }],
     };
 
-    const [dailySloka, dailyPoojas, poojas, festivals, donations] = await Promise.all([
+    const [dailySloka, dailyPoojas, poojas, festivals, donations, personalized] =
+      await Promise.all([
       DailySloka.findOne({
         $or: [
           { dateKey: todayDateKey },
@@ -53,6 +92,13 @@ const getUserHome = async (req, res, next) => {
         .sort({ createdAt: -1 })
         .limit(5)
         .populate("createdBy", "email role"),
+      req.user?.userId
+        ? getPersonalizedHomeData(req.user.userId, timezone)
+        : Promise.resolve({
+            completedPujasCount: 0,
+            completedRitualsCount: 0,
+            streak: null,
+          }),
     ]);
 
     return sendSuccess(
@@ -63,6 +109,9 @@ const getUserHome = async (req, res, next) => {
         todayDateAndTithi: panchang.todayDateAndTithi,
         timezone,
         todayDateKey,
+        completedPujasCount: personalized.completedPujasCount,
+        completedRitualsCount: personalized.completedRitualsCount,
+        streak: personalized.streak,
         dailySloka,
         dailyPoojas,
         poojas,

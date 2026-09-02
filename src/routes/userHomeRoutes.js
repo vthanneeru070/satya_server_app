@@ -1,7 +1,16 @@
 const express = require("express");
+const authenticate = require("../middleware/authenticate");
 const { getUserHome } = require("../controllers/userHomeController");
 
 const router = express.Router();
+
+const optionalAuthenticate = (req, res, next) => {
+  if (!req.headers.authorization) return next();
+  return authenticate(req, res, (err) => {
+    if (err) return next();
+    return next();
+  });
+};
 
 /**
  * @swagger
@@ -22,7 +31,13 @@ const router = express.Router();
  *       Poojas are daily or scheduled from local today onward. Festivals are
  *       upcoming or still ongoing as of local today. Donations are approved and
  *       visible.
+ *
+ *       When a valid Bearer token is supplied, the response also includes
+ *       `completedPujasCount`, `completedRitualsCount`, and `streak` for that user.
+ *       Without auth, counts are `0` and `streak` is `null`.
  *     tags: [User Home]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: header
  *         name: x-timezone
@@ -60,12 +75,29 @@ const router = express.Router();
  *                       example: "31st May, 2026 | Ekadashi"
  *                     timezone: { type: string, example: Africa/Johannesburg }
                      todayDateKey: { type: string, example: "18-08-2026" }
+ *                     completedPujasCount:
+ *                       type: integer
+ *                       example: 3
+ *                       description: Distinct completed poojas for the authenticated user
+ *                     completedRitualsCount:
+ *                       type: integer
+ *                       example: 1
+ *                       description: Distinct completed rituals for the authenticated user
+ *                     streak:
+ *                       type: object
+ *                       nullable: true
+ *                       properties:
+ *                         streakCount: { type: integer, example: 5 }
+ *                         streakLastDateKey: { type: string, example: "2026-09-02" }
+ *                         todayDateKey: { type: string, example: "2026-09-02" }
+ *                         activeToday: { type: boolean, example: true }
+ *                         timezone: { type: string, example: Asia/Kolkata }
  *                     dailySloka: { type: object, nullable: true }
  *                     dailyPoojas: { type: array, items: { type: object } }
  *                     poojas: { type: array, items: { type: object } }
  *                     festivals: { type: array, items: { type: object } }
  *                     donations: { type: array, items: { type: object } }
  */
-router.get("/", getUserHome);
+router.get("/", optionalAuthenticate, getUserHome);
 
 module.exports = router;
