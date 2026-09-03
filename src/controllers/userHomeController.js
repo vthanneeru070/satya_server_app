@@ -6,6 +6,7 @@ const Donation = require("../models/Donation");
 const UserPoojaSession = require("../models/UserPoojaSession");
 const UserRitualSession = require("../models/UserRitualSession");
 const userStreakService = require("../services/userStreakService");
+const productService = require("../services/productService");
 const { sendSuccess } = require("../utils/response");
 const {
   resolveRequestTimeZone,
@@ -115,7 +116,7 @@ const getUserHome = async (req, res, next) => {
       $or: [{ date: { $gte: startUtc } }, { endDate: { $gte: startUtc } }],
     };
 
-    const [dailySloka, dailyPoojas, poojas, festivals, donations, personalized] =
+    const [dailySloka, dailyPoojas, poojas, festivals, donations, featuredProducts, personalized] =
       await Promise.all([
       DailySloka.findOne({
         $or: [
@@ -137,6 +138,7 @@ const getUserHome = async (req, res, next) => {
         .sort({ createdAt: -1 })
         .limit(5)
         .populate("createdBy", "email role"),
+      productService.getFeaturedProducts({ limit: 10 }),
       req.user?.userId
         ? getPersonalizedHomeData(req.user.userId, timezone)
         : Promise.resolve({
@@ -162,6 +164,7 @@ const getUserHome = async (req, res, next) => {
         poojas,
         festivals,
         donations,
+        featuredProducts,
       },
       "User home data fetched successfully"
     );

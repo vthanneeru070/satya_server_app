@@ -35,6 +35,9 @@ const optionalAuthenticate = (req, res, next) => {
  *       When a valid Bearer token is supplied, the response also includes
  *       `completedPujasCount`, `completedRitualsCount`, and `streak` for that user.
  *       Without auth, counts are `0` and `streak` is `null`.
+ *
+ *       Always includes `featuredProducts`: up to 10 buyable products with
+ *       `isFeatured: true` (APPROVED + ACTIVE). Empty array when none are featured.
  *     tags: [User Home]
  *     security:
  *       - bearerAuth: []
@@ -97,6 +100,10 @@ const optionalAuthenticate = (req, res, next) => {
  *                     poojas: { type: array, items: { type: object } }
  *                     festivals: { type: array, items: { type: object } }
  *                     donations: { type: array, items: { type: object } }
+ *                     featuredProducts:
+ *                       type: array
+ *                       description: Up to 10 featured pooja-kit products (isFeatured=true)
+ *                       items: { type: object }
  */
 router.get("/", optionalAuthenticate, getUserHome);
 
