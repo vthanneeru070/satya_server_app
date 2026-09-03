@@ -15,6 +15,10 @@ const {
   notifyRitualTodayReminder,
   notifyRitualRestartedAfterMiss,
 } = require("./fcmRitualNotifyService");
+const {
+  countSessionsWithExistingContent,
+  fetchSessionsWithExistingContent,
+} = require("../utils/sessionHistoryQuery");
 
 const notDeleted = { isDeleted: { $ne: true } };
 const DEFAULT_TIMEZONE = "Asia/Kolkata";
@@ -24,8 +28,15 @@ const NEXT_DAY_REQUIRED_ITEMS_REMINDER_HOUR = 6;
 const RITUAL_POPULATE = {
   path: "ritual",
   select:
-    "title slug description deity category difficulty ritualDay days media status accessType price currency",
+    "title slug description deity category difficulty ritualDay days media status accessType price currency isDeleted",
+  match: { isDeleted: { $ne: true } },
   populate: { path: "deity", select: "name media" },
+};
+
+const RITUAL_HISTORY_REF = {
+  refField: "ritual",
+  collectionName: "rituals",
+  refNotDeleted: true,
 };
 
 const assertMobileUser = async (userId) => {
@@ -229,20 +240,25 @@ const createFreshSession = async (userId, ritualId, attemptNumber, todayKey) => 
 };
 
 const fetchSessionsPage = async (userId, status, page, limit) => {
-  const skip = (page - 1) * limit;
-  const filter = { user: userId, status, ...notDeleted };
+  const sort =
+    status === "PENDING"
+      ? { updatedAt: -1 }
+      : { finishedAt: -1, updatedAt: -1 };
 
-  const [sessions, total] = await Promise.all([
-    UserRitualSession.find(filter)
-      .sort(status === "PENDING" ? { updatedAt: -1 } : { finishedAt: -1, updatedAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate(RITUAL_POPULATE),
-    UserRitualSession.countDocuments(filter),
-  ]);
+  const { docs, total } = await fetchSessionsWithExistingContent({
+    SessionModel: UserRitualSession,
+    userId,
+    status,
+    page,
+    limit,
+    sort,
+    ...RITUAL_HISTORY_REF,
+  });
+
+  await UserRitualSession.populate(docs, RITUAL_POPULATE);
 
   return {
-    items: sessions.map((s) => formatSession(s)),
+    items: docs.filter((s) => s.ritual).map((s) => formatSession(s)),
     pagination: {
       page,
       limit,
@@ -260,11 +276,19 @@ const getHistoryOverview = async (userId, query = {}) => {
   const finishedPage = Number(query.finishedPage) || 1;
   const finishedLimit = Math.min(Number(query.finishedLimit) || 20, 50);
 
-  const baseFilter = { user: userId, ...notDeleted };
-
   const [pendingCount, finishedCount, pendingPageData, finishedPageData] = await Promise.all([
-    UserRitualSession.countDocuments({ ...baseFilter, status: "PENDING" }),
-    UserRitualSession.countDocuments({ ...baseFilter, status: "FINISHED" }),
+    countSessionsWithExistingContent({
+      SessionModel: UserRitualSession,
+      userId,
+      status: "PENDING",
+      ...RITUAL_HISTORY_REF,
+    }),
+    countSessionsWithExistingContent({
+      SessionModel: UserRitualSession,
+      userId,
+      status: "FINISHED",
+      ...RITUAL_HISTORY_REF,
+    }),
     fetchSessionsPage(userId, "PENDING", pendingPage, pendingLimit),
     fetchSessionsPage(userId, "FINISHED", finishedPage, finishedLimit),
   ]);
@@ -290,21 +314,22 @@ const listHistory = async (userId, query = {}) => {
 
   const page = Number(query.page) || 1;
   const limit = Math.min(Number(query.limit) || 20, 50);
-  const skip = (page - 1) * limit;
+  const status = query.status || undefined;
 
-  const filter = { user: userId, ...notDeleted };
-  if (query.status) filter.status = query.status;
+  const { docs, total } = await fetchSessionsWithExistingContent({
+    SessionModel: UserRitualSession,
+    userId,
+    status,
+    page,
+    limit,
+    sort: { updatedAt: -1 },
+    ...RITUAL_HISTORY_REF,
+  });
 
-  const [sessions, total] = await Promise.all([
-    UserRitualSession.find(filter)
-      .sort({ updatedAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate(RITUAL_POPULATE),
-    UserRitualSession.countDocuments(filter),
-  ]);
-
-  const items = sessions.map((s) => formatSession(s, { timeZone }));
+  await UserRitualSession.populate(docs, RITUAL_POPULATE);
+  const items = docs
+    .filter((s) => s.ritual)
+    .map((s) => formatSession(s, { timeZone }));
 
   return {
     sessions: items,
@@ -331,6 +356,9 @@ const getSessionById = async (userId, sessionId, { timeZone: timeZoneOverride } 
   if (!session) throw new HttpError("Ritual session not found", 404);
 
   const ritual = session.ritual;
+  if (!ritual) {
+    throw new HttpError("Ritual not found or has been deleted", 404);
+  }
   if (session.status === "PENDING") {
     const check = await ensureSessionNotMissed(session, user, ritual, timeZoneOverride);
     if (check.restarted) {

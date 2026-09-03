@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const DailySloka = require("../models/DailySloka");
 const Pooja = require("../models/Pooja");
 const Festival = require("../models/Festival");
@@ -16,18 +17,62 @@ const { getTodayPanchang } = require("../services/panchangService");
 const populatePooja = (query) =>
   query.populate("createdBy", "email role").populate("deity", "name deity_color");
 
-const notDeleted = { isDeleted: { $ne: true } };
+/**
+ * Distinct finished content for a user, only counting sessions whose related
+ * pooja/ritual document still exists and is not soft-deleted.
+ * Avoids inflated achievement counts from orphaned / deleted content refs.
+ */
+const countDistinctFinishedRefs = async ({
+  SessionModel,
+  userId,
+  refField,
+  collectionName,
+}) => {
+  const userObjectId = new mongoose.Types.ObjectId(userId);
+  const rows = await SessionModel.aggregate([
+    {
+      $match: {
+        user: userObjectId,
+        status: "FINISHED",
+        isDeleted: { $ne: true },
+        [refField]: { $ne: null },
+      },
+    },
+    {
+      $lookup: {
+        from: collectionName,
+        localField: refField,
+        foreignField: "_id",
+        as: "refDoc",
+      },
+    },
+    { $unwind: "$refDoc" },
+    { $match: { "refDoc.isDeleted": { $ne: true } } },
+    { $group: { _id: `$${refField}` } },
+    { $count: "count" },
+  ]);
+  return rows[0]?.count || 0;
+};
 
 const getCompletedCounts = async (userId) => {
-  const baseFilter = { user: userId, ...notDeleted };
-  const [completedPujas, completedRituals] = await Promise.all([
-    UserPoojaSession.distinct("pooja", { ...baseFilter, status: "FINISHED" }),
-    UserRitualSession.distinct("ritual", { ...baseFilter, status: "FINISHED" }),
+  const [completedPujasCount, completedRitualsCount] = await Promise.all([
+    countDistinctFinishedRefs({
+      SessionModel: UserPoojaSession,
+      userId,
+      refField: "pooja",
+      collectionName: "poojas",
+    }),
+    countDistinctFinishedRefs({
+      SessionModel: UserRitualSession,
+      userId,
+      refField: "ritual",
+      collectionName: "rituals",
+    }),
   ]);
 
   return {
-    completedPujasCount: completedPujas.length,
-    completedRitualsCount: completedRituals.length,
+    completedPujasCount,
+    completedRitualsCount,
   };
 };
 

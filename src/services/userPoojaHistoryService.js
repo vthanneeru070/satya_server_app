@@ -3,6 +3,10 @@ const UserPoojaSession = require("../models/UserPoojaSession");
 const Pooja = require("../models/Pooja");
 const User = require("../models/User");
 const HttpError = require("../utils/httpError");
+const {
+  countSessionsWithExistingContent,
+  fetchSessionsWithExistingContent,
+} = require("../utils/sessionHistoryQuery");
 
 const notDeleted = { isDeleted: { $ne: true } };
 
@@ -11,6 +15,12 @@ const POOJA_POPULATE = {
   select:
     "title schedules deity category difficulty duration ideal_time description accessType price currency media status steps",
   populate: { path: "deity", select: "name media" },
+};
+
+const POOJA_HISTORY_REF = {
+  refField: "pooja",
+  collectionName: "poojas",
+  refNotDeleted: false,
 };
 
 const assertMobileUser = async (userId) => {
@@ -84,20 +94,25 @@ const formatSession = (session) => {
 };
 
 const fetchSessionsPage = async (userId, status, page, limit) => {
-  const skip = (page - 1) * limit;
-  const filter = { user: userId, status, ...notDeleted };
+  const sort =
+    status === "PENDING"
+      ? { updatedAt: -1 }
+      : { finishedAt: -1, updatedAt: -1 };
 
-  const [sessions, total] = await Promise.all([
-    UserPoojaSession.find(filter)
-      .sort(status === "PENDING" ? { updatedAt: -1 } : { finishedAt: -1, updatedAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate(POOJA_POPULATE),
-    UserPoojaSession.countDocuments(filter),
-  ]);
+  const { docs, total } = await fetchSessionsWithExistingContent({
+    SessionModel: UserPoojaSession,
+    userId,
+    status,
+    page,
+    limit,
+    sort,
+    ...POOJA_HISTORY_REF,
+  });
+
+  await UserPoojaSession.populate(docs, POOJA_POPULATE);
 
   return {
-    items: sessions.map(formatSession),
+    items: docs.filter((s) => s.pooja).map(formatSession),
     pagination: {
       page,
       limit,
@@ -118,11 +133,19 @@ const getHistoryOverview = async (userId, query = {}) => {
   const finishedPage = Number(query.finishedPage) || 1;
   const finishedLimit = Math.min(Number(query.finishedLimit) || 20, 50);
 
-  const baseFilter = { user: userId, ...notDeleted };
-
   const [pendingCount, finishedCount, pendingPageData, finishedPageData] = await Promise.all([
-    UserPoojaSession.countDocuments({ ...baseFilter, status: "PENDING" }),
-    UserPoojaSession.countDocuments({ ...baseFilter, status: "FINISHED" }),
+    countSessionsWithExistingContent({
+      SessionModel: UserPoojaSession,
+      userId,
+      status: "PENDING",
+      ...POOJA_HISTORY_REF,
+    }),
+    countSessionsWithExistingContent({
+      SessionModel: UserPoojaSession,
+      userId,
+      status: "FINISHED",
+      ...POOJA_HISTORY_REF,
+    }),
     fetchSessionsPage(userId, "PENDING", pendingPage, pendingLimit),
     fetchSessionsPage(userId, "FINISHED", finishedPage, finishedLimit),
   ]);
@@ -145,21 +168,20 @@ const listHistory = async (userId, query = {}) => {
 
   const page = Number(query.page) || 1;
   const limit = Math.min(Number(query.limit) || 20, 50);
-  const skip = (page - 1) * limit;
+  const status = query.status || undefined;
 
-  const filter = { user: userId, ...notDeleted };
-  if (query.status) filter.status = query.status;
+  const { docs, total } = await fetchSessionsWithExistingContent({
+    SessionModel: UserPoojaSession,
+    userId,
+    status,
+    page,
+    limit,
+    sort: { updatedAt: -1 },
+    ...POOJA_HISTORY_REF,
+  });
 
-  const [sessions, total] = await Promise.all([
-    UserPoojaSession.find(filter)
-      .sort({ updatedAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate(POOJA_POPULATE),
-    UserPoojaSession.countDocuments(filter),
-  ]);
-
-  const items = sessions.map(formatSession);
+  await UserPoojaSession.populate(docs, POOJA_POPULATE);
+  const items = docs.filter((s) => s.pooja).map(formatSession);
 
   return {
     sessions: items,
