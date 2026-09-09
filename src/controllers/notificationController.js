@@ -39,7 +39,7 @@ const sendNotification = async (req, res, next) => {
       message =
         "Notification saved, but no recipients had registered FCM tokens — nothing was delivered. Ask users to open the app at least once after login so the device can register its FCM token.";
     } else {
-      message = `Notification delivered. sent=${doc.successCount} failed=${doc.failureCount} (of ${doc.targetedTokenCount} tokens across ${doc.targetedUserCount} users).`;
+      message = `Push delivered to ${doc.successCount} of ${doc.reachableUserCount} users with the app installed (${doc.targetedUserCount} users in audience; in-app inbox updated for all).`;
     }
 
     return sendSuccess(res, { notification: doc }, message, 201);

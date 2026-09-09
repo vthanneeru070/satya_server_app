@@ -58,9 +58,11 @@ const notificationSchema = new mongoose.Schema(
     sentAt: { type: Date, default: null },
 
     targetedUserCount: { type: Number, default: 0 },
+    /** Users in audience who had ≥1 FCM token at send time. */
+    reachableUserCount: { type: Number, default: 0 },
     targetedTokenCount: { type: Number, default: 0 },
-    successCount: { type: Number, default: 0 },
-    failureCount: { type: Number, default: 0 },
+    successCount: { type: Number, default: 0 }, // users with ≥1 successful push
+    failureCount: { type: Number, default: 0 }, // targetedUserCount − successCount
     prunedTokenCount: { type: Number, default: 0 },
     errorMessage: { type: String, default: null },
 
