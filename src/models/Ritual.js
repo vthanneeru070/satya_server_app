@@ -35,13 +35,34 @@ const ritualSectionSchema = new mongoose.Schema(
   { _id: false }
 );
 
-const ritualDaySchema = new mongoose.Schema(
+const ritualDayStepSchema = new mongoose.Schema(
   {
     stepNumber: Number,
     title: String,
     description: String,
     images: [String],
     subSteps: [String],
+  },
+  { _id: false }
+);
+
+const ritualDaySchema = new mongoose.Schema(
+  {
+    stepNumber: Number,
+    title: String,
+    description: String,
+    images: [String],
+  /** Legacy flat step lines — kept for old documents; prefer `steps`. */
+    subSteps: [String],
+    requiredItems: [String],
+    satyaBlessings: {
+      type: String,
+      default: "",
+    },
+    steps: {
+      type: [ritualDayStepSchema],
+      default: [],
+    },
   },
   { _id: false }
 );
