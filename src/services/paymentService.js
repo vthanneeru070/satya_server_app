@@ -686,10 +686,114 @@ const finalizeVerifiedPayment = async (out, { shouldNotify, kind, reference }) =
           err?.message || err
         )
       );
+      try {
+        require("./stockAlertService").scheduleAfterOrderDeduction(out.order);
+      } catch (err) {
+        console.warn(
+          "[paymentService] stock alert schedule failed:",
+          err?.message || err
+        );
+      }
     }
   }
 
   return out;
+};
+
+/**
+ * When local order is REFUND_INITIATED/REFUND_FAILED but PayFast has no refund,
+ * restore PAID so the CMS matches the merchant dashboard. Called from verify.
+ */
+const reconcilePayfastOrderRefundStatus = async (order, payment) => {
+  if (!order || !payment) return order;
+  if (String(payment.gateway || "").toUpperCase() !== "PAYFAST") return order;
+  if (payment.status !== "SUCCESS") return order;
+  if (!["REFUND_INITIATED", "REFUND_FAILED"].includes(order.paymentStatus)) {
+    return order;
+  }
+
+  const orderService = require("./orderService");
+  const pfPaymentId = await orderService.resolvePayfastPaymentId(order);
+  if (!pfPaymentId) return order;
+
+  let parsed = null;
+  try {
+    const queryData = await payfastService.queryRefund(pfPaymentId);
+    parsed = payfastService.parseQueryRefundResponse(queryData);
+  } catch (err) {
+    console.warn(
+      "[paymentService] PayFast refund query during verify failed:",
+      err?.message || err
+    );
+  }
+
+  let historyActivity = { hasRefundActivity: false, rows: [] };
+  try {
+    historyActivity = await payfastService.lookupRefundActivityInHistory(
+      pfPaymentId,
+      { fromDate: payment.createdAt || order.createdAt }
+    );
+  } catch (err) {
+    console.warn(
+      "[paymentService] PayFast refund history lookup failed:",
+      err?.message || err
+    );
+  }
+
+  const priorStatus = order.paymentStatus;
+
+  if (parsed?.hasCompletedRefund || historyActivity.hasRefundActivity) {
+    order.paymentStatus = "REFUNDED";
+    order.refund = {
+      ...(order.refund || {}),
+      status: "PROCESSED",
+      processedAt: order.refund?.processedAt || new Date(),
+      lastError: "",
+    };
+    appendOrderHistory(
+      order,
+      order.orderStatus,
+      `PayFast verify: refund confirmed on gateway (pf_payment_id ${pfPaymentId}) | paymentStatus: ${priorStatus} → REFUNDED`
+    );
+    await order.save();
+    return order;
+  }
+
+  if (parsed?.hasPendingRefund) {
+    if (order.paymentStatus !== "REFUND_INITIATED") {
+      order.paymentStatus = "REFUND_INITIATED";
+      appendOrderHistory(
+        order,
+        order.orderStatus,
+        `PayFast verify: refund pending on gateway (pf_payment_id ${pfPaymentId})`
+      );
+      await order.save();
+    }
+    return order;
+  }
+
+  const gatewayShowsNoRefund =
+    parsed?.noRefundOnGateway ||
+    (!parsed && !historyActivity.hasRefundActivity);
+
+  if (gatewayShowsNoRefund) {
+    order.paymentStatus = "PAID";
+    order.refund = {
+      ...(order.refund || {}),
+      status: "NONE",
+      lastError: "",
+      manualNote: "",
+    };
+    appendOrderHistory(
+      order,
+      order.orderStatus,
+      `PayFast verify: no refund on gateway — restored PAID (was ${priorStatus}, pf_payment_id ${pfPaymentId})`
+    );
+    await order.save();
+    return order;
+  }
+
+  return order;
 };
 
 const settlePaymentInTransaction = async ({
@@ -832,13 +936,32 @@ const verifyPaymentByReference = async (
             await session.endSession();
           }
 
-          return finalizeVerifiedPayment(out, { shouldNotify, kind, reference });
+          const finalized = await finalizeVerifiedPayment(out, {
+            shouldNotify,
+            kind,
+            reference,
+          });
+          if (kind === "ORDER" && finalized?.order) {
+            const reconciled = await reconcilePayfastOrderRefundStatus(
+              finalized.order,
+              payment
+            );
+            if (reconciled) finalized.order = reconciled;
+          }
+          return finalized;
         }
       } catch (err) {
         console.warn(
           "[paymentService] PayFast transaction-history verify failed:",
           err?.message || err
         );
+      }
+    }
+
+    if (kind === "ORDER" && payment.status === "SUCCESS") {
+      const order = await Order.findById(payment.order);
+      if (order) {
+        await reconcilePayfastOrderRefundStatus(order, payment);
       }
     }
 
@@ -1181,17 +1304,36 @@ const listAllPayments = async (query = {}) => {
   if (query.user) filter.user = query.user;
   if (query.order) filter.order = query.order;
 
-  const [payments, total] = await Promise.all([
+  const [rawPayments, total] = await Promise.all([
     Payment.find(filter)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .populate("user", "fullName email phone role")
-      .populate("order", "orderNumber orderStatus paymentStatus totalAmount currency")
-      .populate("donationContribution", "contributionNumber paymentStatus amount currency donation")
+      .populate(
+        "order",
+        "orderNumber orderStatus paymentStatus totalAmount currency paystackReference transactionId"
+      )
+      .populate("donationContribution", "contributionNumber paymentStatus amount currency donation paystackReference transactionId")
       .lean(),
     Payment.countDocuments(filter),
   ]);
+
+  const payments = rawPayments.map((row) => {
+    const payfastPaymentId =
+      row.transactionId != null && String(row.transactionId).trim() !== ""
+        ? String(row.transactionId)
+        : row.paymentId != null && String(row.paymentId).trim() !== ""
+          ? String(row.paymentId)
+          : null;
+    const paymentReference = row.reference || null;
+    return {
+      ...row,
+      paymentReference,
+      payfastPaymentId,
+      paystackReference: paymentReference,
+    };
+  });
 
   return {
     payments,

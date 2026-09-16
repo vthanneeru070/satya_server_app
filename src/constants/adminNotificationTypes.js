@@ -11,6 +11,10 @@ const ADMIN_NOTIFICATION_TYPES = Object.freeze({
   PAYMENT_SUCCESS: "PAYMENT_SUCCESS",
   /** User submitted a replacement request (optional). */
   REPLACEMENT_REQUEST: "REPLACEMENT_REQUEST",
+  /** Inventory item or product stock fell to / below its low-stock threshold. */
+  LOW_STOCK: "LOW_STOCK",
+  /** Inventory item or product stock reached zero. */
+  OUT_OF_STOCK: "OUT_OF_STOCK",
 });
 
 module.exports = { ADMIN_NOTIFICATION_TYPES };

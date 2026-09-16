@@ -599,6 +599,15 @@ const createOrder = async (
   } finally {
     await session.endSession();
   }
+
+  if (order?.inventoryReserved) {
+    try {
+      require("./stockAlertService").scheduleAfterOrderDeduction(order);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
   return order;
 };
 
@@ -872,6 +881,19 @@ const updateStatus = async (
     }
     if (!skipNotify && CUSTOMER_INBOX_NOTIFY_STATUSES.has(status)) {
       notifyCustomerOrderStatus(updated._id, { newStatus: status, note });
+    }
+  }
+
+  // Return the same populated shape as GET /orders/:id so admin CMS keeps
+  // customer name/email after status mutations.
+  if (updated?._id) {
+    try {
+      return await getOrderById(updated._id, { isAdmin: true });
+    } catch (err) {
+      console.warn(
+        "[orderService] updateStatus reload/populate failed:",
+        err?.message || err
+      );
     }
   }
 
@@ -1412,7 +1434,7 @@ const attemptGatewayRefund = async (
         };
         if (refundAudit) mergeRefundAudit(order, refundAudit);
         return {
-          outcome: "PENDING",
+          outcome: "FAILED",
           manual: true,
           apiAttempted: true,
           error: message,
@@ -1918,6 +1940,7 @@ module.exports = {
   adminInitiateRefund,
   attemptGatewayRefund,
   attemptPaystackRefund,
+  resolvePayfastPaymentId,
   _internal: {
     nextOrderNumber,
     buildOrderPayload,

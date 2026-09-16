@@ -491,6 +491,92 @@ const queryRefund = async (pfPaymentId) => {
   return sendApiRequest("GET", `refunds/${encodeURIComponent(pfPaymentId)}`);
 };
 
+const centsToMajor = (value) => {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n) / 100;
+};
+
+/**
+ * Interpret PayFast GET /refunds/:pf_payment_id — used to reconcile local
+ * REFUND_INITIATED with the merchant dashboard.
+ */
+const parseQueryRefundResponse = (refundData) => {
+  const topStatus = String(refundData?.status || "").toLowerCase();
+  const payload = refundData?.data?.response ?? refundData?.data ?? refundData;
+  const obj =
+    typeof payload === "object" && payload !== null && !Array.isArray(payload)
+      ? payload
+      : {};
+
+  const refundList = Array.isArray(obj.refunds)
+    ? obj.refunds
+    : Array.isArray(obj.refund)
+      ? obj.refund
+      : [];
+
+  const refundStatusOf = (entry) =>
+    String(entry?.status || entry?.refund_status || "").toLowerCase();
+
+  const hasCompletedRefund = refundList.some((r) =>
+    ["complete", "completed", "processed", "success"].includes(refundStatusOf(r))
+  );
+  const hasPendingRefund = refundList.some((r) =>
+    ["pending", "processing", "initiated", "in_progress"].includes(refundStatusOf(r))
+  );
+
+  const availableMajor =
+    centsToMajor(obj.amount_available ?? obj.available ?? obj.refundable_amount) ??
+    centsToMajor(obj.balance);
+  const originalMajor =
+    centsToMajor(obj.amount_original ?? obj.original_amount ?? obj.amount) ??
+    centsToMajor(obj.gross);
+
+  const fullyRefundable =
+    availableMajor != null &&
+    originalMajor != null &&
+    Math.abs(availableMajor - originalMajor) < 0.01;
+
+  const noRefundOnGateway =
+    topStatus === "success" &&
+    !hasCompletedRefund &&
+    !hasPendingRefund &&
+    (fullyRefundable || refundList.length === 0);
+
+  return {
+    apiSuccess: topStatus === "success",
+    hasCompletedRefund,
+    hasPendingRefund,
+    noRefundOnGateway,
+    availableMajor,
+    originalMajor,
+    raw: refundData,
+  };
+};
+
+/** Refund-related rows in PayFast transaction history for a pf_payment_id. */
+const lookupRefundActivityInHistory = async (
+  pfPaymentId,
+  { fromDate, toDate } = {}
+) => {
+  const id = String(pfPaymentId || "").trim();
+  if (!id) {
+    return { hasRefundActivity: false, rows: [] };
+  }
+  const from = formatApiDate(fromDate || new Date());
+  const to = formatApiDate(toDate || new Date());
+  const rows = await getTransactionHistoryRange({ from, to });
+  const refundRows = rows.filter((row) => {
+    if (String(row.pfPaymentId).trim() !== id) return false;
+    const type = String(row.type || "").toUpperCase();
+    if (type.includes("REFUND")) return true;
+    const sign = String(row.sign || "").toLowerCase();
+    return sign === "debit" && type !== "FUNDS_RECEIVED";
+  });
+  return { hasRefundActivity: refundRows.length > 0, rows: refundRows };
+};
+
 /**
  * POST /refunds/:pf_payment_id — create a refund (card refunds to original source).
  * Amount is sent in cents (ZAR). PayFast REST refunds are not supported in sandbox.
@@ -733,6 +819,8 @@ module.exports = {
   generateApiSignature,
   sendApiRequest,
   queryRefund,
+  parseQueryRefundResponse,
+  lookupRefundActivityInHistory,
   createRefund,
   parseCreateRefundResponse,
   formatApiDate,

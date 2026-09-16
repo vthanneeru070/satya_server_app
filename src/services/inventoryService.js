@@ -449,12 +449,27 @@ const createInventoryItem = async ({ body, imageUrl, userId }) => {
     status: body.status === "INACTIVE" ? "INACTIVE" : "ACTIVE",
     createdBy: userId,
   });
+
+  // Alert if created already low / out of stock (best-effort).
+  setImmediate(() => {
+    try {
+      require("./stockAlertService")
+        .notifyInventoryItem(doc, { previousQty: null })
+        .catch(() => {});
+    } catch (_) {
+      /* ignore */
+    }
+  });
+
   return doc;
 };
 
 const updateInventoryItem = async ({ id, body, imageUrl }) => {
   const item = await InventoryItem.findOne({ _id: id, ...notDeleted });
   if (!item) throw new HttpError("Inventory item not found", 404);
+
+  const previousQty = item.stockQuantity;
+  const previousThreshold = item.lowStockThreshold;
 
   if (body.name !== undefined) item.name = String(body.name).trim();
   if (body.description !== undefined) item.description = String(body.description).trim();
@@ -487,6 +502,21 @@ const updateInventoryItem = async ({ id, body, imageUrl }) => {
 
   if (imageUrl) item.imageUrl = imageUrl;
   await item.save();
+
+  // Compare against previous qty + threshold so threshold raises can alert.
+  setImmediate(() => {
+    try {
+      require("./stockAlertService")
+        .notifyInventoryItem(item, {
+          previousQty,
+          previousThreshold,
+        })
+        .catch(() => {});
+    } catch (_) {
+      /* ignore */
+    }
+  });
+
   return item;
 };
 
@@ -562,12 +592,24 @@ const adjustStock = async (id, { delta, reason = "" } = {}) => {
   }
   const item = await InventoryItem.findOne({ _id: id, ...notDeleted });
   if (!item) throw new HttpError("Inventory item not found", 404);
-  const next = (item.stockQuantity || 0) + change;
+  const previousQty = item.stockQuantity || 0;
+  const next = previousQty + change;
   if (next < 0) {
     throw new HttpError(`Cannot reduce stock below 0 (current: ${item.stockQuantity})`, 400);
   }
   item.stockQuantity = next;
   await item.save();
+
+  setImmediate(() => {
+    try {
+      require("./stockAlertService")
+        .notifyInventoryItem(item, { previousQty })
+        .catch(() => {});
+    } catch (_) {
+      /* ignore */
+    }
+  });
+
   return { item, reason: reason ? String(reason).slice(0, 500) : "" };
 };
 
