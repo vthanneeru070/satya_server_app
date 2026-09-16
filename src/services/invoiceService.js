@@ -181,18 +181,32 @@ const resolveInvoiceLogoBuffer = async () => {
   const logoUrl = (process.env.INVOICE_LOGO_URL || "").trim();
   if (logoUrl) {
     const remote = await loadImageBuffer(logoUrl);
-    if (remote) return remote;
+    if (remote) return clampInvoiceLogoBuffer(remote);
   }
 
   const logoPath = (process.env.INVOICE_LOGO_PATH || DEFAULT_INVOICE_LOGO_PATH).trim();
   try {
     if (logoPath && fs.existsSync(logoPath)) {
-      return fs.readFileSync(logoPath);
+      return clampInvoiceLogoBuffer(fs.readFileSync(logoPath));
     }
   } catch {
     // Fall through — invoice still renders without watermark.
   }
   return null;
+};
+
+/** Reject oversized logos that would make invoice PDFs fail/timeout on upload. */
+const MAX_INVOICE_LOGO_BYTES = 500 * 1024;
+
+const clampInvoiceLogoBuffer = (buffer) => {
+  if (!buffer || !Buffer.isBuffer(buffer) || buffer.length === 0) return null;
+  if (buffer.length > MAX_INVOICE_LOGO_BYTES) {
+    console.warn(
+      `[invoiceService] invoice logo is ${buffer.length} bytes (max ${MAX_INVOICE_LOGO_BYTES}); skipping watermark`
+    );
+    return null;
+  }
+  return buffer;
 };
 
 const drawWatermark = (doc, logoBuffer) => {
