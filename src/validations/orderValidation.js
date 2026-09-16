@@ -165,32 +165,27 @@ const updatePaymentSchema = Joi.object({
   paymentMethod: Joi.string().valid("COD", "EFT", "PAYSTACK", "PAYFAST").optional(),
 }).min(1);
 
+const listOrderStatusValues = [
+  "PLACED",
+  "PROCESSING",
+  "PACKED",
+  "READY_FOR_PICKUP",
+  "COLLECTED",
+  "SHIPPED",
+  "OUT_FOR_DELIVERY",
+  "DELIVERED",
+  "FULFILLED",
+  "CANCELLED",
+];
+
 const listOrdersQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(10),
   orderStatus: Joi.string()
-    .valid(
-      "PLACED",
-      "PROCESSING",
-      "READY_FOR_PICKUP",
-      "SHIPPED",
-      "OUT_FOR_DELIVERY",
-      "DELIVERED",
-      "FULFILLED",
-      "CANCELLED"
-    )
+    .valid(...listOrderStatusValues)
     .optional(),
   status: Joi.string()
-    .valid(
-      "PLACED",
-      "PROCESSING",
-      "READY_FOR_PICKUP",
-      "SHIPPED",
-      "OUT_FOR_DELIVERY",
-      "DELIVERED",
-      "FULFILLED",
-      "CANCELLED"
-    )
+    .valid(...listOrderStatusValues)
     .optional(),
   fulfillmentMethod: Joi.string().valid("DELIVERY", "PICKUP").optional(),
   paymentStatus: Joi.string()
