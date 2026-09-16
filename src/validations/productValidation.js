@@ -208,6 +208,7 @@ const listAllProductsQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(10),
   search: Joi.string().trim().max(120).optional(),
+  category: Joi.string().valid(...PRODUCT_CATEGORIES).optional(),
   status: Joi.string().valid(...REVIEW_STATUSES).optional(),
   productStatus: Joi.string().valid(...PUBLISH_STATUSES).optional(),
   includeDeleted: Joi.alternatives().try(Joi.boolean(), Joi.string().valid("true", "false")).optional(),

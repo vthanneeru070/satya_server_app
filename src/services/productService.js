@@ -37,6 +37,7 @@ const buildProductSearchFilter = (searchTerm) => {
   const safe = escapeRegex(trimmed);
   const orClauses = [
     { title: { $regex: safe, $options: "i" } },
+    { slug: { $regex: safe, $options: "i" } },
     { category: { $regex: safe, $options: "i" } },
   ];
 
@@ -629,6 +630,7 @@ const listAllProducts = async (query = {}) => {
   if (!includeDeleted) filter.isDeleted = { $ne: true };
   if (query.status) filter.status = query.status;
   if (query.productStatus) filter.productStatus = query.productStatus;
+  if (query.category) filter.category = query.category;
   if (query.search) {
     Object.assign(filter, buildProductSearchFilter(query.search) || {});
   }
