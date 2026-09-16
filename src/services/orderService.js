@@ -654,7 +654,12 @@ const listAllOrders = async (query = {}) => {
   const st = query.orderStatus || query.status;
   if (st) filter.orderStatus = st;
   if (query.paymentStatus) filter.paymentStatus = query.paymentStatus;
-  if (query.fulfillmentMethod) filter.fulfillmentMethod = query.fulfillmentMethod;
+  if (query.fulfillmentMethod) {
+    const method = String(query.fulfillmentMethod).trim().toUpperCase();
+    if (method === "PICKUP" || method === "DELIVERY") {
+      filter.fulfillmentMethod = method;
+    }
+  }
   if (query.user) filter.user = query.user;
   if (query.search) {
     const searchFilter = await buildOrderSearchFilter(query.search);
