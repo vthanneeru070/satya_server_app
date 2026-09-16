@@ -29,7 +29,7 @@ const WHITE = "#ffffff";
 
 const PRODUCT_COLS = {
   product: { label: "Product", width: 200 },
-  model: { label: "Model", width: 95 },
+  model: { label: "Category", width: 95 },
   quantity: { label: "Quantity", width: 55 },
   price: { label: "Price", width: 80 },
   total: { label: "Total", width: CONTENT_WIDTH - 200 - 95 - 55 - 80 },
@@ -122,15 +122,17 @@ const formatInvoiceAddressLines = (addr) => {
   ].filter((piece) => piece && String(piece).trim().length > 0);
 };
 
-const toProductModel = (slug) => {
-  if (!slug) return "—";
-  // Keep word breaks from slug hyphens/underscores: sathyas-book → SATHYAS BOOK
-  const spaced = String(slug)
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toUpperCase();
-  return spaced || "—";
+const PRODUCT_CATEGORY_LABELS = {
+  ayurvedic: "Ayurvedic",
+  pujakit: "Puja Kit",
+  book: "Book",
+};
+
+/** Invoice "Category" cell — maps wire category to display label. */
+const toProductCategoryLabel = (category) => {
+  const key = String(category || "").trim().toLowerCase();
+  if (!key) return "—";
+  return PRODUCT_CATEGORY_LABELS[key] || key;
 };
 
 const effectivePriceOf = (product) =>
@@ -148,14 +150,14 @@ const loadProductDetails = async (items = []) => {
   if (!ids.length) return new Map();
 
   const products = await Product.find({ _id: { $in: ids } })
-    .select("slug title imageUrl price salePrice")
+    .select("category title imageUrl price salePrice")
     .lean();
 
   return new Map(
     products.map((product) => [
       String(product._id),
       {
-        model: toProductModel(product.slug),
+        model: toProductCategoryLabel(product.category),
         title: product.title || "",
         imageUrl: product.imageUrl || "",
         price: effectivePriceOf(product),
@@ -212,10 +214,11 @@ const clampInvoiceLogoBuffer = (buffer) => {
 const drawWatermark = (doc, logoBuffer) => {
   if (!logoBuffer) return;
 
-  const wmWidth = 300;
-  const wmHeight = 140;
+  // Larger mark, placed in the upper half of the page.
+  const wmWidth = 520;
+  const wmHeight = 260;
   const x = (PAGE_WIDTH - wmWidth) / 2;
-  const y = (PAGE_HEIGHT - wmHeight) / 2;
+  const y = PAGE_HEIGHT * 0.35 - wmHeight / 2;
 
   doc.save();
   try {
@@ -718,6 +721,6 @@ module.exports = {
     formatZar,
     formatInvoiceDate,
     resolveInvoiceTotals,
-    toProductModel,
+    toProductCategoryLabel,
   },
 };
