@@ -86,6 +86,11 @@ const assertCategoryFieldRules = (value, helpers) => {
         message: "quantity is only allowed for ayurvedic and book products",
       });
     }
+    if (!isBlank(value.lowStockThreshold)) {
+      return helpers.error("any.invalid", {
+        message: "lowStockThreshold is only allowed for ayurvedic and book products",
+      });
+    }
     return value;
   }
 
@@ -126,6 +131,7 @@ const createProductSchema = Joi.object({
     .default(PRODUCT_CATEGORY_PUJA_KIT),
   quantity: numericFromForm(Joi.number().min(0)).optional(),
   stockQuantity: numericFromForm(Joi.number().min(0)).optional(),
+  lowStockThreshold: numericFromForm(Joi.number().integer().min(0)).optional(),
 
   // Admins can only save as DRAFT or submit for review (PENDING). Approval
   // is owned by superadmin via the review endpoint.
@@ -166,6 +172,7 @@ const updateProductSchema = Joi.object({
   category: Joi.string().trim().lowercase().valid(...PRODUCT_CATEGORIES),
   quantity: numericFromForm(Joi.number().min(0)).allow(null),
   stockQuantity: numericFromForm(Joi.number().min(0)).optional(),
+  lowStockThreshold: numericFromForm(Joi.number().integer().min(0)).allow(null),
 
   // Admins editing their own product cannot self-promote past PENDING.
   status: Joi.string().valid(...CREATE_STATUSES),

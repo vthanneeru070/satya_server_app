@@ -285,15 +285,28 @@ const notifyInventoryItem = async (
   });
 };
 
-const notifyQuantityProduct = async (product, { previousQty } = {}) => {
+const resolveProductThreshold = (product) => {
+  const perProduct = product?.lowStockThreshold;
+  if (perProduct !== null && perProduct !== undefined) {
+    return Math.max(0, Math.floor(Number(perProduct) || 0));
+  }
+  return productLowStockThreshold();
+};
+
+const notifyQuantityProduct = async (
+  product,
+  { previousQty, previousThreshold } = {}
+) => {
   if (!product?._id || !usesProductQuantity(product.category)) return null;
+  const threshold = resolveProductThreshold(product);
   return alertStockChange({
     kind: "product",
     id: product._id,
     name: product.title,
     previousQty,
     nextQty: product.quantity,
-    threshold: productLowStockThreshold(),
+    threshold,
+    previousThreshold,
     unitLabel: "units",
     category: product.category || "",
   });
@@ -394,7 +407,7 @@ const evaluateAfterOrderDeduction = async (order, productMapInput) => {
 
     for (const [id, dec] of qtyProductDec.entries()) {
       const fresh = await Product.findById(id)
-        .select("title quantity category")
+        .select("title quantity category lowStockThreshold")
         .lean();
       if (!fresh) continue;
       const current = Number(fresh.quantity) || 0;
@@ -404,7 +417,7 @@ const evaluateAfterOrderDeduction = async (order, productMapInput) => {
         name: fresh.title,
         previousQty: current + dec,
         nextQty: current,
-        threshold: productLowStockThreshold(),
+        threshold: resolveProductThreshold(fresh),
         unitLabel: "units",
         category: fresh.category || "",
       });
@@ -444,4 +457,5 @@ module.exports = {
   evaluateAfterOrderDeduction,
   scheduleAfterOrderDeduction,
   productLowStockThreshold,
+  resolveProductThreshold,
 };

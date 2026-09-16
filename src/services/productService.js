@@ -263,6 +263,21 @@ const buildProductPayload = (body = {}) => {
 
   if (body.slug !== undefined) payload.slug = slugify(body.slug);
 
+  if (body.lowStockThreshold !== undefined) {
+    if (body.lowStockThreshold === null || body.lowStockThreshold === "") {
+      payload.lowStockThreshold = null;
+    } else {
+      const th = normalizeNumber(body.lowStockThreshold);
+      if (th === undefined) {
+        throw new HttpError("lowStockThreshold must be a valid number", 400);
+      }
+      if (th < 0) {
+        throw new HttpError("lowStockThreshold must be a non-negative integer", 400);
+      }
+      payload.lowStockThreshold = Math.floor(th);
+    }
+  }
+
   return payload;
 };
 
@@ -384,6 +399,7 @@ const updateProduct = async ({ id, body, imageUrl }) => {
 
   const previousQty = existing.quantity;
   const previousCategory = existing.category;
+  const previousThreshold = existing.lowStockThreshold;
 
   const payload = buildProductPayload(body);
 
@@ -452,6 +468,9 @@ const updateProduct = async ({ id, body, imageUrl }) => {
           .notifyQuantityProduct(existing, {
             previousQty: usesProductQuantity(previousCategory)
               ? previousQty
+              : null,
+            previousThreshold: usesProductQuantity(previousCategory)
+              ? previousThreshold
               : null,
           })
           .catch(() => {});
