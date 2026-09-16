@@ -77,8 +77,42 @@ const totalStepsFor = (pooja) => {
   return Math.max(...steps.map((s) => Number(s.stepNumber) || 0), steps.length);
 };
 
+const firstMediaUrl = (value) => {
+  if (Array.isArray(value)) {
+    return value.map((url) => String(url || "").trim()).find(Boolean) || null;
+  }
+  if (typeof value === "string" && value.trim()) return value.trim();
+  return null;
+};
+
+/** Prefer pooja media cover — never substitute deity media into pooja fields. */
+const attachPoojaCoverMedia = (pooja) => {
+  if (!pooja || typeof pooja !== "object") return pooja;
+
+  const media =
+    pooja.media && typeof pooja.media === "object" ? { ...pooja.media } : {};
+  const images = Array.isArray(media.images)
+    ? media.images.map((url) => String(url || "").trim()).filter(Boolean)
+    : [];
+  const cover = firstMediaUrl(pooja.imageUrl) || firstMediaUrl(images);
+
+  media.images = images;
+  if (Array.isArray(media.audio)) {
+    media.audio = media.audio.map((url) => String(url || "").trim()).filter(Boolean);
+  }
+  if (Array.isArray(media.videos)) {
+    media.videos = media.videos
+      .map((url) => String(url || "").trim())
+      .filter(Boolean);
+  }
+  pooja.media = media;
+  if (cover) pooja.imageUrl = cover;
+  return pooja;
+};
+
 const formatSession = (session) => {
   const plain = session.toObject ? session.toObject() : { ...session };
+  plain.pooja = attachPoojaCoverMedia(plain.pooja);
   const pooja = plain.pooja;
   const totalSteps = totalStepsFor(pooja);
   const currentStep = Number(plain.currentStep) || 0;

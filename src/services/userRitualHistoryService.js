@@ -28,7 +28,7 @@ const NEXT_DAY_REQUIRED_ITEMS_REMINDER_HOUR = 6;
 const RITUAL_POPULATE = {
   path: "ritual",
   select:
-    "title slug description deity category difficulty ritualDay days media status accessType price currency isDeleted",
+    "title slug description deity category difficulty ritualDay days images audio videos status accessType price currency isDeleted",
   match: { isDeleted: { $ne: true } },
   populate: { path: "deity", select: "name media" },
 };
@@ -139,8 +139,41 @@ const markCurrentDayStarted = (session, todayKey) => {
   session.lastActivityAt = new Date();
 };
 
+const firstMediaUrl = (value) => {
+  if (Array.isArray(value)) {
+    return value.map((url) => String(url || "").trim()).find(Boolean) || null;
+  }
+  if (typeof value === "string" && value.trim()) return value.trim();
+  return null;
+};
+
+/** Prefer ritual cover images — never fall back to deity media here. */
+const attachRitualCoverMedia = (ritual) => {
+  if (!ritual || typeof ritual !== "object") return ritual;
+
+  const images = Array.isArray(ritual.images)
+    ? ritual.images.map((url) => String(url || "").trim()).filter(Boolean)
+    : [];
+  const audio = Array.isArray(ritual.audio)
+    ? ritual.audio.map((url) => String(url || "").trim()).filter(Boolean)
+    : [];
+  const videos = Array.isArray(ritual.videos)
+    ? ritual.videos.map((url) => String(url || "").trim()).filter(Boolean)
+    : [];
+  const cover = firstMediaUrl(ritual.imageUrl) || firstMediaUrl(images);
+
+  ritual.images = images;
+  ritual.audio = audio;
+  ritual.videos = videos;
+  if (cover) ritual.imageUrl = cover;
+  // Shape expected by older clients / RitualModel media parsing.
+  ritual.media = { images, audio, videos };
+  return ritual;
+};
+
 const formatSession = (session, { timeZone } = {}) => {
   const plain = session.toObject ? session.toObject() : { ...session };
+  plain.ritual = attachRitualCoverMedia(plain.ritual);
   const ritual = plain.ritual;
   const totalDays = totalDaysFor(ritual);
   const daySteps = totalStepsForDay(ritual, plain.currentDay);
