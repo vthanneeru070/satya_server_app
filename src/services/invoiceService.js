@@ -1,4 +1,6 @@
 const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
 const PDFDocument = require("pdfkit");
 const Counter = require("../models/Counter");
 const Product = require("../models/Product");
@@ -8,8 +10,13 @@ const { uploadFile } = require("./s3Service");
 const INVOICE_PREFIX = process.env.INVOICE_NUMBER_PREFIX || "INV";
 const INVOICE_SUPPORT_EMAIL =
   process.env.INVOICE_SUPPORT_EMAIL || "support@sathya.co.za";
+const DEFAULT_INVOICE_LOGO_PATH = path.join(
+  __dirname,
+  "../../assets/sathya-logo.png"
+);
 
 const PAGE_WIDTH = 595.28;
+const PAGE_HEIGHT = 841.89;
 const MARGIN = 36;
 const PAGE_LEFT = MARGIN;
 const PAGE_RIGHT = PAGE_WIDTH - MARGIN;
@@ -21,11 +28,11 @@ const BORDER_COLOR = "#cccccc";
 const WHITE = "#ffffff";
 
 const PRODUCT_COLS = {
-  product: { label: "Product", width: 210 },
-  model: { label: "Model", width: 80 },
+  product: { label: "Product", width: 200 },
+  model: { label: "Category", width: 95 },
   quantity: { label: "Quantity", width: 55 },
-  price: { label: "Price", width: 85 },
-  total: { label: "Total", width: CONTENT_WIDTH - 210 - 80 - 55 - 85 },
+  price: { label: "Price", width: 80 },
+  total: { label: "Total", width: CONTENT_WIDTH - 200 - 95 - 55 - 80 },
 };
 
 const COL_X = (() => {
@@ -115,10 +122,17 @@ const formatInvoiceAddressLines = (addr) => {
   ].filter((piece) => piece && String(piece).trim().length > 0);
 };
 
-const toProductModel = (slug) => {
-  if (!slug) return "—";
-  const compact = String(slug).replace(/-/g, "").toUpperCase();
-  return compact.length > 15 ? compact.slice(0, 15) : compact;
+const PRODUCT_CATEGORY_LABELS = {
+  ayurvedic: "Ayurvedic",
+  pujakit: "Puja Kit",
+  book: "Book",
+};
+
+/** Invoice "Category" cell — maps wire category to display label. */
+const toProductCategoryLabel = (category) => {
+  const key = String(category || "").trim().toLowerCase();
+  if (!key) return "—";
+  return PRODUCT_CATEGORY_LABELS[key] || key;
 };
 
 const effectivePriceOf = (product) =>
@@ -136,14 +150,14 @@ const loadProductDetails = async (items = []) => {
   if (!ids.length) return new Map();
 
   const products = await Product.find({ _id: { $in: ids } })
-    .select("slug title imageUrl price salePrice")
+    .select("category title imageUrl price salePrice")
     .lean();
 
   return new Map(
     products.map((product) => [
       String(product._id),
       {
-        model: toProductModel(product.slug),
+        model: toProductCategoryLabel(product.category),
         title: product.title || "",
         imageUrl: product.imageUrl || "",
         price: effectivePriceOf(product),
@@ -163,6 +177,61 @@ const loadImageBuffer = async (url) => {
   } catch {
     return null;
   }
+};
+
+const resolveInvoiceLogoBuffer = async () => {
+  const logoUrl = (process.env.INVOICE_LOGO_URL || "").trim();
+  if (logoUrl) {
+    const remote = await loadImageBuffer(logoUrl);
+    if (remote) return clampInvoiceLogoBuffer(remote);
+  }
+
+  const logoPath = (process.env.INVOICE_LOGO_PATH || DEFAULT_INVOICE_LOGO_PATH).trim();
+  try {
+    if (logoPath && fs.existsSync(logoPath)) {
+      return clampInvoiceLogoBuffer(fs.readFileSync(logoPath));
+    }
+  } catch {
+    // Fall through — invoice still renders without watermark.
+  }
+  return null;
+};
+
+/** Reject oversized logos that would make invoice PDFs fail/timeout on upload. */
+const MAX_INVOICE_LOGO_BYTES = 500 * 1024;
+
+const clampInvoiceLogoBuffer = (buffer) => {
+  if (!buffer || !Buffer.isBuffer(buffer) || buffer.length === 0) return null;
+  if (buffer.length > MAX_INVOICE_LOGO_BYTES) {
+    console.warn(
+      `[invoiceService] invoice logo is ${buffer.length} bytes (max ${MAX_INVOICE_LOGO_BYTES}); skipping watermark`
+    );
+    return null;
+  }
+  return buffer;
+};
+
+const drawWatermark = (doc, logoBuffer) => {
+  if (!logoBuffer) return;
+
+  // Larger mark, placed in the upper half of the page.
+  const wmWidth = 520;
+  const wmHeight = 260;
+  const x = (PAGE_WIDTH - wmWidth) / 2;
+  const y = PAGE_HEIGHT * 0.35 - wmHeight / 2;
+
+  doc.save();
+  try {
+    doc.opacity(0.08);
+    doc.image(logoBuffer, x, y, {
+      fit: [wmWidth, wmHeight],
+      align: "center",
+      valign: "center",
+    });
+  } catch {
+    // Ignore invalid / unsupported logo bytes.
+  }
+  doc.restore();
 };
 
 const strokeRect = (doc, x, y, w, h) => {
@@ -350,7 +419,11 @@ const measureProductCellHeight = (doc, line, imageBuffer) => {
   const textHeight = doc.heightOfString(String(line.title || "—"), {
     width: textWidth,
   });
-  return Math.max(imageBuffer ? imageSize + 8 : 0, textHeight + 16, 50);
+  doc.font("Helvetica").fontSize(9);
+  const modelHeight = doc.heightOfString(String(line.model || "—"), {
+    width: PRODUCT_COLS.model.width - 4,
+  });
+  return Math.max(imageBuffer ? imageSize + 8 : 0, textHeight + 16, modelHeight + 16, 50);
 };
 
 const drawProductColumnDividers = (doc, top, height) => {
@@ -400,10 +473,10 @@ const drawProductRow = (doc, line, imageBuffer) => {
   });
 
   doc.font("Helvetica").fontSize(9);
-  doc.text(String(line.model || "—"), COL_X.model, cellTextY, {
-    width: PRODUCT_COLS.model.width,
+  doc.text(String(line.model || "—"), COL_X.model + 2, cellTextY, {
+    width: PRODUCT_COLS.model.width - 4,
     align: "center",
-    lineBreak: false,
+    lineBreak: true,
   });
   doc.text(String(line.quantity), COL_X.quantity, cellTextY, {
     width: PRODUCT_COLS.quantity.width,
@@ -535,6 +608,7 @@ const buildInvoicePdf = async ({
   email,
   invoiceNumber,
   customerEmail,
+  logoBuffer = null,
 }) => {
   const paymentAddress = formatInvoiceAddressLines(order.shippingAddress);
   const shippingAddress = formatInvoiceAddressLines(
@@ -560,7 +634,9 @@ const buildInvoicePdf = async ({
     doc.on("data", (chunk) => chunks.push(chunk));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
+    doc.on("pageAdded", () => drawWatermark(doc, logoBuffer));
 
+    drawWatermark(doc, logoBuffer);
     drawCompanyHeader(doc, { appName, storeLabel, phone, email });
     drawOrderMeta(doc, order, { invoiceNumber, customerEmail });
     drawAddressTable(doc, paymentAddress, shippingAddress);
@@ -606,6 +682,7 @@ const generateInvoice = async (order) => {
       "";
     const productDetails = await loadProductDetails(order.items);
     const customerEmail = await resolveCustomerEmail(order);
+    const logoBuffer = await resolveInvoiceLogoBuffer();
     const buffer = await buildInvoicePdf({
       order,
       productDetails,
@@ -615,6 +692,7 @@ const generateInvoice = async (order) => {
       email,
       invoiceNumber,
       customerEmail,
+      logoBuffer,
     });
 
     const safeOrderId = String(order.orderNumber).replace(/[^a-zA-Z0-9-]/g, "_");
@@ -638,5 +716,11 @@ const generateInvoice = async (order) => {
 module.exports = {
   generateInvoice,
   nextInvoiceNumber,
-  _internal: { buildInvoicePdf, formatZar, formatInvoiceDate, resolveInvoiceTotals },
+  _internal: {
+    buildInvoicePdf,
+    formatZar,
+    formatInvoiceDate,
+    resolveInvoiceTotals,
+    toProductCategoryLabel,
+  },
 };

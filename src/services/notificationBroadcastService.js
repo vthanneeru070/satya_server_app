@@ -48,7 +48,9 @@ const chunk = (arr, size) => {
  * the caller can prune them.
  */
 const sendBatch = async ({ tokens, notification, data, imageUrl, logTag }) => {
-  if (!tokens.length) return { sent: 0, failed: 0, deadTokens: [] };
+  if (!tokens.length) {
+    return { sent: 0, failed: 0, deadTokens: [], successfulTokens: [] };
+  }
 
   // High-priority + explicit Android channel so notifications wake locked
   // devices and bypass App Standby buckets. The Flutter app must create a
@@ -89,21 +91,30 @@ const sendBatch = async ({ tokens, notification, data, imageUrl, logTag }) => {
       `[fcm] ${logTag}: batch send threw:`,
       err?.message || err
     );
-    return { sent: 0, failed: tokens.length, deadTokens: [] };
+    return {
+      sent: 0,
+      failed: tokens.length,
+      deadTokens: [],
+      successfulTokens: [],
+    };
   }
 
   const deadTokens = [];
+  const successfulTokens = [];
   response.responses.forEach((r, idx) => {
-    if (!r.success) {
-      const code = r.error?.code || "unknown";
-      if (INVALID_TOKEN_ERRORS.has(code)) deadTokens.push(tokens[idx]);
+    if (r.success) {
+      successfulTokens.push(tokens[idx]);
+      return;
     }
+    const code = r.error?.code || "unknown";
+    if (INVALID_TOKEN_ERRORS.has(code)) deadTokens.push(tokens[idx]);
   });
 
   return {
     sent: response.successCount,
     failed: response.failureCount,
     deadTokens,
+    successfulTokens,
   };
 };
 
@@ -165,16 +176,29 @@ const dispatchNotification = async (notificationId) => {
     ]);
 
     const allTokens = [];
-    users.forEach((u) =>
-      (u.fcmTokens || []).filter(Boolean).forEach((t) => allTokens.push(t))
-    );
+    /** @type {Map<string, string[]>} token → user id(s) that own it */
+    const tokenToUserIds = new Map();
+    users.forEach((u) => {
+      const uid = String(u._id);
+      (u.fcmTokens || []).filter(Boolean).forEach((t) => {
+        allTokens.push(t);
+        const owners = tokenToUserIds.get(t);
+        if (owners) owners.push(uid);
+        else tokenToUserIds.set(t, [uid]);
+      });
+    });
     const uniqueTokens = [...new Set(allTokens)];
+    const audienceUserCount = inboxUsers.length;
+    const reachableUserCount = users.length;
 
     if (!uniqueTokens.length) {
       claimed.status = "SENT";
       claimed.sentAt = new Date();
-      claimed.targetedUserCount = inboxUsers.length;
+      claimed.targetedUserCount = audienceUserCount;
+      claimed.reachableUserCount = 0;
       claimed.targetedTokenCount = 0;
+      claimed.successCount = 0;
+      claimed.failureCount = audienceUserCount;
       await claimed.save();
       await materializeInboxForUsers(
         claimed._id,
@@ -185,8 +209,9 @@ const dispatchNotification = async (notificationId) => {
       );
       return {
         sent: 0,
-        failed: 0,
-        targetedUsers: users.length,
+        failed: audienceUserCount,
+        targetedUsers: audienceUserCount,
+        reachableUsers: 0,
         targetedTokens: 0,
       };
     }
@@ -208,9 +233,10 @@ const dispatchNotification = async (notificationId) => {
         : {}),
     };
 
-    let totalSent = 0;
-    let totalFailed = 0;
+    let tokenSent = 0;
+    let tokenFailed = 0;
     const allDead = [];
+    const successfulUserIds = new Set();
 
     for (const batch of batches) {
       const r = await sendBatch({
@@ -220,19 +246,27 @@ const dispatchNotification = async (notificationId) => {
         imageUrl: claimed.imageUrl,
         logTag,
       });
-      totalSent += r.sent;
-      totalFailed += r.failed;
+      tokenSent += r.sent;
+      tokenFailed += r.failed;
       allDead.push(...r.deadTokens);
+      for (const token of r.successfulTokens || []) {
+        for (const uid of tokenToUserIds.get(token) || []) {
+          successfulUserIds.add(uid);
+        }
+      }
     }
 
     const pruned = await pruneDeadTokens(allDead, logTag);
+    const usersDelivered = successfulUserIds.size;
 
     claimed.status = "SENT";
     claimed.sentAt = new Date();
-    claimed.targetedUserCount = inboxUsers.length;
+    claimed.targetedUserCount = audienceUserCount;
+    claimed.reachableUserCount = reachableUserCount;
     claimed.targetedTokenCount = uniqueTokens.length;
-    claimed.successCount = totalSent;
-    claimed.failureCount = totalFailed;
+    // Per-user delivery stats (not per FCM token) so same audience → same total.
+    claimed.successCount = usersDelivered;
+    claimed.failureCount = Math.max(0, audienceUserCount - usersDelivered);
     claimed.prunedTokenCount = pruned;
     await claimed.save();
 
@@ -242,15 +276,18 @@ const dispatchNotification = async (notificationId) => {
     );
 
     console.log(
-      `[fcm] ${logTag}: users=${users.length} tokens=${uniqueTokens.length} sent=${totalSent} failed=${totalFailed} pruned=${pruned}`
+      `[fcm] ${logTag}: audienceUsers=${audienceUserCount} reachableUsers=${reachableUserCount} tokens=${uniqueTokens.length} tokenSent=${tokenSent} tokenFailed=${tokenFailed} usersDelivered=${usersDelivered} pruned=${pruned}`
     );
 
     return {
-      sent: totalSent,
-      failed: totalFailed,
+      sent: usersDelivered,
+      failed: Math.max(0, audienceUserCount - usersDelivered),
       pruned,
-      targetedUsers: users.length,
+      targetedUsers: audienceUserCount,
+      reachableUsers: reachableUserCount,
       targetedTokens: uniqueTokens.length,
+      tokenSent,
+      tokenFailed,
     };
   } catch (err) {
     claimed.status = "FAILED";

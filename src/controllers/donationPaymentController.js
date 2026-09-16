@@ -56,15 +56,7 @@ const fetchPaginated = async (filter, { page = 1, limit = 10 }) => {
     DonationContribution.countDocuments(filter),
   ]);
 
-  const items = rawItems.map((doc) => {
-    const row = doc.toObject ? doc.toObject() : { ...doc };
-    const paymentReference = row.paystackReference || null;
-    return {
-      ...row,
-      paymentReference,
-      reference: paymentReference,
-    };
-  });
+  const items = rawItems.map((doc) => serializeDonationContribution(doc));
 
   return {
     items,

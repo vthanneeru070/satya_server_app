@@ -143,6 +143,13 @@ const productSchema = new mongoose.Schema(
       default: null,
     },
 
+    /** Alert when quantity is at or below this (ayurvedic / book only). */
+    lowStockThreshold: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
+
     status: {
       type: String,
       enum: ["DRAFT", "PENDING", "APPROVED", "REJECTED", "QUEUED"],
@@ -209,12 +216,20 @@ productSchema.pre("validate", function ensurePriceConsistency() {
       throw new Error("At least one inventory item is required for pujakit products");
     }
     this.quantity = null;
+    this.lowStockThreshold = null;
     return;
   }
 
   if (this.category === "ayurvedic" || this.category === "book") {
     if (this.quantity === null || this.quantity === undefined) {
       throw new Error(`quantity is required for ${this.category} products`);
+    }
+    if (this.lowStockThreshold === null || this.lowStockThreshold === undefined) {
+      const envDefault = Number(process.env.PRODUCT_LOW_STOCK_THRESHOLD);
+      this.lowStockThreshold =
+        Number.isFinite(envDefault) && envDefault >= 0
+          ? Math.floor(envDefault)
+          : 10;
     }
   }
 });

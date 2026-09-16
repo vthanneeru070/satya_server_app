@@ -37,6 +37,7 @@ const buildProductSearchFilter = (searchTerm) => {
   const safe = escapeRegex(trimmed);
   const orClauses = [
     { title: { $regex: safe, $options: "i" } },
+    { slug: { $regex: safe, $options: "i" } },
     { category: { $regex: safe, $options: "i" } },
   ];
 
@@ -263,6 +264,21 @@ const buildProductPayload = (body = {}) => {
 
   if (body.slug !== undefined) payload.slug = slugify(body.slug);
 
+  if (body.lowStockThreshold !== undefined) {
+    if (body.lowStockThreshold === null || body.lowStockThreshold === "") {
+      payload.lowStockThreshold = null;
+    } else {
+      const th = normalizeNumber(body.lowStockThreshold);
+      if (th === undefined) {
+        throw new HttpError("lowStockThreshold must be a valid number", 400);
+      }
+      if (th < 0) {
+        throw new HttpError("lowStockThreshold must be a non-negative integer", 400);
+      }
+      payload.lowStockThreshold = Math.floor(th);
+    }
+  }
+
   return payload;
 };
 
@@ -355,7 +371,21 @@ const createProduct = async ({ body, imageUrl, userId }) => {
   try {
     const product = await Product.create(payload);
     await product.populate(productPopulatePaths());
-    return inventoryService.enrichProductStock(product);
+    const enriched = await inventoryService.enrichProductStock(product);
+
+    if (usesProductQuantity(product.category)) {
+      setImmediate(() => {
+        try {
+          require("./stockAlertService")
+            .notifyQuantityProduct(product, { previousQty: null })
+            .catch(() => {});
+        } catch (_) {
+          /* ignore */
+        }
+      });
+    }
+
+    return enriched;
   } catch (err) {
     if (err.code === 11000) {
       throw new HttpError("A product with this slug already exists", 409);
@@ -367,6 +397,10 @@ const createProduct = async ({ body, imageUrl, userId }) => {
 const updateProduct = async ({ id, body, imageUrl }) => {
   const existing = await Product.findOne({ _id: id, isDeleted: { $ne: true } });
   if (!existing) throw new HttpError("Product not found", 404);
+
+  const previousQty = existing.quantity;
+  const previousCategory = existing.category;
+  const previousThreshold = existing.lowStockThreshold;
 
   const payload = buildProductPayload(body);
 
@@ -426,7 +460,28 @@ const updateProduct = async ({ id, body, imageUrl }) => {
   }
 
   await existing.populate(productPopulatePaths());
-  return inventoryService.enrichProductStock(existing);
+  const enriched = await inventoryService.enrichProductStock(existing);
+
+  if (usesProductQuantity(existing.category)) {
+    setImmediate(() => {
+      try {
+        require("./stockAlertService")
+          .notifyQuantityProduct(existing, {
+            previousQty: usesProductQuantity(previousCategory)
+              ? previousQty
+              : null,
+            previousThreshold: usesProductQuantity(previousCategory)
+              ? previousThreshold
+              : null,
+          })
+          .catch(() => {});
+      } catch (_) {
+        /* ignore */
+      }
+    });
+  }
+
+  return enriched;
 };
 
 /**
@@ -575,6 +630,7 @@ const listAllProducts = async (query = {}) => {
   if (!includeDeleted) filter.isDeleted = { $ne: true };
   if (query.status) filter.status = query.status;
   if (query.productStatus) filter.productStatus = query.productStatus;
+  if (query.category) filter.category = query.category;
   if (query.search) {
     Object.assign(filter, buildProductSearchFilter(query.search) || {});
   }

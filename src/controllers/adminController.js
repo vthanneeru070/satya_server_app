@@ -2,6 +2,7 @@ const User = require("../models/User");
 const AdminLog = require("../models/AdminLog");
 const Festival = require("../models/Festival");
 const Pooja = require("../models/Pooja");
+const Ritual = require("../models/Ritual");
 const Deity = require("../models/Deity");
 const Donation = require("../models/Donation");
 const DailySloka = require("../models/DailySloka");
@@ -229,6 +230,7 @@ const getAdminDashboard = async (_req, res, next) => {
       todayActiveUsers,
       festivalCounts,
       poojaCounts,
+      ritualCounts,
       deityCounts,
       donationCounts,
       todaySloka,
@@ -243,6 +245,7 @@ const getAdminDashboard = async (_req, res, next) => {
       }),
       getStatusCounts(Festival, statusKeys),
       getStatusCounts(Pooja, statusKeys),
+      getStatusCounts(Ritual, statusKeys),
       getStatusCounts(Deity, statusKeys),
       getStatusCounts(Donation, statusKeys),
       DailySloka.findOne({ dateKey: todayDateKey }).select("-__v").populate("createdBy", "email role"),
@@ -257,6 +260,7 @@ const getAdminDashboard = async (_req, res, next) => {
         todayActiveUsers,
         festivals: festivalCounts,
         poojas: poojaCounts,
+        rituals: ritualCounts,
         deities: deityCounts,
         donations: donationCounts,
         todaySloka,

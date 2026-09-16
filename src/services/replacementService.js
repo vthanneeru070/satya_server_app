@@ -604,6 +604,14 @@ const approveRequest = async (requestId, { adminRemarks = "" } = {}, { actorUser
     await session.endSession();
   }
 
+  if (replacementOrder) {
+    try {
+      require("./stockAlertService").scheduleAfterOrderDeduction(replacementOrder);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
   const out = await ReplacementRequest.findById(requestId)
     .populate("order", orderPopulateSummary)
     .populate(
