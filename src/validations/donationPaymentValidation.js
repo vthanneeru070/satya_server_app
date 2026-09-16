@@ -17,6 +17,7 @@ const listContributionsQuerySchema = Joi.object({
     .optional(),
   donation: objectIdHex.optional(),
   user: objectIdHex.optional(),
+  search: Joi.string().trim().max(120).allow("").optional(),
 });
 
 module.exports = {

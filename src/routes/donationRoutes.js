@@ -257,6 +257,13 @@ router.get(
  *         name: user
  *         schema:
  *           type: string
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: >
+ *           Contribution number / id, PayFast payment id, payment reference,
+ *           contributor name, or email.
  *     responses:
  *       200:
  *         description: Donation contributions fetched
