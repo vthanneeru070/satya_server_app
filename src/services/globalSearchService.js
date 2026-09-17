@@ -9,12 +9,7 @@ const SEARCH_TYPES = ["pooja", "festival", "ritual", "deity", "donation"];
 const escapeRegex = (value) =>
   String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-const trimDescription = (text, max = 160) => {
-  const raw = String(text || "").trim();
-  if (!raw) return "";
-  if (raw.length <= max) return raw;
-  return `${raw.slice(0, max - 1)}…`;
-};
+const normalizeDescription = (text) => String(text || "").trim();
 
 const firstImage = (...candidates) => {
   for (const c of candidates) {
@@ -38,7 +33,7 @@ const mapHit = ({
   type,
   title: title || name || "",
   name: name || title || "",
-  description: trimDescription(description),
+  description: normalizeDescription(description),
   imageUrl: imageUrl || null,
   ...(deityColor ? { deity_color: deityColor } : {}),
   updatedAt,
