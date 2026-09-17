@@ -2,7 +2,7 @@ const mongoose = require("mongoose");
 
 /**
  * Tracks a user's pooja performance — one row per attempt.
- * At most one PENDING (in progress) session per user + pooja at a time.
+ * At most one PENDING session per user + pooja (scheduleId is optional/legacy).
  */
 const userPoojaSessionSchema = new mongoose.Schema(
   {
@@ -54,7 +54,7 @@ const userPoojaSessionSchema = new mongoose.Schema(
 
 userPoojaSessionSchema.index({ user: 1, status: 1, updatedAt: -1 });
 userPoojaSessionSchema.index(
-  { user: 1, pooja: 1, scheduleId: 1 },
+  { user: 1, pooja: 1 },
   {
     unique: true,
     partialFilterExpression: { status: "PENDING", isDeleted: { $ne: true } },

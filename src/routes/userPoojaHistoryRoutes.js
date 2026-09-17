@@ -145,7 +145,7 @@ router.get(
  * /user/pooja-history/{poojaId}/start:
  *   post:
  *     summary: Start a pooja (creates PENDING session)
- *     description: Idempotent — returns existing pending session if already started.
+ *     description: Idempotent — returns existing pending session if already started. Sessions are keyed by user + pooja only (scheduleId is ignored if provided).
  *     tags: [User Pooja History]
  *     security:
  *       - bearerAuth: []
@@ -154,11 +154,6 @@ router.get(
  *         name: poojaId
  *         required: true
  *         schema: { type: string }
- *       - in: query
- *         name: scheduleId
- *         required: false
- *         schema: { type: string }
- *         description: Required when pooja has multiple schedules.
  *     responses:
  *       201:
  *         description: Pooja started
@@ -177,6 +172,7 @@ router.post(
  * /user/pooja-history/{poojaId}/finish:
  *   post:
  *     summary: Finish pooja (marks session FINISHED)
+ *     description: Completes the pending session for this user + pooja (scheduleId is ignored if provided).
  *     tags: [User Pooja History]
  *     security:
  *       - bearerAuth: []
@@ -185,11 +181,6 @@ router.post(
  *         name: poojaId
  *         required: true
  *         schema: { type: string }
- *       - in: query
- *         name: scheduleId
- *         required: false
- *         schema: { type: string }
- *         description: Required when pooja has multiple schedules.
  *     responses:
  *       200:
  *         description: Pooja completed

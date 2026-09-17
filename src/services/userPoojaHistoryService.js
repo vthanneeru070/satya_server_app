@@ -49,27 +49,17 @@ const loadApprovedPooja = async (poojaId) => {
   return pooja;
 };
 
-const resolveScheduleForSession = ({ pooja, scheduleId }) => {
-  const schedules = Array.isArray(pooja?.schedules) ? pooja.schedules : [];
-
-  if (!schedules.length) {
-    return null;
-  }
-
-  if (scheduleId) {
-    const matched = schedules.find((slot) => String(slot.id) === String(scheduleId).trim());
-    if (!matched) {
-      throw new HttpError("Invalid scheduleId for this pooja", 400);
-    }
-    return String(matched.id);
-  }
-
-  if (schedules.length === 1) {
-    return String(schedules[0].id);
-  }
-
-  throw new HttpError("scheduleId is required for poojas with multiple schedules", 400);
-};
+/**
+ * Sessions are tracked per user + pooja only. Schedule dates on the pooja
+ * are informational for calendar/UI — not required to start or finish.
+ */
+const findPendingSession = (userId, poojaId) =>
+  UserPoojaSession.findOne({
+    user: userId,
+    pooja: poojaId,
+    status: "PENDING",
+    ...notDeleted,
+  }).sort({ updatedAt: -1 });
 
 const totalStepsFor = (pooja) => {
   const steps = pooja?.steps || [];
@@ -230,18 +220,11 @@ const listHistory = async (userId, query = {}) => {
   };
 };
 
-const startPooja = async (userId, poojaId, { scheduleId } = {}) => {
+const startPooja = async (userId, poojaId) => {
   await assertMobileUser(userId);
-  const pooja = await loadApprovedPooja(poojaId);
-  const resolvedScheduleId = resolveScheduleForSession({ pooja, scheduleId });
+  await loadApprovedPooja(poojaId);
 
-  let session = await UserPoojaSession.findOne({
-    user: userId,
-    pooja: poojaId,
-    scheduleId: resolvedScheduleId,
-    status: "PENDING",
-    ...notDeleted,
-  }).populate(POOJA_POPULATE);
+  let session = await findPendingSession(userId, poojaId).populate(POOJA_POPULATE);
 
   if (session) {
     return { session: formatSession(session), resumed: true };
@@ -251,20 +234,14 @@ const startPooja = async (userId, poojaId, { scheduleId } = {}) => {
     session = await UserPoojaSession.create({
       user: userId,
       pooja: poojaId,
-      scheduleId: resolvedScheduleId,
+      scheduleId: null,
       status: "PENDING",
       currentStep: 0,
       startedAt: new Date(),
     });
   } catch (err) {
     if (err.code === 11000) {
-      session = await UserPoojaSession.findOne({
-        user: userId,
-        pooja: poojaId,
-        scheduleId: resolvedScheduleId,
-        status: "PENDING",
-        ...notDeleted,
-      }).populate(POOJA_POPULATE);
+      session = await findPendingSession(userId, poojaId).populate(POOJA_POPULATE);
       if (session) return { session: formatSession(session), resumed: true };
     }
     throw err;
@@ -299,18 +276,11 @@ const updateProgress = async (userId, sessionId, { currentStep }) => {
   return { session: formatSession(session) };
 };
 
-const finishPooja = async (userId, poojaId, { scheduleId } = {}) => {
+const finishPooja = async (userId, poojaId) => {
   await assertMobileUser(userId);
-  const pooja = await loadApprovedPooja(poojaId);
-  const resolvedScheduleId = resolveScheduleForSession({ pooja, scheduleId });
+  await loadApprovedPooja(poojaId);
 
-  const session = await UserPoojaSession.findOne({
-    user: userId,
-    pooja: poojaId,
-    scheduleId: resolvedScheduleId,
-    status: "PENDING",
-    ...notDeleted,
-  }).populate(POOJA_POPULATE);
+  const session = await findPendingSession(userId, poojaId).populate(POOJA_POPULATE);
 
   if (!session) {
     throw new HttpError("No in-progress pooja session found for this pooja", 404);
@@ -340,7 +310,7 @@ const finishPoojaBySessionId = async (userId, sessionId) => {
   }
 
   const poojaId = session.pooja?._id || session.pooja;
-  return finishPooja(userId, poojaId, { scheduleId: session.scheduleId });
+  return finishPooja(userId, poojaId);
 };
 
 module.exports = {

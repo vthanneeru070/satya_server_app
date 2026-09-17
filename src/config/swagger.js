@@ -237,7 +237,7 @@ const options = {
             scheduleId: {
               type: "string",
               nullable: true,
-              description: "Schedule occurrence id for multi-scheduled poojas",
+              description: "Legacy field; sessions are tracked by user + pooja only",
             },
             status: { type: "string", enum: ["PENDING", "FINISHED"] },
             currentStep: { type: "integer", example: 2 },
