@@ -62,6 +62,8 @@ const readConfig = () => {
   };
 };
 
+let _assertConfiguredLogged = false;
+
 const assertConfigured = () => {
   const { merchantId, merchantKey, sandbox, host } = readConfig();
   if (!merchantId || !merchantKey) {
@@ -82,9 +84,12 @@ const assertConfigured = () => {
       500
     );
   }
-  console.log(
-    `[payfast] checkout configured for ${sandbox ? "SANDBOX" : "LIVE"} (${host}), merchant_id=${merchantId}`
-  );
+  if (!_assertConfiguredLogged) {
+    _assertConfiguredLogged = true;
+    console.log(
+      `[payfast] checkout configured for ${sandbox ? "SANDBOX" : "LIVE"} (${host}), merchant_id=${merchantId}`
+    );
+  }
 };
 
 /** PayFast expects a decimal string with exactly two fractional digits. */
@@ -452,16 +457,55 @@ const sendApiRequest = async (
     }
 
     const data = response.data;
-    const httpOk = data?.code === 200 || data?.status === "success";
-    const apiOk = data?.data?.response === true || httpOk;
-    if (!httpOk && !apiOk) {
+    const topStatus = String(data?.status || "").toLowerCase();
+    const topCode = Number(data?.code);
+    const responsePayload = data?.data?.response;
+    const responseIsExplicitFailure =
+      responsePayload === false ||
+      String(responsePayload).toLowerCase() === "false" ||
+      (typeof responsePayload === "object" &&
+        responsePayload !== null &&
+        !Array.isArray(responsePayload) &&
+        (responsePayload.reason || responsePayload.message) &&
+        !responsePayload.status &&
+        !responsePayload.refund_id &&
+        !responsePayload.id);
+
+    const httpOk =
+      (topCode === 200 || topStatus === "success") && !responseIsExplicitFailure;
+
+    if (!httpOk) {
+      const nested =
+        typeof responsePayload === "object" && responsePayload !== null
+          ? responsePayload.reason ||
+            responsePayload.message ||
+            responsePayload.code ||
+            null
+          : null;
+      const errors = Array.isArray(data?.data?.errors)
+        ? data.data.errors.filter(Boolean).join("; ")
+        : Array.isArray(data?.errors)
+          ? data.errors.filter(Boolean).join("; ")
+          : null;
       const reason =
+        nested ||
         data?.data?.message ||
+        errors ||
+        (typeof responsePayload === "string" ? responsePayload : null) ||
         data?.message ||
-        (typeof data?.data?.response === "string" ? data.data.response : null) ||
-        `PayFast API error (HTTP ${data?.code || response.status || "unknown"})`;
-      const err = new HttpError(String(reason), data?.code || response.status || 502);
+        (topStatus && topStatus !== "success" ? topStatus : null) ||
+        `PayFast API error (HTTP ${topCode || response.status || "unknown"})`;
+      const err = new HttpError(
+        String(reason),
+        topCode || response.status || 502
+      );
       err.payfastResponse = data;
+      console.error(
+        "[payfast] API error:",
+        method,
+        path,
+        JSON.stringify(data)?.slice(0, 1500)
+      );
       throw err;
     }
     return data;
@@ -479,11 +523,31 @@ const sendApiRequest = async (
       status || 502
     );
     wrapped.payfastResponse = bodyData;
+    console.error(
+      "[payfast] API request threw:",
+      method,
+      path,
+      JSON.stringify(bodyData || { message: err?.message })?.slice(0, 1500)
+    );
     throw wrapped;
   }
 };
 
-/** GET /refunds/:pf_payment_id — refund eligibility and balance. */
+/**
+ * GET /refunds/query/:pf_payment_id — eligibility before creating a refund.
+ * (Do not confuse with GET /refunds/:id which retrieves existing refund balance.)
+ */
+const queryRefundEligibility = async (pfPaymentId) => {
+  if (!pfPaymentId) {
+    throw new HttpError("PayFast pf_payment_id is required to query a refund", 400);
+  }
+  return sendApiRequest(
+    "GET",
+    `refunds/query/${encodeURIComponent(pfPaymentId)}`
+  );
+};
+
+/** GET /refunds/:pf_payment_id — retrieve refund balance / prior refunds. */
 const queryRefund = async (pfPaymentId) => {
   if (!pfPaymentId) {
     throw new HttpError("PayFast pf_payment_id is required to query a refund", 400);
@@ -495,7 +559,83 @@ const centsToMajor = (value) => {
   if (value == null || value === "") return null;
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
+  // PayFast query endpoint returns cents; retrieve endpoint may too.
   return Math.round(n) / 100;
+};
+
+/**
+ * Parse GET /refunds/query/:id — status, available amount, payout method, token.
+ */
+const parseRefundEligibility = (refundData) => {
+  const topStatus = String(refundData?.status || "").toLowerCase();
+  const payload = refundData?.data?.response ?? refundData?.data ?? refundData;
+  const obj =
+    typeof payload === "object" && payload !== null && !Array.isArray(payload)
+      ? payload
+      : {};
+
+  const refundStatus = String(
+    obj.status || obj.refund_status || ""
+  ).toUpperCase();
+
+  const availableCents = Number(
+    obj.amount_available_for_refund ??
+      obj.amount_available ??
+      obj.available ??
+      obj.refundable_amount
+  );
+  const originalCents = Number(
+    obj.amount_original ?? obj.original_amount ?? obj.amount
+  );
+
+  const availableMajor = Number.isFinite(availableCents)
+    ? Math.round(availableCents) / 100
+    : null;
+  const originalMajor = Number.isFinite(originalCents)
+    ? Math.round(originalCents) / 100
+    : null;
+
+  const fullMethod = String(
+    obj.refund_full?.method || obj.refundFull?.method || ""
+  ).toUpperCase();
+  const partialMethod = String(
+    obj.refund_partial?.method || obj.refundPartial?.method || ""
+  ).toUpperCase();
+
+  const preferredMethod =
+    fullMethod === "PAYMENT_SOURCE"
+      ? "PAYMENT_SOURCE"
+      : partialMethod === "PAYMENT_SOURCE"
+        ? "PAYMENT_SOURCE"
+        : fullMethod || partialMethod || "";
+
+  const errors = Array.isArray(obj.errors)
+    ? obj.errors.map((e) => (typeof e === "string" ? e : e?.message || "")).filter(Boolean)
+    : [];
+
+  const token =
+    (obj.token != null && String(obj.token).trim()) ||
+    (obj.payment_token != null && String(obj.payment_token).trim()) ||
+    "";
+
+  return {
+    apiSuccess: topStatus === "success",
+    refundStatus,
+    isRefundable: refundStatus === "REFUNDABLE",
+    isCompleted: ["COMPLETED", "COMPLETE", "PROCESSED"].includes(refundStatus),
+    isUnavailable: refundStatus === "NOT_AVAILABLE",
+    availableMajor,
+    originalMajor,
+    fullMethod,
+    partialMethod,
+    preferredMethod,
+    canAutoRefundToSource: preferredMethod === "PAYMENT_SOURCE",
+    requiresBankPayout: preferredMethod === "BANK_PAYOUT",
+    token,
+    errors,
+    fundingType: obj.funding_type || obj.fundingType || "",
+    raw: refundData,
+  };
 };
 
 /**
@@ -598,6 +738,7 @@ const createRefund = async (
     throw new HttpError("Refund amount must be a positive number", 400);
   }
 
+  // Match PayFast docs / PHP SDK: amount as integer cents; notify flags as 0/1.
   const body = {
     amount: amountCents,
     reason: trimmedReason.slice(0, 255),
@@ -819,6 +960,8 @@ module.exports = {
   generateApiSignature,
   sendApiRequest,
   queryRefund,
+  queryRefundEligibility,
+  parseRefundEligibility,
   parseQueryRefundResponse,
   lookupRefundActivityInHistory,
   createRefund,

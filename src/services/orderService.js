@@ -1414,15 +1414,98 @@ const attemptGatewayRefund = async (
       : "Admin-initiated refund";
 
     try {
-      await payfastService.queryRefund(pfPaymentId).catch((err) => {
-        console.warn(
-          "[orderService] PayFast refund query failed (continuing):",
-          err?.message || err
+      let eligibility = null;
+      try {
+        const eligibilityRaw = await payfastService.queryRefundEligibility(pfPaymentId);
+        eligibility = payfastService.parseRefundEligibility(eligibilityRaw);
+        console.log(
+          "[orderService] PayFast refund eligibility:",
+          JSON.stringify({
+            pfPaymentId,
+            refundStatus: eligibility.refundStatus,
+            preferredMethod: eligibility.preferredMethod,
+            availableMajor: eligibility.availableMajor,
+            canAutoRefundToSource: eligibility.canAutoRefundToSource,
+            requiresBankPayout: eligibility.requiresBankPayout,
+            token: eligibility.token ? "(present)" : "",
+            errors: eligibility.errors,
+            fundingType: eligibility.fundingType,
+          })
         );
-      });
+      } catch (err) {
+        console.warn(
+          "[orderService] PayFast refund eligibility query failed (continuing):",
+          err?.message || err,
+          err?.payfastResponse
+            ? JSON.stringify(err.payfastResponse).slice(0, 800)
+            : ""
+        );
+      }
 
-      const refundData = await payfastService.createRefund(pfPaymentId, {
-        amountInMajor: refundAmount,
+      if (eligibility?.isCompleted) {
+        order.refund = {
+          ...(order.refund || {}),
+          status: "PROCESSED",
+          amount: refundAmount,
+          currency: order.currency,
+          attemptedAt: new Date(),
+          processedAt: new Date(),
+          lastError: "",
+          manualNote: "",
+        };
+        if (refundAudit) mergeRefundAudit(order, refundAudit);
+        return {
+          outcome: "REFUNDED",
+          manual: false,
+          apiAttempted: true,
+          payfastEnvironment: pfConfig.sandbox ? "sandbox" : "live",
+        };
+      }
+
+      if (eligibility?.isUnavailable) {
+        const detail =
+          eligibility.errors.join("; ") ||
+          "PayFast reports this payment is not refundable via API.";
+        throw new HttpError(detail, 400);
+      }
+
+      if (eligibility?.requiresBankPayout && !eligibility.canAutoRefundToSource) {
+        order.refund = {
+          ...(order.refund || {}),
+          status: "PENDING",
+          amount: refundAmount,
+          currency: order.currency,
+          attemptedAt: new Date(),
+          processedAt: null,
+          lastError: "",
+          manualNote:
+            "PayFast requires a bank payout refund for this payment method. Complete the refund in the PayFast merchant portal.",
+        };
+        if (refundAudit) mergeRefundAudit(order, refundAudit);
+        return {
+          outcome: "PENDING",
+          manual: true,
+          apiAttempted: false,
+          error:
+            "PayFast only supports bank-payout refund for this payment; complete manually in the merchant portal.",
+          payfastEnvironment: pfConfig.sandbox ? "sandbox" : "live",
+        };
+      }
+
+      let amountToRefund = refundAmount;
+      if (
+        eligibility?.availableMajor != null &&
+        Number.isFinite(eligibility.availableMajor) &&
+        eligibility.availableMajor > 0
+      ) {
+        amountToRefund = Math.min(refundAmount, eligibility.availableMajor);
+      }
+
+      // Prefer token from eligibility query when PayFast returns one (UUID form).
+      const refundTargetId = eligibility?.token || pfPaymentId;
+
+      const refundData = await payfastService.createRefund(refundTargetId, {
+        amountInMajor: amountToRefund,
         reason: refundReason,
         notifyBuyer: true,
         notifyMerchant: false,
@@ -1430,10 +1513,11 @@ const attemptGatewayRefund = async (
 
       const parsed = payfastService.parseCreateRefundResponse(refundData);
       if (!parsed.apiSuccess) {
-        throw new HttpError(
-          parsed.failureReason || "PayFast rejected the refund request.",
-          502
-        );
+        const detail =
+          parsed.failureReason ||
+          (refundData ? JSON.stringify(refundData).slice(0, 400) : null) ||
+          "PayFast rejected the refund request.";
+        throw new HttpError(detail, 502);
       }
 
       const isTerminalSuccess = parsed.terminalSuccess;
@@ -1442,7 +1526,7 @@ const attemptGatewayRefund = async (
         ...(order.refund || {}),
         status: isTerminalSuccess ? "PROCESSED" : "PENDING",
         paystackRefundId: parsed.refundId || "",
-        amount: refundAmount,
+        amount: amountToRefund,
         currency: order.currency,
         attemptedAt: new Date(),
         processedAt: isTerminalSuccess ? new Date() : null,
@@ -1459,10 +1543,14 @@ const attemptGatewayRefund = async (
       };
     } catch (err) {
       const message = err?.message || String(err);
+      const pfBody = err?.payfastResponse
+        ? JSON.stringify(err.payfastResponse).slice(0, 1000)
+        : "";
       console.error(
         "[orderService] PayFast createRefund failed:",
         message,
-        pfConfig.sandbox ? "(sandbox)" : "(live)"
+        pfConfig.sandbox ? "(sandbox)" : "(live)",
+        pfBody
       );
 
       if (pfConfig.sandbox) {
@@ -1491,6 +1579,8 @@ const attemptGatewayRefund = async (
       order.refund = {
         ...(order.refund || {}),
         status: "FAILED",
+        amount: refundAmount,
+        currency: order.currency,
         attemptedAt: new Date(),
         lastError: message.slice(0, 500),
         manualNote:
