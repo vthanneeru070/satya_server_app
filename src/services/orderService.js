@@ -1294,23 +1294,37 @@ const confirmDelivery = async (
  */
 /**
  * Resolve PayFast pf_payment_id from order or linked Payment record.
+ * Falls back to merchant payment reference (m_payment_id) and PayFast history lookup.
  */
 const resolvePayfastPaymentId = async (order) => {
   const fromOrder = order?.transactionId ? String(order.transactionId).trim() : "";
   if (fromOrder) return fromOrder;
 
-  const payment = await Payment.findOne({
-    order: order._id,
+  const orderId = order?._id || order?.id || null;
+  const reference = order?.paystackReference
+    ? String(order.paystackReference).trim()
+    : "";
+
+  const paymentFilter = {
     gateway: "PAYFAST",
     status: "SUCCESS",
     isDeleted: { $ne: true },
-  })
-    .select("paymentId transactionId response")
+  };
+  if (orderId) {
+    paymentFilter.order = orderId;
+  } else if (reference) {
+    paymentFilter.reference = reference;
+  } else {
+    return null;
+  }
+
+  const payment = await Payment.findOne(paymentFilter)
+    .select("paymentId transactionId response reference")
     .lean();
 
   const fromPayment =
-    (payment?.paymentId ? String(payment.paymentId).trim() : "") ||
-    (payment?.transactionId ? String(payment.transactionId).trim() : "");
+    (payment?.transactionId ? String(payment.transactionId).trim() : "") ||
+    (payment?.paymentId ? String(payment.paymentId).trim() : "");
 
   if (fromPayment) return fromPayment;
 
@@ -1318,6 +1332,33 @@ const resolvePayfastPaymentId = async (order) => {
   if (itn && typeof itn === "object" && itn.pf_payment_id != null) {
     const fromItn = String(itn.pf_payment_id).trim();
     if (fromItn) return fromItn;
+  }
+
+  const verify = payment?.response?.verify;
+  if (verify && typeof verify === "object") {
+    const fromVerify =
+      (verify.pf_payment_id != null && String(verify.pf_payment_id).trim()) ||
+      (verify.id != null && String(verify.id).trim()) ||
+      "";
+    if (fromVerify) return fromVerify;
+  }
+
+  // Last resort: look up pf_payment_id via PayFast transaction history using m_payment_id.
+  const lookupRef = reference || payment?.reference;
+  if (lookupRef) {
+    try {
+      const paymentService = require("./paymentService");
+      const backfill = await paymentService.backfillPayfastTransactionId(lookupRef);
+      if (backfill?.payfastPaymentId) {
+        return String(backfill.payfastPaymentId).trim();
+      }
+    } catch (err) {
+      console.warn(
+        "[orderService] PayFast pf_payment_id backfill failed:",
+        lookupRef,
+        err?.message || err
+      );
+    }
   }
 
   return null;
@@ -1439,7 +1480,7 @@ const attemptGatewayRefund = async (
         };
         if (refundAudit) mergeRefundAudit(order, refundAudit);
         return {
-          outcome: "FAILED",
+          outcome: "PENDING",
           manual: true,
           apiAttempted: true,
           error: message,
@@ -1597,12 +1638,12 @@ const executeOrderCancellation = async (
   const trimmedCancelReason = String(reason || "").trim().slice(0, 2000);
   let refundOutcome = null;
   if (wasPaid) {
-    const tmp = {
-      paymentMethod: preCheck.paymentMethod,
-      paystackReference: preCheck.paystackReference,
-      totalAmount: preCheck.totalAmount,
-      currency: preCheck.currency,
-      refund: preCheck.refund || {},
+    // Pass full order fields — PayFast refund needs `_id` + `transactionId`
+    // (or paystackReference) to resolve pf_payment_id. A stripped object
+    // previously caused every cancel to fail with REFUND_FAILED.
+    const refundTarget = {
+      ...preCheck,
+      refund: { ...(preCheck.refund || {}) },
     };
     const cancelRefundNote =
       mode === "user"
@@ -1613,7 +1654,7 @@ const executeOrderCancellation = async (
           ? `Admin cancel — ${trimmedCancelReason}`.slice(0, 300)
           : "Admin cancel";
     const refundedBy = mode === "admin" ? await buildRefundedBy(actorUserId) : null;
-    refundOutcome = await attemptPaystackRefund(tmp, {
+    refundOutcome = await attemptGatewayRefund(refundTarget, {
       reason: cancelRefundNote,
       refundAudit: {
         reason: trimmedCancelReason,
@@ -1621,7 +1662,7 @@ const executeOrderCancellation = async (
         refundedBy,
       },
     });
-    preCheck.refund = tmp.refund;
+    preCheck.refund = refundTarget.refund;
   }
 
   const session = await mongoose.startSession();
