@@ -1470,26 +1470,11 @@ const attemptGatewayRefund = async (
       }
 
       if (eligibility?.requiresBankPayout && !eligibility.canAutoRefundToSource) {
-        order.refund = {
-          ...(order.refund || {}),
-          status: "PENDING",
-          amount: refundAmount,
-          currency: order.currency,
-          attemptedAt: new Date(),
-          processedAt: null,
-          lastError: "",
-          manualNote:
-            "PayFast requires a bank payout refund for this payment method. Complete the refund in the PayFast merchant portal.",
-        };
-        if (refundAudit) mergeRefundAudit(order, refundAudit);
-        return {
-          outcome: "PENDING",
-          manual: true,
-          apiAttempted: false,
-          error:
-            "PayFast only supports bank-payout refund for this payment; complete manually in the merchant portal.",
-          payfastEnvironment: pfConfig.sandbox ? "sandbox" : "live",
-        };
+        // Still attempt API create — PayFast may refund from merchant float.
+        // Only fall back to manual if create fails (e.g. missing bank details).
+        console.log(
+          "[orderService] PayFast eligibility prefers BANK_PAYOUT; attempting API refund anyway"
+        );
       }
 
       let amountToRefund = refundAmount;
@@ -1503,6 +1488,15 @@ const attemptGatewayRefund = async (
 
       // Prefer token from eligibility query when PayFast returns one (UUID form).
       const refundTargetId = eligibility?.token || pfPaymentId;
+
+      console.log(
+        "[orderService] PayFast createRefund attempt:",
+        JSON.stringify({
+          refundTargetId,
+          amountInMajor: amountToRefund,
+          method: eligibility?.preferredMethod || "unknown",
+        })
+      );
 
       const refundData = await payfastService.createRefund(refundTargetId, {
         amountInMajor: amountToRefund,

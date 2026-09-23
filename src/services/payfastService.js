@@ -460,19 +460,45 @@ const sendApiRequest = async (
     const topStatus = String(data?.status || "").toLowerCase();
     const topCode = Number(data?.code);
     const responsePayload = data?.data?.response;
+
+    // GET /refunds/query/:id sometimes returns the eligibility object at the root
+    // (no { code, status, data } envelope).
+    const isRefundEligibilityPayload =
+      data &&
+      typeof data === "object" &&
+      (data.token || data.amount_original != null || data.amount_available_for_refund != null) &&
+      ["REFUNDABLE", "COMPLETED", "COMPLETE", "NOT_AVAILABLE", "PROCESSED"].includes(
+        String(data.status || "").toUpperCase()
+      );
+
+    const responseErrors = (() => {
+      const fromNested = Array.isArray(responsePayload?.errors)
+        ? responsePayload.errors
+        : null;
+      const fromData = Array.isArray(data?.data?.errors) ? data.data.errors : null;
+      const fromRoot = Array.isArray(data?.errors) ? data.errors : null;
+      const list = fromNested || fromData || fromRoot || [];
+      return list
+        .map((e) => (typeof e === "string" ? e : e?.message || e?.reason || ""))
+        .filter(Boolean)
+        .join("; ");
+    })();
+
     const responseIsExplicitFailure =
       responsePayload === false ||
       String(responsePayload).toLowerCase() === "false" ||
       (typeof responsePayload === "object" &&
         responsePayload !== null &&
         !Array.isArray(responsePayload) &&
-        (responsePayload.reason || responsePayload.message) &&
-        !responsePayload.status &&
-        !responsePayload.refund_id &&
-        !responsePayload.id);
+        (String(responsePayload.status || "").toUpperCase() === "FAILED" ||
+          ((responsePayload.reason || responsePayload.message) &&
+            !responsePayload.refund_id &&
+            !responsePayload.id &&
+            !responsePayload.instruction_token)));
 
     const httpOk =
-      (topCode === 200 || topStatus === "success") && !responseIsExplicitFailure;
+      isRefundEligibilityPayload ||
+      ((topCode === 200 || topStatus === "success") && !responseIsExplicitFailure);
 
     if (!httpOk) {
       const nested =
@@ -482,18 +508,17 @@ const sendApiRequest = async (
             responsePayload.code ||
             null
           : null;
-      const errors = Array.isArray(data?.data?.errors)
-        ? data.data.errors.filter(Boolean).join("; ")
-        : Array.isArray(data?.errors)
-          ? data.errors.filter(Boolean).join("; ")
-          : null;
       const reason =
+        responseErrors ||
         nested ||
         data?.data?.message ||
-        errors ||
         (typeof responsePayload === "string" ? responsePayload : null) ||
-        data?.message ||
-        (topStatus && topStatus !== "success" ? topStatus : null) ||
+        (data?.message && String(data.message).toLowerCase() !== "failed"
+          ? data.message
+          : null) ||
+        (topStatus && !["success", "refundable", "completed", "complete"].includes(topStatus)
+          ? topStatus
+          : null) ||
         `PayFast API error (HTTP ${topCode || response.status || "unknown"})`;
       const err = new HttpError(
         String(reason),
