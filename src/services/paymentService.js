@@ -156,7 +156,17 @@ const normalizeGatewayData = (gateway, rawData) => {
   };
 };
 
-/** Pull PayFast pf_payment_id from a Payment doc or nested gateway response blobs. */
+/** Prefer explicit transactionId; accept legacy ITN shape that only has `id`. */
+const gatewayTransactionId = (gatewayData) => {
+  if (!gatewayData || typeof gatewayData !== "object") return null;
+  if (gatewayData.transactionId != null && String(gatewayData.transactionId).trim() !== "") {
+    return String(gatewayData.transactionId).trim();
+  }
+  if (gatewayData.id != null && String(gatewayData.id).trim() !== "") {
+    return String(gatewayData.id).trim();
+  }
+  return null;
+};
 const extractPfPaymentIdFromStoredGatewayData = (source) => {
   if (!source || typeof source !== "object") return null;
   if (source.transactionId != null && String(source.transactionId).trim() !== "") {
@@ -247,6 +257,54 @@ const backfillPayfastTransactionId = async (reference, { session = null } = {}) 
   }
 
   return { updated, payfastPaymentId: pfId, reference };
+};
+
+/**
+ * For list APIs: copy pf_payment_id from linked Payment rows (and persist when found locally).
+ * Does not call PayFast APIs — run scripts/backfillPayfastTransactionIds.js for historical rows.
+ */
+const enrichOrdersWithPayfastIds = async (orders) => {
+  const rows = Array.isArray(orders) ? orders : [];
+  const needsFill = rows.filter((o) => {
+    const paidLike = ["PAID", "REFUNDED", "REFUND_INITIATED", "REFUND_FAILED"].includes(
+      o.paymentStatus
+    );
+    const missing =
+      o.transactionId == null || String(o.transactionId).trim() === "";
+    return paidLike && missing && o.paystackReference;
+  });
+  if (!needsFill.length) return rows;
+
+  const refs = needsFill.map((o) => o.paystackReference);
+  const payments = await Payment.find({
+    reference: { $in: refs },
+    gateway: "PAYFAST",
+    isDeleted: { $ne: true },
+  });
+
+  const paymentByRef = new Map(payments.map((p) => [p.reference, p]));
+
+  await Promise.all(
+    needsFill.map(async (order) => {
+      const payment = paymentByRef.get(order.paystackReference);
+      const pfId = payment ? extractPfPaymentIdFromStoredGatewayData(payment) : null;
+      if (!pfId) return;
+
+      order.transactionId = pfId;
+      if (typeof order.save === "function") {
+        await order.save();
+      } else {
+        await Order.updateOne({ _id: order._id }, { $set: { transactionId: pfId } });
+      }
+      if (payment && payment.transactionId !== pfId) {
+        payment.transactionId = pfId;
+        if (!payment.paymentId) payment.paymentId = pfId;
+        await payment.save();
+      }
+    })
+  );
+
+  return rows;
 };
 
 /**
@@ -549,8 +607,8 @@ const settleOrderInTransaction = async ({
       payment.status = "SUCCESS";
       shouldSavePayment = true;
     }
-    if (gatewayData.transactionId != null) {
-      const pfId = String(gatewayData.transactionId);
+    const pfId = gatewayTransactionId(gatewayData);
+    if (pfId) {
       if (payment.transactionId !== pfId) {
         payment.transactionId = pfId;
         shouldSavePayment = true;
@@ -575,12 +633,17 @@ const settleOrderInTransaction = async ({
     if (gatewayStatus === "success") {
       if (payment.status !== "SUCCESS") {
         payment.status = "SUCCESS";
-        payment.paymentId =
-          gatewayData.transactionId != null ? String(gatewayData.transactionId) : payment.paymentId;
-        payment.transactionId =
-          gatewayData.transactionId != null ? String(gatewayData.transactionId) : payment.transactionId;
+        const pfId = gatewayTransactionId(gatewayData);
+        payment.paymentId = pfId || payment.paymentId;
+        payment.transactionId = pfId || payment.transactionId;
         payment.response = { ...(payment.response || {}), verify: gatewayData.raw };
         await payment.save({ session });
+      } else {
+        const pfId = gatewayTransactionId(gatewayData);
+        if (pfId && order.transactionId !== pfId) {
+          order.transactionId = pfId;
+          await order.save({ session });
+        }
       }
     }
     return { order, payment, status: "success", alreadyPaid: true, shouldNotify: false };
@@ -605,17 +668,15 @@ const settleOrderInTransaction = async ({
 
     await applyStockDecrement(order, session);
 
+    const pfId = gatewayTransactionId(gatewayData);
     payment.status = "SUCCESS";
-    payment.paymentId =
-      gatewayData.transactionId != null ? String(gatewayData.transactionId) : null;
-    payment.transactionId =
-      gatewayData.transactionId != null ? String(gatewayData.transactionId) : null;
+    payment.paymentId = pfId;
+    payment.transactionId = pfId;
     payment.response = { ...(payment.response || {}), verify: gatewayData.raw };
     await payment.save({ session });
 
     order.paymentStatus = "PAID";
-    order.transactionId =
-      gatewayData.transactionId != null ? String(gatewayData.transactionId) : null;
+    order.transactionId = pfId;
     order.inventoryReserved = true;
     issuePickupPinOnOrder(order);
     appendOrderHistory(order, order.orderStatus, `PayFast paid (ref: ${payment.reference})`);
@@ -681,8 +742,8 @@ const settleDonationInTransaction = async ({
       payment.status = "SUCCESS";
       shouldSavePayment = true;
     }
-    if (gatewayData.transactionId != null) {
-      const pfId = String(gatewayData.transactionId);
+    const pfId = gatewayTransactionId(gatewayData);
+    if (pfId) {
       if (payment.transactionId !== pfId) {
         payment.transactionId = pfId;
         shouldSavePayment = true;
@@ -721,17 +782,15 @@ const settleDonationInTransaction = async ({
       );
     }
 
+    const pfId = gatewayTransactionId(gatewayData);
     payment.status = "SUCCESS";
-    payment.paymentId =
-      gatewayData.transactionId != null ? String(gatewayData.transactionId) : null;
-    payment.transactionId =
-      gatewayData.transactionId != null ? String(gatewayData.transactionId) : null;
+    payment.paymentId = pfId;
+    payment.transactionId = pfId;
     payment.response = { ...(payment.response || {}), verify: gatewayData.raw };
     await payment.save({ session });
 
     contribution.paymentStatus = "PAID";
-    contribution.transactionId =
-      gatewayData.transactionId != null ? String(gatewayData.transactionId) : null;
+    contribution.transactionId = pfId;
     await contribution.save({ session });
 
     return { contribution, payment, status: "success", alreadyPaid: false, shouldNotify: true };
@@ -1339,11 +1398,36 @@ const handlePayfastItn = async (
     return { ignored: true, reason: itnResult.reason };
   }
 
-  const gatewayData = itnResult.data;
+  const gatewayData = normalizeGatewayData("PAYFAST", itnResult.data);
   const gatewayStatus = gatewayData.status;
 
   if (gatewayStatus !== "success") {
     return markPaymentFailedFromWebhook(reference, posted);
+  }
+
+  // Always persist pf_payment_id when ITN carries it (including already-SUCCESS payments).
+  if (gatewayData.transactionId) {
+    const pfId = String(gatewayData.transactionId);
+    if (payment.transactionId !== pfId) {
+      payment.transactionId = pfId;
+      if (!payment.paymentId) payment.paymentId = pfId;
+    }
+    payment.response = { ...(payment.response || {}), itn: posted };
+    await payment.save();
+    if (payment.order) {
+      await Order.updateOne(
+        {
+          _id: payment.order,
+          $or: [
+            { transactionId: null },
+            { transactionId: "" },
+            { transactionId: { $exists: false } },
+            { transactionId: { $ne: pfId } },
+          ],
+        },
+        { $set: { transactionId: pfId } }
+      );
+    }
   }
 
   if (payment.status === "SUCCESS") {
@@ -1515,6 +1599,7 @@ module.exports = {
   extractPayfastItnFromVerifyPayload,
   extractPfPaymentIdFromStoredGatewayData,
   backfillPayfastTransactionId,
+  enrichOrdersWithPayfastIds,
   enrichDonationContributionsWithPayfastIds,
   handlePaystackWebhook,
   handlePayfastItn,

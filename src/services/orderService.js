@@ -634,6 +634,9 @@ const listMyOrders = async (userId, query = {}) => {
     Order.countDocuments(filter),
   ]);
 
+  const paymentService = require("./paymentService");
+  await paymentService.enrichOrdersWithPayfastIds(orders);
+
   return {
     orders,
     pagination: {
@@ -675,6 +678,9 @@ const listAllOrders = async (query = {}) => {
     Order.countDocuments(filter),
   ]);
 
+  const paymentService = require("./paymentService");
+  await paymentService.enrichOrdersWithPayfastIds(orders);
+
   return {
     orders,
     pagination: {
@@ -701,6 +707,8 @@ const getOrderById = async (id, { userId = null, isAdmin = false } = {}) => {
   if (isAdmin) {
     await shippingShipmentService.ensureOutboundDeliveryAddressSnapshots(order);
   }
+  const paymentService = require("./paymentService");
+  await paymentService.enrichOrdersWithPayfastIds([order]);
   return order;
 };
 
