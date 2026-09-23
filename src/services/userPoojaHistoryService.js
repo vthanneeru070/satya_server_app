@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const UserPoojaSession = require("../models/UserPoojaSession");
 const Pooja = require("../models/Pooja");
+const { notifyPoojaCompleted } = require("./fcmPoojaNotifyService");
 const User = require("../models/User");
 const HttpError = require("../utils/httpError");
 const {
@@ -291,6 +292,13 @@ const finishPooja = async (userId, poojaId) => {
   session.status = "FINISHED";
   session.finishedAt = new Date();
   await session.save();
+
+  const pooja = session.pooja;
+  await notifyPoojaCompleted(userId, {
+    poojaId: pooja?._id || poojaId,
+    poojaTitle: pooja?.title,
+    sessionId: session._id,
+  });
 
   return { session: formatSession(session) };
 };
