@@ -221,10 +221,10 @@ const bulkImportDailySlokas = async (req, res, next) => {
           date: normalizedDate,
           dateKey,
           sloka,
-          author: author || undefined,
-          meaning: meaning || undefined,
-          contemplation: contemplation || undefined,
-          prayer: prayer || undefined
+          author: author || "",
+          meaning: meaning || "",
+          contemplation: contemplation || "",
+          prayer: prayer || "",
         });
       } catch (error) {
         invalidRows.push({
