@@ -1,5 +1,5 @@
 const HttpError = require("../utils/httpError");
-const { getTcgConfig } = require("../config/tcgConfig");
+const { getTcgConfig, WEEKDAY_CODES } = require("../config/tcgConfig");
 const tcgClient = require("../integrations/tcg/tcgClient");
 
 const SA_TIMEZONE = "Africa/Johannesburg";
@@ -14,6 +14,31 @@ const todayIsoDate = () =>
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
+
+const saTimeHHMM = () =>
+  new Intl.DateTimeFormat("en-GB", {
+    timeZone: SA_TIMEZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date());
+
+/**
+ * Next SA calendar date (YYYY-MM-DD) the warehouse is open, per
+ * `TCG_WAREHOUSE_OPEN_DAYS`. Today counts only before `TCG_WAREHOUSE_OPEN_BEFORE`.
+ */
+const nextWarehouseOpenDate = (cfg = getTcgConfig()) => {
+  const today = todayIsoDate();
+  const base = new Date(`${today}T12:00:00Z`);
+  const startOffset = saTimeHHMM() < cfg.warehouseOpenBefore ? 0 : 1;
+  for (let offset = startOffset; offset < startOffset + 7; offset++) {
+    const d = new Date(base.getTime() + offset * 86400000);
+    if (cfg.warehouseOpenDays.includes(WEEKDAY_CODES[d.getUTCDay()])) {
+      return d.toISOString().slice(0, 10);
+    }
+  }
+  return today;
+};
 
 /** ShipLogic expects ISO country code ZA (not "South Africa"). */
 const normalizeShipLogicCountry = (countryRaw) => {
@@ -252,7 +277,7 @@ const quoteDoorToDoor = async ({
     );
   }
 
-  const saDate = todayIsoDate();
+  const saDate = nextWarehouseOpenDate(cfg);
   // ShipLogic POST /rates payload shape (see API docs).
   const payload = {
     collection_address: collectionAddress,
@@ -438,6 +463,7 @@ module.exports = {
   resolveDeliveryChargeForQuote,
   getPickupLocation,
   todayIsoDate,
+  nextWarehouseOpenDate,
   collectionAddressFromWarehouse,
   SA_TIMEZONE,
 };

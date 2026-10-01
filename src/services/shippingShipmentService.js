@@ -6,7 +6,22 @@ const {
   toShipLogicAddress,
   defaultParcels,
   todayIsoDate,
+  nextWarehouseOpenDate,
 } = require("./shippingQuoteService");
+
+const DAY_LABELS = {
+  SUN: "Sun",
+  MON: "Mon",
+  TUE: "Tue",
+  WED: "Wed",
+  THU: "Thu",
+  FRI: "Fri",
+  SAT: "Sat",
+};
+
+const warehouseHoursNote = (cfg) =>
+  `Warehouse open ${cfg.warehouseOpenDays.map((d) => DAY_LABELS[d]).join(", ")} ` +
+  `${cfg.warehouseOpenAfter}–${cfg.warehouseOpenBefore}.`;
 const Warehouse = require("../models/Warehouse");
 const {
   applyPodFromEvents,
@@ -121,6 +136,7 @@ const bookShipmentForOrder = async (order, { actorUserId } = {}) => {
     );
   }
 
+  const collectionDate = nextWarehouseOpenDate(cfg);
   const payload = {
     collection_address: collectionAddress,
     collection_contact: collectionContact,
@@ -133,10 +149,12 @@ const bookShipmentForOrder = async (order, { actorUserId } = {}) => {
     parcels: defaultParcels(cfg),
     opt_in_rates: [],
     opt_in_time_based_rates: [],
-    special_instructions_collection: "",
+    special_instructions_collection: warehouseHoursNote(cfg),
     special_instructions_delivery: "",
-    collection_min_date: `${todayIsoDate()}T00:00:00+02:00`,
-    delivery_min_date: `${todayIsoDate()}T00:00:00+02:00`,
+    collection_min_date: `${collectionDate}T00:00:00+02:00`,
+    collection_after: cfg.warehouseOpenAfter,
+    collection_before: cfg.warehouseOpenBefore,
+    delivery_min_date: `${collectionDate}T00:00:00+02:00`,
     customer_reference_name: "Order no.",
     customer_reference: order.orderNumber,
     service_level_code: order.shippingQuote.serviceLevelCode,
@@ -465,9 +483,11 @@ const bookReturnShipmentForRequest = async (
     opt_in_rates: [],
     opt_in_time_based_rates: [],
     special_instructions_collection: `Return — item for ${purposeLabel}`,
-    special_instructions_delivery: `${purposeLabel} return shipment`,
+    special_instructions_delivery: `${purposeLabel} return shipment. ${warehouseHoursNote(cfg)}`,
     collection_min_date: `${todayIsoDate()}T00:00:00+02:00`,
-    delivery_min_date: `${todayIsoDate()}T00:00:00+02:00`,
+    delivery_min_date: `${nextWarehouseOpenDate(cfg)}T00:00:00+02:00`,
+    delivery_after: cfg.warehouseOpenAfter,
+    delivery_before: cfg.warehouseOpenBefore,
     customer_reference_name: "Return for",
     customer_reference: requestDoc.requestNumber || originalOrder.orderNumber,
     service_level_code: serviceLevel,

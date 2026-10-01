@@ -42,6 +42,21 @@ const DEFAULT_COLLECTION_CONTACT = {
   mobile_number: "+27821234567",
 };
 
+const WEEKDAY_CODES = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+
+const parseOpenDays = (raw) => {
+  const days = String(raw || "TUE,WED,THU,FRI,SAT,SUN")
+    .split(",")
+    .map((d) => d.trim().toUpperCase().slice(0, 3))
+    .filter((d) => WEEKDAY_CODES.includes(d));
+  return days.length ? [...new Set(days)] : WEEKDAY_CODES.filter((d) => d !== "MON");
+};
+
+const parseHHMM = (raw, fallback) => {
+  const v = String(raw || "").trim();
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? v : fallback;
+};
+
 const getTcgConfig = () => {
   const apiEnv = String(process.env.TCG_API_ENV || "test").toLowerCase();
   const useMock = parseBool(process.env.TCG_USE_MOCK, !process.env.TCG_API_KEY);
@@ -100,6 +115,10 @@ const getTcgConfig = () => {
     pickupInstructions:
       (process.env.TCG_PICKUP_INSTRUCTIONS || "").trim() ||
       "Please bring your order number, collection code, and a valid ID when collecting.",
+    /** Warehouse days/hours when the courier may collect (outbound) or deliver (returns). */
+    warehouseOpenDays: parseOpenDays(process.env.TCG_WAREHOUSE_OPEN_DAYS),
+    warehouseOpenAfter: parseHHMM(process.env.TCG_WAREHOUSE_OPEN_AFTER, "09:00"),
+    warehouseOpenBefore: parseHHMM(process.env.TCG_WAREHOUSE_OPEN_BEFORE, "17:00"),
     /** ShipLogic POD method, e.g. pin-with-fallback. Set empty or "none" to disable. */
     podMethod: (process.env.TCG_POD_METHOD || "pin-with-fallback").trim(),
   };
@@ -122,6 +141,7 @@ const requireCollectionConfig = (cfg = getTcgConfig()) => {
 };
 
 module.exports = {
+  WEEKDAY_CODES,
   getTcgConfig,
   requireCollectionConfig,
 };
