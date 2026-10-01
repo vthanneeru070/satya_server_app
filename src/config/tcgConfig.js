@@ -67,10 +67,7 @@ const getTcgConfig = () => {
 
   let baseUrl = (process.env.TCG_API_BASE_URL || "").trim().replace(/\/$/, "");
   if (!baseUrl) {
-    baseUrl =
-      apiEnv === "production"
-        ? "https://api-tcg.co.za"
-        : "https://api.shiplogic.com";
+    baseUrl = "https://api.shiplogic.com";
   }
 
   const defaultTrackingPublicBaseUrl =

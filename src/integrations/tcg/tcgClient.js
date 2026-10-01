@@ -60,11 +60,25 @@ const request = async (method, path, { body, query, accept } = {}) => {
       (payload && (payload.message || payload.error || payload.detail)) ||
       (typeof payload === "string" && payload.slice(0, 300)) ||
       `Courier API error (${res.status})`;
-    console.error("[tcgClient]", method, path, res.status, msg);
+    console.error("[tcgClient]", method, url.toString(), res.status, String(msg).slice(0, 300));
     const normalized = String(msg).trim();
     const lower = normalized.toLowerCase();
+    const isHtml = /^\s*<(!doctype|html)/i.test(normalized);
+    if (res.status === 404 && isHtml) {
+      throw new HttpError(
+        `Courier API endpoint not found (${cfg.baseUrl}${path}). Check TCG_API_BASE_URL — it should be https://api.shiplogic.com.`,
+        502
+      );
+    }
+    if (res.status === 401 || res.status === 403) {
+      throw new HttpError(
+        "Courier Guy rejected the API key. Check TCG_API_KEY (live key for production, sandbox key for test).",
+        502
+      );
+    }
+    const isShipmentLookup = /^\/?shipments(\/|$|\?)/.test(path) && method === "GET";
     if (
-      res.status === 404 ||
+      (res.status === 404 && isShipmentLookup) ||
       lower.includes("could not find shipment") ||
       lower.includes("shipment not found")
     ) {
