@@ -81,21 +81,26 @@ const searchFestivals = async (query, limit) => {
   };
 
   const rows = await Festival.find(filter)
-    .select("title description image updatedAt")
+    .select("title description image date endDate category location isGlobal updatedAt")
     .sort({ date: -1 })
     .limit(limit)
     .lean();
 
-  return rows.map((row) =>
-    mapHit({
+  return rows.map((row) => ({
+    ...mapHit({
       id: row._id,
       type: "festival",
       title: row.title,
       description: row.description,
       imageUrl: row.image,
       updatedAt: row.updatedAt,
-    })
-  );
+    }),
+    date: row.date || null,
+    endDate: row.endDate || null,
+    category: row.category || null,
+    location: row.location || null,
+    isGlobal: row.isGlobal ?? true,
+  }));
 };
 
 const searchRituals = async (query, limit) => {
