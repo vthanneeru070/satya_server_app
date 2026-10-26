@@ -1,5 +1,6 @@
 const express = require("express");
 const authenticate = require("../middleware/authenticate");
+const optionalAuthenticate = require("../middleware/optionalAuthenticate");
 const authorizeRoles = require("../middleware/authorizeRoles");
 const authorizeSuperAdmin = require("../middleware/authorizeSuperAdmin");
 const validate = require("../middleware/validate");
@@ -75,6 +76,9 @@ router.post(
  * /poojas:
  *   get:
  *     summary: Get all poojas
+ *     description: |
+ *       Public. No access token is required. Guests receive APPROVED poojas only.
+ *       A valid admin token may filter by review status.
  *     tags: [Poojas]
  *     parameters:
  *       - in: query
@@ -96,7 +100,7 @@ router.post(
  *       200:
  *         description: Poojas fetched successfully
  */
-router.get("/", authenticate, validate(allPoojasQuerySchema, "query"), getPoojas);
+router.get("/", optionalAuthenticate, validate(allPoojasQuerySchema, "query"), getPoojas);
 
 /**
  * @swagger

@@ -1,5 +1,5 @@
 const express = require("express");
-const authenticate = require("../middleware/authenticate");
+const optionalAuthenticate = require("../middleware/optionalAuthenticate");
 const validate = require("../middleware/validate");
 const { getCalendarItems } = require("../controllers/calendarController");
 const { calendarQuerySchema } = require("../validations/calendarValidation");
@@ -19,11 +19,10 @@ const router = express.Router();
  *   get:
  *     summary: Get festivals, poojas and moon phases by month and year
  *     description: |
- *       Returns all festivals, poojas and moon phases for the given month/year.
- *       Users get approved items only, while admins get all statuses.
+ *       Public. No access token is required.
+ *       Returns festivals, poojas and moon phases for the given month/year.
+ *       Guests get approved items only. A valid admin token returns all statuses.
  *     tags: [Calendar]
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: month
@@ -51,9 +50,7 @@ const router = express.Router();
  *         description: Calendar data fetched successfully
  *       400:
  *         description: Invalid query
- *       401:
- *         description: Unauthorized
  */
-router.get("/", authenticate, validate(calendarQuerySchema, "query"), getCalendarItems);
+router.get("/", optionalAuthenticate, validate(calendarQuerySchema, "query"), getCalendarItems);
 
 module.exports = router;

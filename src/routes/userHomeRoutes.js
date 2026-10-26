@@ -1,16 +1,8 @@
 const express = require("express");
-const authenticate = require("../middleware/authenticate");
+const optionalAuthenticate = require("../middleware/optionalAuthenticate");
 const { getUserHome } = require("../controllers/userHomeController");
 
 const router = express.Router();
-
-const optionalAuthenticate = (req, res, next) => {
-  if (!req.headers.authorization) return next();
-  return authenticate(req, res, (err) => {
-    if (err) return next();
-    return next();
-  });
-};
 
 /**
  * @swagger
@@ -38,9 +30,8 @@ const optionalAuthenticate = (req, res, next) => {
  *
  *       Always includes `featuredProducts`: up to 10 buyable products with
  *       `isFeatured: true` (APPROVED + ACTIVE). Empty array when none are featured.
+ *       No access token is required.
  *     tags: [User Home]
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: header
  *         name: x-timezone

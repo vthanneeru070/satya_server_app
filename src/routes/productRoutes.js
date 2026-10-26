@@ -1,5 +1,6 @@
 const express = require("express");
 const authenticate = require("../middleware/authenticate");
+const optionalAuthenticate = require("../middleware/optionalAuthenticate");
 const authorizeRoles = require("../middleware/authorizeRoles");
 const authorizeSuperAdmin = require("../middleware/authorizeSuperAdmin");
 const validate = require("../middleware/validate");
@@ -32,20 +33,6 @@ const {
 } = require("../validations/productValidation");
 
 const router = express.Router();
-
-/**
- * Optional authenticate — attaches req.user when a valid token is supplied,
- * but does NOT reject anonymous requests. Used on public read routes so the
- * controller can show APPROVED+ACTIVE-only items to guests and admins can use
- * the same URL to see other statuses via query flags.
- */
-const optionalAuthenticate = (req, res, next) => {
-  if (!req.headers.authorization) return next();
-  return authenticate(req, res, (err) => {
-    if (err) return next();
-    return next();
-  });
-};
 
 /**
  * @swagger

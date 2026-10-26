@@ -1,5 +1,6 @@
 const express = require("express");
 const authenticate = require("../middleware/authenticate");
+const optionalAuthenticate = require("../middleware/optionalAuthenticate");
 const authorizeRoles = require("../middleware/authorizeRoles");
 const authorizeSuperAdmin = require("../middleware/authorizeSuperAdmin");
 const validate = require("../middleware/validate");
@@ -85,10 +86,10 @@ router.post(
  * /rituals:
  *   get:
  *     summary: List approved rituals (paginated)
- *     description: Authenticated users receive APPROVED rituals. Admins may filter by status.
+ *     description: |
+ *       Public. No access token is required. Guests receive APPROVED rituals only.
+ *       A valid admin token may filter by review status.
  *     tags: [Rituals]
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: page
@@ -131,10 +132,8 @@ router.post(
  *                         limit: { type: integer }
  *                         total: { type: integer }
  *                         totalPages: { type: integer }
- *       401:
- *         description: Unauthorized
  */
-router.get("/", authenticate, validate(allRitualsQuerySchema, "query"), getRituals);
+router.get("/", optionalAuthenticate, validate(allRitualsQuerySchema, "query"), getRituals);
 
 /**
  * @swagger
