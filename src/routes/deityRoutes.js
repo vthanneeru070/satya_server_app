@@ -1,5 +1,6 @@
 const express = require("express");
 const authenticate = require("../middleware/authenticate");
+const optionalAuthenticate = require("../middleware/optionalAuthenticate");
 const authorizeRoles = require("../middleware/authorizeRoles");
 const authorizeSuperAdmin = require("../middleware/authorizeSuperAdmin");
 const validate = require("../middleware/validate");
@@ -139,9 +140,8 @@ router.get(
  * /deities:
  *   get:
  *     summary: Get approved deities (paginated)
+ *     description: Public. No access token is required. Returns APPROVED deities only.
  *     tags: [Deities]
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: page
@@ -162,12 +162,10 @@ router.get(
  *     responses:
  *       200:
  *         description: Deities fetched successfully
- *       401:
- *         description: Unauthorized
  */
 router.get(
   "/",
-  authenticate,
+  optionalAuthenticate,
   validate(allDeitiesQuerySchema, "query"),
   getDeities
 );
@@ -177,10 +175,10 @@ router.get(
  * /deities/{id}:
  *   get:
  *     summary: Get deity by ID
- *     description: Returns deity details by ID. Non-admin users can access approved deities only.
+ *     description: |
+ *       Public. No access token is required. Guests can access approved deities only.
+ *       A valid admin token can open any status.
  *     tags: [Deities]
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -190,14 +188,12 @@ router.get(
  *     responses:
  *       200:
  *         description: Deity fetched successfully
- *       401:
- *         description: Unauthorized
  *       404:
  *         description: Deity not found
  */
 router.get(
   "/:id",
-  authenticate,
+  optionalAuthenticate,
   validate(deityIdParamsSchema, "params"),
   getDeityById
 );
