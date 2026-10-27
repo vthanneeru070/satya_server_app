@@ -486,6 +486,7 @@ const initializeDonationPayment = async ({
           {
             contributionNumber,
             user: userId,
+            source: "APP",
             amount: normalizedAmount,
             currency: normalizedCurrency,
             paymentStatus: "PENDING",
@@ -516,6 +517,8 @@ const initializeDonationPayment = async ({
         },
       });
 
+      // Never return merchant_key / passphrase to clients — formFields are signed
+      // server-side; merchant_key is required by PayFast hosted checkout POST.
       const [payment] = await Payment.create(
         [
           {
@@ -528,7 +531,7 @@ const initializeDonationPayment = async ({
             gateway: "PAYFAST",
             reference: initData.reference,
             status: "PENDING",
-            response: { initialize: initData },
+            response: { initialize: { ...initData, formFields: undefined } },
           },
         ],
         { session }
@@ -550,6 +553,160 @@ const initializeDonationPayment = async ({
         amount: normalizedAmount,
         currency: normalizedCurrency,
         email,
+        source: "APP",
+      };
+    });
+  } finally {
+    await session.endSession();
+  }
+  return result;
+};
+
+/**
+ * Public website donation checkout (no JWT). Creates an anonymous
+ * DonationContribution (user=null, source=WEBSITE) and a Payment row, then
+ * returns signed PayFast hosted-checkout fields. Settlement remains ITN-only.
+ */
+const initializeWebsiteDonationPayment = async ({
+  amount,
+  currency = "ZAR",
+  note = "",
+  email,
+  nameFirst = "",
+  nameLast = "",
+  callbackUrl,
+  cancelUrl,
+} = {}) => {
+  const {
+    readDonationPublicConfig,
+    isAllowedWebsiteDonationRedirect,
+  } = require("../config/websiteDonation");
+  const publicConfig = readDonationPublicConfig();
+
+  if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+    throw new HttpError("amount must be a positive number", 400);
+  }
+  const normalizedAmount = Math.round(Number(amount) * 100) / 100;
+  if (
+    normalizedAmount < publicConfig.minAmount ||
+    normalizedAmount > publicConfig.maxAmount
+  ) {
+    throw new HttpError(
+      `amount must be between ${publicConfig.minAmount} and ${publicConfig.maxAmount}`,
+      400
+    );
+  }
+
+  const normalizedCurrency = String(currency || "ZAR").toUpperCase();
+  if (normalizedCurrency !== "ZAR") {
+    throw new HttpError("Only ZAR donations are supported", 400);
+  }
+
+  const donorEmail = String(email || "")
+    .trim()
+    .toLowerCase();
+  if (!donorEmail || !donorEmail.includes("@")) {
+    throw new HttpError("A valid email is required to start a donation", 400);
+  }
+
+  const resolvedReturnUrl = callbackUrl || publicConfig.returnUrl;
+  const resolvedCancelUrl = cancelUrl || publicConfig.cancelUrl;
+  if (!isAllowedWebsiteDonationRedirect(resolvedReturnUrl)) {
+    throw new HttpError("callbackUrl is not an allowed redirect", 400);
+  }
+  if (!isAllowedWebsiteDonationRedirect(resolvedCancelUrl)) {
+    throw new HttpError("cancelUrl is not an allowed redirect", 400);
+  }
+
+  const first = String(nameFirst || "").trim();
+  const last = String(nameLast || "").trim();
+  const donorName = [first, last].filter(Boolean).join(" ") || null;
+
+  const session = await mongoose.startSession();
+  let result;
+  try {
+    await session.withTransaction(async () => {
+      const contributionNumber = await nextDonationContributionNumber(session);
+      const reference = `PF-DON-WEB-${contributionNumber.replace(
+        /^SATHYA-DON-/,
+        ""
+      )}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+
+      const [contribution] = await DonationContribution.create(
+        [
+          {
+            contributionNumber,
+            user: null,
+            source: "WEBSITE",
+            donorEmail,
+            donorName,
+            amount: normalizedAmount,
+            currency: normalizedCurrency,
+            paymentStatus: "PENDING",
+            paymentMethod: "PAYFAST",
+            paystackReference: reference,
+            note: note || "",
+          },
+        ],
+        { session }
+      );
+
+      const initData = await payfastService.initializeTransaction({
+        email: donorEmail,
+        amountInMajor: normalizedAmount,
+        currency: normalizedCurrency,
+        reference,
+        returnUrl: resolvedReturnUrl,
+        cancelUrl: resolvedCancelUrl,
+        itemName: `Donation ${contributionNumber}`,
+        itemDescription: `Sathya website donation · ${contributionNumber}`,
+        nameFirst: first,
+        nameLast: last,
+        metadata: {
+          kind: "DONATION",
+          contributionId: String(contribution._id),
+          contributionNumber,
+          userId: "",
+          callbackUrl: resolvedReturnUrl,
+          source: "WEBSITE",
+        },
+      });
+
+      const [payment] = await Payment.create(
+        [
+          {
+            user: null,
+            order: null,
+            donationContribution: contribution._id,
+            paymentFor: "DONATION",
+            amount: normalizedAmount,
+            currency: normalizedCurrency,
+            gateway: "PAYFAST",
+            reference: initData.reference,
+            status: "PENDING",
+            response: { initialize: { ...initData, formFields: undefined } },
+          },
+        ],
+        { session }
+      );
+
+      result = {
+        paymentId: payment._id,
+        contributionId: contribution._id,
+        contributionNumber,
+        reference: initData.reference,
+        paymentUrl: initData.paymentUrl,
+        formFields: initData.formFields,
+        method: initData.method,
+        authorization_url: initData.authorization_url,
+        authorizationUrl: initData.authorizationUrl,
+        callbackUrl: resolvedReturnUrl,
+        returnUrl: initData.returnUrl,
+        cancelUrl: initData.cancelUrl,
+        amount: normalizedAmount,
+        currency: normalizedCurrency,
+        email: donorEmail,
+        source: "WEBSITE",
       };
     });
   } finally {
@@ -732,8 +889,11 @@ const settleDonationInTransaction = async ({
   if (!contribution) {
     throw new HttpError("Donation contribution not found for this payment", 404);
   }
-  if (!isAdmin && String(contribution.user) !== String(userId)) {
-    throw new HttpError("No payment record matches this reference", 404);
+  // Website donations have no user — only ITN (isAdmin) or matching owner may settle.
+  if (!isAdmin) {
+    if (!contribution.user || String(contribution.user) !== String(userId)) {
+      throw new HttpError("No payment record matches this reference", 404);
+    }
   }
 
   if (contribution.paymentStatus === "PAID") {
@@ -1595,6 +1755,7 @@ const listAllPayments = async (query = {}) => {
 module.exports = {
   initializePayment,
   initializeDonationPayment,
+  initializeWebsiteDonationPayment,
   verifyPaymentByReference,
   extractPayfastItnFromVerifyPayload,
   extractPfPaymentIdFromStoredGatewayData,

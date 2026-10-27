@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "echo \"No tests configured\"",
+    "test": "node --test \"src/**/*.test.js\"",
     "prod": "cross-env NODE_ENV=production node src/server.js",
     "create:super-admin": "node scripts/createSuperAdmin.js",
     "migrate:roles": "node scripts/migrateRoles.js",

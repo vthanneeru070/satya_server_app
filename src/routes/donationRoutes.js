@@ -15,6 +15,8 @@ const {
 } = require("../controllers/donationController");
 const {
   initiateDonation,
+  getWebsiteDonationConfig,
+  initiateWebsiteDonation,
   listMyDonationContributions,
   adminListDonationContributions,
 } = require("../controllers/donationPaymentController");
@@ -29,6 +31,10 @@ const {
   initiateDonationSchema,
   listContributionsQuerySchema,
 } = require("../validations/donationPaymentValidation");
+const {
+  websiteInitiateDonationSchema,
+} = require("../validations/websiteDonationValidation");
+const websiteDonationRateLimiter = require("../middleware/websiteDonationRateLimiter");
 
 const router = express.Router();
 
@@ -278,13 +284,67 @@ router.get(
 
 /**
  * @swagger
+ * /donations/website/config:
+ *   get:
+ *     summary: Public website donation page config
+ *     description: Non-secret amounts, recipient placeholders, and return URLs for the landing site.
+ *     tags: [Donations]
+ *     responses:
+ *       200:
+ *         description: Website donation config
+ */
+router.get("/website/config", getWebsiteDonationConfig);
+
+/**
+ * @swagger
+ * /donations/website/donate:
+ *   post:
+ *     summary: Start a public website PayFast donation (no auth)
+ *     description: |
+ *       Anonymous website donors. Creates a WEBSITE DonationContribution with
+ *       optional user=null. Returns signed PayFast form fields. Settlement is
+ *       via ITN only — browser return URLs are not proof of payment.
+ *     tags: [Donations]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [amount, email]
+ *             properties:
+ *               amount: { type: number, minimum: 10, maximum: 1000000 }
+ *               currency: { type: string, enum: [ZAR] }
+ *               email: { type: string, format: email }
+ *               nameFirst: { type: string }
+ *               nameLast: { type: string }
+ *               note: { type: string }
+ *               callbackUrl: { type: string, format: uri }
+ *               cancelUrl: { type: string, format: uri }
+ *     responses:
+ *       201:
+ *         description: Donation initialized — POST formFields to PayFast
+ *       400:
+ *         description: Validation error
+ *       429:
+ *         description: Rate limited
+ */
+router.post(
+  "/website/donate",
+  websiteDonationRateLimiter,
+  validate(websiteInitiateDonationSchema),
+  initiateWebsiteDonation
+);
+
+/**
+ * @swagger
  * /donations/donate:
  *   post:
  *     summary: Start a PayFast donation
  *     description: |
  *       Initializes a PayFast donation checkout and returns `paymentUrl` +
- *       `formFields` for the client WebView. If `callbackUrl` is omitted, the
- *       server uses `PAYFAST_RETURN_URL`. Settlement via ITN and
+ *       `formFields` for the authenticated mobile/app client. If `callbackUrl`
+ *       is omitted, the server uses `PAYFAST_RETURN_URL`. Settlement via ITN and
  *       `GET /payments/verify/:reference`.
  *     tags: [Donations]
  *     security:

@@ -2,10 +2,15 @@ const mongoose = require("mongoose");
 
 const paymentSchema = new mongoose.Schema(
   {
+    /**
+     * Linked account for APP checkouts. Null for anonymous WEBSITE donations.
+     * Making this optional is backward-compatible with existing payments.
+     */
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required: false,
+      default: null,
       index: true,
     },
     /**

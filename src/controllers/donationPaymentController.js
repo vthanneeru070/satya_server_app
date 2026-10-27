@@ -3,6 +3,7 @@ const paymentService = require("../services/paymentService");
 const DonationContribution = require("../models/DonationContribution");
 const Payment = require("../models/Payment");
 const User = require("../models/User");
+const { readDonationPublicConfig } = require("../config/websiteDonation");
 
 const escapeRegex = (value) =>
   String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -17,6 +18,35 @@ const initiateDonation = async (req, res, next) => {
       callbackUrl: req.body?.callbackUrl,
     });
     return sendSuccess(res, data, "PayFast donation initialized", 201);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/** Public config for the landing /donate page (no secrets). */
+const getWebsiteDonationConfig = async (_req, res, next) => {
+  try {
+    const config = readDonationPublicConfig();
+    return sendSuccess(res, config, "Website donation config");
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/** Public initiate — no JWT. Rate-limited at the route. */
+const initiateWebsiteDonation = async (req, res, next) => {
+  try {
+    const data = await paymentService.initializeWebsiteDonationPayment({
+      amount: req.body.amount,
+      currency: req.body.currency,
+      note: req.body.note,
+      email: req.body.email,
+      nameFirst: req.body.nameFirst,
+      nameLast: req.body.nameLast,
+      callbackUrl: req.body.callbackUrl,
+      cancelUrl: req.body.cancelUrl,
+    });
+    return sendSuccess(res, data, "PayFast website donation initialized", 201);
   } catch (error) {
     return next(error);
   }
@@ -40,6 +70,11 @@ const buildContributionSearchFilter = async (searchTerm) => {
   if (/^[a-f0-9]{24}$/i.test(trimmed)) {
     orClauses.push({ _id: trimmed });
   }
+
+  orClauses.push(
+    { donorEmail: { $regex: safe, $options: "i" } },
+    { donorName: { $regex: safe, $options: "i" } }
+  );
 
   const [matchingUsers, matchingPayments] = await Promise.all([
     User.find({
@@ -158,6 +193,8 @@ const adminListDonationContributions = async (req, res, next) => {
 
 module.exports = {
   initiateDonation,
+  getWebsiteDonationConfig,
+  initiateWebsiteDonation,
   listMyDonationContributions,
   adminListDonationContributions,
 };

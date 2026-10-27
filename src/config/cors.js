@@ -1,6 +1,8 @@
 const DEFAULT_ORIGINS = [
   "https://admin-test.sathya.co.za",
   "https://admin.sathya.co.za",
+  // Canonical public landing (external donation flow).
+  "https://www.sathya.co.za",
   "http://localhost:3000",
   "http://localhost:8080",
 ];
