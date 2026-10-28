@@ -7,6 +7,15 @@ describe("cors isOriginAllowed", () => {
     assert.equal(isOriginAllowed("https://www.sathya.co.za"), true);
   });
 
+  it("allows apex landing origin without www", () => {
+    assert.equal(isOriginAllowed("https://sathya.co.za"), true);
+  });
+
+  it("allows sathya.co.za subdomains via pattern", () => {
+    assert.equal(isOriginAllowed("https://admin.sathya.co.za"), true);
+    assert.equal(isOriginAllowed("https://admin-test.sathya.co.za"), true);
+  });
+
   it("allows satya.co.za admin pattern", () => {
     assert.equal(isOriginAllowed("https://admin.satya.co.za"), true);
   });

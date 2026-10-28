@@ -1,13 +1,18 @@
 const DEFAULT_ORIGINS = [
   "https://admin-test.sathya.co.za",
   "https://admin.sathya.co.za",
-  // Canonical public landing (external donation flow).
+  // Canonical public landing (external donation flow) — apex + www.
   "https://www.sathya.co.za",
+  "https://sathya.co.za",
   "http://localhost:3000",
   "http://localhost:8080",
 ];
 
-/** https://admin-test.sathya.co.za, https://admin.sathya.co.za, etc. */
+/** https://admin-test.sathya.co.za, https://www.sathya.co.za, https://sathya.co.za, etc. */
+const SATHYA_ORIGIN_PATTERN =
+  /^https:\/\/([a-z0-9-]+\.)*sathya\.co\.za$/i;
+
+/** Legacy / alternate spelling used by some admin hosts. */
 const SATYA_ORIGIN_PATTERN =
   /^https:\/\/([a-z0-9-]+\.)*satya\.co\.za$/i;
 
@@ -37,6 +42,7 @@ const isOriginAllowed = (origin) => {
   const allowed = parseOrigins();
   if (allowed.includes("*")) return true;
   if (allowed.includes(origin)) return true;
+  if (SATHYA_ORIGIN_PATTERN.test(origin)) return true;
   if (SATYA_ORIGIN_PATTERN.test(origin)) return true;
   if (LOCALHOST_ORIGIN_PATTERN.test(origin)) return true;
   if (EMULATOR_ORIGIN_PATTERN.test(origin)) return true;
