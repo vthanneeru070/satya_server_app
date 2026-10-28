@@ -11,7 +11,14 @@ const DEFAULT_ORIGINS = [
 const SATYA_ORIGIN_PATTERN =
   /^https:\/\/([a-z0-9-]+\.)*satya\.co\.za$/i;
 
-const LOCALHOST_ORIGIN_PATTERN = /^http:\/\/localhost(:\d+)?$/i;
+const LOCALHOST_ORIGIN_PATTERN = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
+
+/** Android emulator → host loopback. */
+const EMULATOR_ORIGIN_PATTERN = /^http:\/\/10\.0\.2\.2(:\d+)?$/i;
+
+/** Local LAN origins for device testing (http only). */
+const PRIVATE_LAN_ORIGIN_PATTERN =
+  /^http:\/\/(192\.168(?:\.\d{1,3}){2}|10(?:\.\d{1,3}){3}|172\.(1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(:\d+)?$/i;
 
 const parseOrigins = () => {
   const raw = process.env.CORS_ORIGINS;
@@ -32,6 +39,8 @@ const isOriginAllowed = (origin) => {
   if (allowed.includes(origin)) return true;
   if (SATYA_ORIGIN_PATTERN.test(origin)) return true;
   if (LOCALHOST_ORIGIN_PATTERN.test(origin)) return true;
+  if (EMULATOR_ORIGIN_PATTERN.test(origin)) return true;
+  if (PRIVATE_LAN_ORIGIN_PATTERN.test(origin)) return true;
 
   return false;
 };

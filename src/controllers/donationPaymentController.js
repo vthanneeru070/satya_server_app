@@ -173,7 +173,32 @@ const fetchPaginated = async (filter, { page = 1, limit = 10 }) => {
 
 const listMyDonationContributions = async (req, res, next) => {
   try {
-    const filter = await buildListFilters(req.query, { userId: req.user.userId });
+    const userId = req.user.userId;
+    const filter = await buildListFilters(req.query);
+
+    // Include WEBSITE donations made with the same email before/without a user link.
+    const me = await User.findById(userId).select("email").lean();
+    const myEmail = String(me?.email || "")
+      .trim()
+      .toLowerCase();
+    const ownership = myEmail
+      ? {
+          $or: [
+            { user: userId },
+            { donorEmail: myEmail, source: "WEBSITE" },
+          ],
+        }
+      : { user: userId };
+
+    // Keep search `$or` (if any) from colliding with ownership `$or`.
+    if (filter.$or) {
+      const searchOr = filter.$or;
+      delete filter.$or;
+      filter.$and = [...(filter.$and || []), ownership, { $or: searchOr }];
+    } else {
+      Object.assign(filter, ownership);
+    }
+
     const data = await fetchPaginated(filter, req.query);
     return sendSuccess(res, data, "My donation contributions fetched");
   } catch (error) {

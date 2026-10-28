@@ -563,9 +563,10 @@ const initializeDonationPayment = async ({
 };
 
 /**
- * Public website donation checkout (no JWT). Creates an anonymous
- * DonationContribution (user=null, source=WEBSITE) and a Payment row, then
- * returns signed PayFast hosted-checkout fields. Settlement remains ITN-only.
+ * Public website donation checkout (no JWT). Creates a WEBSITE
+ * DonationContribution (user linked when donorEmail matches an account) and a
+ * Payment row, then returns signed PayFast hosted-checkout fields.
+ * Settlement remains ITN-only.
  */
 const initializeWebsiteDonationPayment = async ({
   amount,
@@ -622,6 +623,13 @@ const initializeWebsiteDonationPayment = async ({
   const last = String(nameLast || "").trim();
   const donorName = [first, last].filter(Boolean).join(" ") || null;
 
+  // Link to an existing account when the donor uses the same email as in the app.
+  // Keeps WEBSITE source for App Review separation; history still shows under "my donations".
+  const matchedUser = await User.findOne({ email: donorEmail })
+    .select("_id")
+    .lean();
+  const linkedUserId = matchedUser?._id || null;
+
   const session = await mongoose.startSession();
   let result;
   try {
@@ -636,7 +644,7 @@ const initializeWebsiteDonationPayment = async ({
         [
           {
             contributionNumber,
-            user: null,
+            user: linkedUserId,
             source: "WEBSITE",
             donorEmail,
             donorName,
@@ -666,7 +674,7 @@ const initializeWebsiteDonationPayment = async ({
           kind: "DONATION",
           contributionId: String(contribution._id),
           contributionNumber,
-          userId: "",
+          userId: linkedUserId ? String(linkedUserId) : "",
           callbackUrl: resolvedReturnUrl,
           source: "WEBSITE",
         },
@@ -675,7 +683,7 @@ const initializeWebsiteDonationPayment = async ({
       const [payment] = await Payment.create(
         [
           {
-            user: null,
+            user: linkedUserId,
             order: null,
             donationContribution: contribution._id,
             paymentFor: "DONATION",

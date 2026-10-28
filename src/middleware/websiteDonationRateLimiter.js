@@ -25,7 +25,6 @@ const websiteDonationRateLimiter = rateLimit({
   max,
   standardHeaders: true,
   legacyHeaders: false,
-  trustProxy: true,
   message,
   handler: (_req, res) => {
     res.status(429).json(message);

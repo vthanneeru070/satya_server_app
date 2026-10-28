@@ -5,7 +5,7 @@ const mongoose = require("mongoose");
  * status when the user initiates payment; flipped to PAID via ITN or verify.
  *
  * `user` is required for in-app (APP) donations. Website (WEBSITE) donations
- * leave `user` null and store optional donor contact fields instead.
+ * store donor contact fields and set `user` when donorEmail matches an account.
  *
  * Schema change (Option A): making `user` optional is backward-compatible —
  * existing documents keep their user ObjectId. No data rewrite is required
@@ -91,6 +91,7 @@ const donationContributionSchema = new mongoose.Schema(
 donationContributionSchema.index({ user: 1, createdAt: -1 });
 donationContributionSchema.index({ donation: 1, paymentStatus: 1 });
 donationContributionSchema.index({ source: 1, createdAt: -1 });
+donationContributionSchema.index({ donorEmail: 1, source: 1, createdAt: -1 });
 
 donationContributionSchema.virtual("paymentReference").get(function paymentReference() {
   return this.paystackReference || null;

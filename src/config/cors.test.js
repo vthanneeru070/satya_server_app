@@ -14,4 +14,10 @@ describe("cors isOriginAllowed", () => {
   it("does not allow arbitrary third-party origins", () => {
     assert.equal(isOriginAllowed("https://evil.example"), false);
   });
+
+  it("allows emulator and LAN origins for device testing", () => {
+    assert.equal(isOriginAllowed("http://10.0.2.2:5180"), true);
+    assert.equal(isOriginAllowed("http://192.168.0.225:5180"), true);
+    assert.equal(isOriginAllowed("http://127.0.0.1:5180"), true);
+  });
 });

@@ -24,7 +24,13 @@ app.set("trust proxy", 1);
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
 
-app.use(helmet());
+// cross-origin: allow the public landing (www.sathya.co.za) to call this API.
+// Helmet's default CORP "same-origin" blocks readable cross-origin fetch responses.
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
 // app.use(rateLimiter);
 
 // Payment webhooks / ITN — mounted BEFORE express.json() for raw-body signature checks.

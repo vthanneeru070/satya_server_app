@@ -24,6 +24,16 @@ db.donationcontributions.updateMany(
 );
 ```
 
+Link WEBSITE donations to accounts when `donorEmail` matches a user (so they
+appear under mobile “my donations”):
+
+```bash
+# dry-run
+DOTENV_CONFIG_PATH=.env.test node -r dotenv/config scripts/backfillWebsiteDonationUsers.js
+# apply
+DOTENV_CONFIG_PATH=.env.test node -r dotenv/config scripts/backfillWebsiteDonationUsers.js --apply
+```
+
 ## Deploy order
 
 1. Deploy backend with new schema + public website donate endpoint.
