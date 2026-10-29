@@ -24,7 +24,38 @@ describe("websiteDonation config", () => {
     assert.ok(cfg.cancelUrl.includes("/donate/cancelled"));
   });
 
+  it("rewrites origin-only return/cancel env URLs to donate landings", () => {
+    process.env.WEBSITE_DONATION_RETURN_URL = "https://www.sathya.co.za/";
+    process.env.WEBSITE_DONATION_CANCEL_URL = "https://www.sathya.co.za";
+    // Re-require so this process picks up env (module already loaded — call normalize via config).
+    const {
+      normalizeWebsiteDonationLandingUrl,
+      readWebsiteUrl,
+    } = require("./websiteDonation");
+    assert.equal(
+      normalizeWebsiteDonationLandingUrl("https://www.sathya.co.za/", "/donate/success"),
+      `${readWebsiteUrl()}/donate/success`
+    );
+    assert.equal(
+      normalizeWebsiteDonationLandingUrl("https://www.sathya.co.za", "/donate/cancelled"),
+      `${readWebsiteUrl()}/donate/cancelled`
+    );
+    assert.equal(
+      normalizeWebsiteDonationLandingUrl(
+        "https://www.sathya.co.za/donate/success?from=app",
+        "/donate/success"
+      ),
+      "https://www.sathya.co.za/donate/success?from=app"
+    );
+    delete process.env.WEBSITE_DONATION_RETURN_URL;
+    delete process.env.WEBSITE_DONATION_CANCEL_URL;
+  });
+
   it("allows only HTTPS sathya website and known API payment landings", () => {
+    assert.equal(
+      isAllowedWebsiteDonationRedirect("https://www.sathya.co.za/donate/success"),
+      true
+    );
     assert.equal(
       isAllowedWebsiteDonationRedirect("https://www.sathya.co.za/#/donate/success"),
       true
@@ -34,13 +65,14 @@ describe("websiteDonation config", () => {
       true
     );
     assert.equal(
-      isAllowedWebsiteDonationRedirect("http://www.sathya.co.za/#/donate/success"),
+      isAllowedWebsiteDonationRedirect("http://www.sathya.co.za/donate/success"),
       false
     );
     assert.equal(
-      isAllowedWebsiteDonationRedirect("https://evil.example/#/donate/success"),
+      isAllowedWebsiteDonationRedirect("https://evil.example/donate/success"),
       false
     );
     assert.equal(isAllowedWebsiteDonationRedirect(""), false);
   });
 });
+

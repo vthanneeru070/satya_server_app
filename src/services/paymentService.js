@@ -610,8 +610,15 @@ const initializeWebsiteDonationPayment = async ({
     throw new HttpError("A valid email is required to start a donation", 400);
   }
 
-  const resolvedReturnUrl = callbackUrl || publicConfig.returnUrl;
-  const resolvedCancelUrl = cancelUrl || publicConfig.cancelUrl;
+  const { normalizeWebsiteDonationLandingUrl } = require("../config/websiteDonation");
+  const resolvedReturnUrl = normalizeWebsiteDonationLandingUrl(
+    callbackUrl || publicConfig.returnUrl,
+    "/donate/success"
+  );
+  const resolvedCancelUrl = normalizeWebsiteDonationLandingUrl(
+    cancelUrl || publicConfig.cancelUrl,
+    "/donate/cancelled"
+  );
   if (!isAllowedWebsiteDonationRedirect(resolvedReturnUrl)) {
     throw new HttpError("callbackUrl is not an allowed redirect", 400);
   }

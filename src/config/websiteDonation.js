@@ -10,6 +10,33 @@ const DEFAULT_WEBSITE_URL = "https://www.sathya.co.za";
 const readWebsiteUrl = () =>
   String(process.env.WEBSITE_URL || DEFAULT_WEBSITE_URL).trim().replace(/\/$/, "");
 
+/**
+ * Env sometimes points return/cancel at the website origin only. PayFast must
+ * land on the Flutter success/cancel routes, never the bare homepage.
+ */
+const normalizeWebsiteDonationLandingUrl = (raw, fallbackPath) => {
+  const websiteUrl = readWebsiteUrl();
+  const fallback = `${websiteUrl}${fallbackPath}`;
+  const value = String(raw || "").trim();
+  if (!value) return fallback;
+
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return fallback;
+  }
+
+  const path = (parsed.pathname || "/").replace(/\/+$/, "") || "/";
+  if (path === "/") {
+    return fallback;
+  }
+
+  // Keep query/hash (e.g. from=app) but drop a trailing slash on the path.
+  parsed.pathname = path;
+  return parsed.toString();
+};
+
 const readDonationPublicConfig = () => {
   const websiteUrl = readWebsiteUrl();
   return {
@@ -28,12 +55,14 @@ const readDonationPublicConfig = () => {
       String(process.env.DONATION_CONTACT_EMAIL || "").trim() ||
       "[CONFIGURE: DONATION_CONTACT_EMAIL]",
     contactPhone: String(process.env.DONATION_CONTACT_PHONE || "").trim() || null,
-    returnUrl:
-      String(process.env.WEBSITE_DONATION_RETURN_URL || "").trim() ||
-      `${websiteUrl}/#/donate/success`,
-    cancelUrl:
-      String(process.env.WEBSITE_DONATION_CANCEL_URL || "").trim() ||
-      `${websiteUrl}/#/donate/cancelled`,
+    returnUrl: normalizeWebsiteDonationLandingUrl(
+      process.env.WEBSITE_DONATION_RETURN_URL,
+      "/donate/success"
+    ),
+    cancelUrl: normalizeWebsiteDonationLandingUrl(
+      process.env.WEBSITE_DONATION_CANCEL_URL,
+      "/donate/cancelled"
+    ),
     /** True when recipient placeholders are still unset. */
     configIncomplete: !(
       process.env.DONATION_RECIPIENT_NAME &&
@@ -79,5 +108,6 @@ module.exports = {
   readWebsiteUrl,
   readDonationPublicConfig,
   isAllowedWebsiteDonationRedirect,
+  normalizeWebsiteDonationLandingUrl,
   DEFAULT_WEBSITE_URL,
 };
