@@ -3,7 +3,7 @@ const Pooja = require("../models/Pooja");
 const HttpError = require("../utils/httpError");
 const { sendSuccess } = require("../utils/response");
 const { uploadFile, deleteFile } = require("../services/s3Service");
-const { mergeSearchFilter } = require("../utils/textSearch");
+const { mergeSearchFilterAsync } = require("../utils/textSearch");
 const { mergeUploadedMediaSlot, orphanedUrls } = require("../utils/mediaReplace");
 const { normalizeObjectIdArray } = require("../utils/objectIdArray");
 
@@ -223,7 +223,7 @@ const getDeities = async (req, res, next) => {
     const skip = (page - 1) * limit;
     const filter = { status: "APPROVED" };
 
-    mergeSearchFilter(filter, DEITY_SEARCH_FIELDS, req.query.search);
+    await mergeSearchFilterAsync(Deity, filter, DEITY_SEARCH_FIELDS, req.query.search);
 
     const [deities, total] = await Promise.all([
       Deity.find(filter)
@@ -265,7 +265,7 @@ const getAllDeities = async (req, res, next) => {
       filter.status = req.query.status;
     }
 
-    mergeSearchFilter(filter, DEITY_SEARCH_FIELDS, req.query.search);
+    await mergeSearchFilterAsync(Deity, filter, DEITY_SEARCH_FIELDS, req.query.search);
 
     const [deities, total] = await Promise.all([
       Deity.find(filter)

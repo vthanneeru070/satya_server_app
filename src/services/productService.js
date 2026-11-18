@@ -4,7 +4,10 @@ const InventoryItem = require("../models/InventoryItem");
 const HttpError = require("../utils/httpError");
 const { deleteFile } = require("./s3Service");
 const inventoryService = require("./inventoryService");
-const { tokenizeKeywords } = require("../utils/textSearch");
+const {
+  tokenizeKeywords,
+  buildPhraseSearchFilter,
+} = require("../utils/textSearch");
 const {
   PRODUCT_CATEGORIES,
   PRODUCT_CATEGORY_PUJA_KIT,
@@ -31,8 +34,28 @@ const findMatchingProductCategories = (searchTerm) => {
   });
 };
 
-const buildProductSearchFilter = (searchTerm) => {
-  const keywords = tokenizeKeywords(searchTerm);
+const buildProductKeywordOrPhraseFilter = (searchTerm, { phraseOnly = false } = {}) => {
+  const trimmed = String(searchTerm || "").trim();
+  if (!trimmed) return null;
+
+  if (phraseOnly) {
+    const phrase = buildPhraseSearchFilter(
+      ["title", "slug", "category"],
+      trimmed
+    );
+    const matchingCategories = findMatchingProductCategories(trimmed);
+    if (matchingCategories.length) {
+      return {
+        $or: [
+          ...(phrase.$or || []),
+          { category: { $in: matchingCategories } },
+        ],
+      };
+    }
+    return phrase.$or ? phrase : null;
+  }
+
+  const keywords = tokenizeKeywords(trimmed);
   if (!keywords.length) return null;
 
   const orClauses = [];
@@ -52,6 +75,29 @@ const buildProductSearchFilter = (searchTerm) => {
 
   return { $or: orClauses };
 };
+
+/** Phrase first; if no hits, keyword OR. Needs Model + baseFilter for the count. */
+const resolveProductSearchFilter = async (baseFilter, searchTerm) => {
+  const phrase = buildProductKeywordOrPhraseFilter(searchTerm, {
+    phraseOnly: true,
+  });
+  if (!phrase) return null;
+
+  const phraseHits = await Product.countDocuments({
+    ...baseFilter,
+    ...phrase,
+  });
+  if (phraseHits > 0) return phrase;
+
+  const keywords = tokenizeKeywords(searchTerm);
+  if (keywords.length <= 1) return phrase;
+
+  return buildProductKeywordOrPhraseFilter(searchTerm, { phraseOnly: false });
+};
+
+const buildProductSearchFilter = (searchTerm) =>
+  buildProductKeywordOrPhraseFilter(searchTerm, { phraseOnly: false });
+
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -535,7 +581,7 @@ const publicBuyableFilter = () => ({
   productStatus: "ACTIVE",
 });
 
-const buildListFilter = (query, viewer) => {
+const buildListFilter = async (query, viewer) => {
   const filter = {};
 
   if (viewer === "public") {
@@ -560,7 +606,10 @@ const buildListFilter = (query, viewer) => {
   }
 
   if (query.search) {
-    Object.assign(filter, buildProductSearchFilter(query.search) || {});
+    Object.assign(
+      filter,
+      (await resolveProductSearchFilter(filter, query.search)) || {}
+    );
   }
 
   return filter;
@@ -620,7 +669,7 @@ const paginatedFind = async (filter, query) => {
 };
 
 const listProducts = async (query = {}, { viewer = "public" } = {}) => {
-  const filter = buildListFilter(query, viewer);
+  const filter = await buildListFilter(query, viewer);
   return paginatedFind(filter, query);
 };
 
@@ -636,7 +685,10 @@ const listAllProducts = async (query = {}) => {
   if (query.productStatus) filter.productStatus = query.productStatus;
   if (query.category) filter.category = query.category;
   if (query.search) {
-    Object.assign(filter, buildProductSearchFilter(query.search) || {});
+    Object.assign(
+      filter,
+      (await resolveProductSearchFilter(filter, query.search)) || {}
+    );
   }
   return paginatedFind(filter, query);
 };
@@ -651,7 +703,10 @@ const listMyProducts = async (userId, query = {}) => {
   if (query.status) filter.status = query.status;
   if (query.productStatus) filter.productStatus = query.productStatus;
   if (query.search) {
-    Object.assign(filter, buildProductSearchFilter(query.search) || {});
+    Object.assign(
+      filter,
+      (await resolveProductSearchFilter(filter, query.search)) || {}
+    );
   }
   return paginatedFind(filter, query);
 };

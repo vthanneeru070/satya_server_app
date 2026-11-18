@@ -4,7 +4,8 @@ const Ritual = require("../models/Ritual");
 const Deity = require("../models/Deity");
 const Donation = require("../models/Donation");
 const {
-  buildTextSearchFilter,
+  buildPhraseSearchFilter,
+  buildKeywordSearchFilter,
   tokenizeKeywords,
 } = require("../utils/textSearch");
 
@@ -40,20 +41,55 @@ const mapHit = ({
   updatedAt,
 });
 
-const buildTextFilter = (fields, query) => {
-  const filter = buildTextSearchFilter(fields, query);
-  return filter.$or ? filter : null;
+const findWithPhraseThenKeywords = async (
+  Model,
+  baseFilter,
+  fields,
+  query,
+  { select, sort, limit }
+) => {
+  const phrase = buildPhraseSearchFilter(fields, query);
+  if (!phrase.$or) {
+    return Model.find(baseFilter)
+      .select(select)
+      .sort(sort)
+      .limit(limit)
+      .lean();
+  }
+
+  let rows = await Model.find({ ...baseFilter, ...phrase })
+    .select(select)
+    .sort(sort)
+    .limit(limit)
+    .lean();
+
+  if (rows.length > 0) return rows;
+
+  const keywords = tokenizeKeywords(query);
+  if (keywords.length <= 1) return rows;
+
+  const keywordFilter = buildKeywordSearchFilter(fields, query);
+  if (!keywordFilter.$or) return rows;
+
+  return Model.find({ ...baseFilter, ...keywordFilter })
+    .select(select)
+    .sort(sort)
+    .limit(limit)
+    .lean();
 };
 
 const searchPoojas = async (query, limit) => {
-  const text = buildTextFilter(["title", "description", "category"], query);
-  const filter = { status: "APPROVED", ...(text || {}) };
-
-  const rows = await Pooja.find(filter)
-    .select("title description category media updatedAt")
-    .sort({ updatedAt: -1 })
-    .limit(limit)
-    .lean();
+  const rows = await findWithPhraseThenKeywords(
+    Pooja,
+    { status: "APPROVED" },
+    ["title", "description", "category"],
+    query,
+    {
+      select: "title description category media updatedAt",
+      sort: { updatedAt: -1 },
+      limit,
+    }
+  );
 
   return rows.map((row) =>
     mapHit({
@@ -68,19 +104,22 @@ const searchPoojas = async (query, limit) => {
 };
 
 const searchFestivals = async (query, limit) => {
-  const text = buildTextFilter(["title", "description", "category"], query);
-  const filter = {
-    status: "APPROVED",
-    isVisible: true,
-    isDeleted: { $ne: true },
-    ...(text || {}),
-  };
-
-  const rows = await Festival.find(filter)
-    .select("title description image date endDate category location isGlobal updatedAt")
-    .sort({ date: -1 })
-    .limit(limit)
-    .lean();
+  const rows = await findWithPhraseThenKeywords(
+    Festival,
+    {
+      status: "APPROVED",
+      isVisible: true,
+      isDeleted: { $ne: true },
+    },
+    ["title", "description", "category"],
+    query,
+    {
+      select:
+        "title description image date endDate category location isGlobal updatedAt",
+      sort: { date: -1 },
+      limit,
+    }
+  );
 
   return rows.map((row) => ({
     ...mapHit({
@@ -100,18 +139,20 @@ const searchFestivals = async (query, limit) => {
 };
 
 const searchRituals = async (query, limit) => {
-  const text = buildTextFilter(["title", "description", "category", "purpose"], query);
-  const filter = {
-    status: "APPROVED",
-    isDeleted: { $ne: true },
-    ...(text || {}),
-  };
-
-  const rows = await Ritual.find(filter)
-    .select("title description images updatedAt")
-    .sort({ updatedAt: -1 })
-    .limit(limit)
-    .lean();
+  const rows = await findWithPhraseThenKeywords(
+    Ritual,
+    {
+      status: "APPROVED",
+      isDeleted: { $ne: true },
+    },
+    ["title", "description", "category", "purpose"],
+    query,
+    {
+      select: "title description images updatedAt",
+      sort: { updatedAt: -1 },
+      limit,
+    }
+  );
 
   return rows.map((row) =>
     mapHit({
@@ -126,17 +167,17 @@ const searchRituals = async (query, limit) => {
 };
 
 const searchDeities = async (query, limit) => {
-  const text = buildTextFilter(
+  const rows = await findWithPhraseThenKeywords(
+    Deity,
+    { status: "APPROVED" },
     ["name", "description", "alternate_names", "roles"],
-    query
+    query,
+    {
+      select: "name description deity_color media updatedAt",
+      sort: { updatedAt: -1 },
+      limit,
+    }
   );
-  const filter = { status: "APPROVED", ...(text || {}) };
-
-  const rows = await Deity.find(filter)
-    .select("name description deity_color media updatedAt")
-    .sort({ updatedAt: -1 })
-    .limit(limit)
-    .lean();
 
   return rows.map((row) =>
     mapHit({
@@ -153,18 +194,20 @@ const searchDeities = async (query, limit) => {
 };
 
 const searchDonations = async (query, limit) => {
-  const text = buildTextFilter(["title", "description"], query);
-  const filter = {
-    status: "APPROVED",
-    isVisible: true,
-    ...(text || {}),
-  };
-
-  const rows = await Donation.find(filter)
-    .select("title description image updatedAt")
-    .sort({ updatedAt: -1 })
-    .limit(limit)
-    .lean();
+  const rows = await findWithPhraseThenKeywords(
+    Donation,
+    {
+      status: "APPROVED",
+      isVisible: true,
+    },
+    ["title", "description"],
+    query,
+    {
+      select: "title description image updatedAt",
+      sort: { updatedAt: -1 },
+      limit,
+    }
+  );
 
   return rows.map((row) =>
     mapHit({

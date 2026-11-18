@@ -9,7 +9,7 @@ const {
   normalizeObjectIdArray,
   parseObjectIdArrayField,
 } = require("../utils/objectIdArray");
-const { mergeSearchFilter } = require("../utils/textSearch");
+const { mergeSearchFilterAsync } = require("../utils/textSearch");
 const { resolveDailyFlag, normalizeBoolean } = require("../utils/poojaDaily");
 
 const POOJA_SEARCH_FIELDS = ["title", "description", "category"];
@@ -353,7 +353,7 @@ const getPoojas = async (req, res, next) => {
       filter.status = req.query.status;
     }
 
-    mergeSearchFilter(filter, POOJA_SEARCH_FIELDS, req.query.search);
+    await mergeSearchFilterAsync(Pooja, filter, POOJA_SEARCH_FIELDS, req.query.search);
 
     if (req.query.daily !== undefined) {
       const dailyFilter = normalizeBoolean(req.query.daily);
@@ -415,7 +415,7 @@ const getAllPoojas = async (req, res, next) => {
       filter.status = req.query.status;
     }
 
-    mergeSearchFilter(filter, POOJA_SEARCH_FIELDS, req.query.search);
+    await mergeSearchFilterAsync(Pooja, filter, POOJA_SEARCH_FIELDS, req.query.search);
 
     if (req.query.daily !== undefined) {
       const dailyFilter = normalizeBoolean(req.query.daily);
@@ -462,7 +462,7 @@ const getMyPoojas = async (req, res, next) => {
       filter.status = req.query.status;
     }
 
-    mergeSearchFilter(filter, POOJA_SEARCH_FIELDS, req.query.search);
+    await mergeSearchFilterAsync(Pooja, filter, POOJA_SEARCH_FIELDS, req.query.search);
 
     if (req.query.daily !== undefined) {
       const dailyFilter = normalizeBoolean(req.query.daily);

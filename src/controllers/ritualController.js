@@ -4,7 +4,7 @@ const { sendSuccess } = require("../utils/response");
 const { uploadFile, deleteFile } = require("../services/s3Service");
 const { mergeUploadedMediaSlot, orphanedUrls } = require("../utils/mediaReplace");
 const { parseObjectIdArrayField } = require("../utils/objectIdArray");
-const { mergeSearchFilter } = require("../utils/textSearch");
+const { mergeSearchFilterAsync } = require("../utils/textSearch");
 const {
   normalizeRitualDayType,
   resolveRitualDaysForType,
@@ -443,7 +443,7 @@ const getRituals = async (req, res, next) => {
       filter.deity = req.query.deity;
     }
 
-    mergeSearchFilter(filter, RITUAL_SEARCH_FIELDS, req.query.search);
+    await mergeSearchFilterAsync(Ritual, filter, RITUAL_SEARCH_FIELDS, req.query.search);
 
     const [rituals, total] = await Promise.all([
       Ritual.find(filter)
@@ -484,7 +484,7 @@ const getAllRituals = async (req, res, next) => {
       filter.status = req.query.status;
     }
 
-    mergeSearchFilter(filter, RITUAL_SEARCH_FIELDS, req.query.search);
+    await mergeSearchFilterAsync(Ritual, filter, RITUAL_SEARCH_FIELDS, req.query.search);
 
     const [rituals, total] = await Promise.all([
       Ritual.find(filter)
@@ -524,7 +524,7 @@ const getMyRituals = async (req, res, next) => {
       filter.status = req.query.status;
     }
 
-    mergeSearchFilter(filter, RITUAL_SEARCH_FIELDS, req.query.search);
+    await mergeSearchFilterAsync(Ritual, filter, RITUAL_SEARCH_FIELDS, req.query.search);
 
     const [rituals, total] = await Promise.all([
       Ritual.find(filter)

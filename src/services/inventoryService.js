@@ -5,7 +5,8 @@ const { inventory: inventoryMaster } = require("../masterdata");
 const { usesProductQuantity } = require("../validations/productValidation");
 const {
   tokenizeKeywords,
-  escapeRegex,
+  buildPhraseSearchFilter,
+  buildKeywordSearchFilter,
 } = require("../utils/textSearch");
 
 const notDeleted = { isDeleted: { $ne: true } };
@@ -551,22 +552,33 @@ const listInventoryItems = async (query = {}) => {
   if (query.status) filter.status = query.status;
   if (query.category) filter.category = query.category;
   if (query.search) {
-    const keywords = tokenizeKeywords(query.search);
-    const orClauses = [];
-    for (const keyword of keywords) {
-      const safe = escapeRegex(keyword);
-      orClauses.push(
-        { name: { $regex: safe, $options: "i" } },
-        { description: { $regex: safe, $options: "i" } },
-        { category: { $regex: safe, $options: "i" } }
-      );
-      const matchingCategoryCodes = findMatchingInventoryCategoryCodes(keyword);
-      if (matchingCategoryCodes.length) {
-        orClauses.push({ category: { $in: matchingCategoryCodes } });
+    const fields = ["name", "description", "category"];
+    const phrase = buildPhraseSearchFilter(fields, query.search);
+    let searchFilter = phrase;
+    if (phrase.$or) {
+      const phraseHits = await InventoryItem.countDocuments({
+        ...filter,
+        ...phrase,
+      });
+      if (phraseHits === 0 && tokenizeKeywords(query.search).length > 1) {
+        searchFilter = buildKeywordSearchFilter(fields, query.search);
       }
     }
-    if (orClauses.length) {
-      filter.$or = orClauses;
+    if (searchFilter.$or) {
+      // Also allow category code/label hits for each resolved token/phrase.
+      const tokens =
+        searchFilter === phrase
+          ? [String(query.search).trim()]
+          : tokenizeKeywords(query.search);
+      const extra = [];
+      for (const token of tokens) {
+        const matchingCategoryCodes =
+          findMatchingInventoryCategoryCodes(token);
+        if (matchingCategoryCodes.length) {
+          extra.push({ category: { $in: matchingCategoryCodes } });
+        }
+      }
+      filter.$or = [...searchFilter.$or, ...extra];
     }
   }
   const lowStock = query.lowStock === true || query.lowStock === "true";

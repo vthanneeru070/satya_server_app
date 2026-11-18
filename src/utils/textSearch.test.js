@@ -2,48 +2,75 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const {
   tokenizeKeywords,
-  buildTextSearchFilter,
+  buildPhraseSearchFilter,
+  buildKeywordSearchFilter,
+  resolveTextSearchFilter,
 } = require("./textSearch");
 
 describe("tokenizeKeywords", () => {
   it("splits on whitespace and drops short tokens", () => {
-    assert.deepEqual(tokenizeKeywords("Ganesh chaturti puja"), [
+    assert.deepEqual(tokenizeKeywords("Ganesh marraige puja"), [
       "Ganesh",
-      "chaturti",
+      "marraige",
       "puja",
-    ]);
-  });
-
-  it("dedupes case-insensitively", () => {
-    assert.deepEqual(tokenizeKeywords("Ganesh ganesh PUJA"), [
-      "Ganesh",
-      "PUJA",
     ]);
   });
 });
 
-describe("buildTextSearchFilter", () => {
-  it("matches any keyword across fields (OR)", () => {
-    const filter = buildTextSearchFilter(
-      ["title", "description"],
-      "Ganesh chaturti puja"
+describe("buildPhraseSearchFilter", () => {
+  it("uses the full query as one regex", () => {
+    const filter = buildPhraseSearchFilter(
+      ["title"],
+      "ganesh marraige puja"
     );
-
-    assert.equal(filter.$or.length, 6);
     assert.deepEqual(filter.$or, [
-      { title: { $regex: "Ganesh", $options: "i" } },
-      { description: { $regex: "Ganesh", $options: "i" } },
-      { title: { $regex: "chaturti", $options: "i" } },
-      { description: { $regex: "chaturti", $options: "i" } },
-      { title: { $regex: "puja", $options: "i" } },
-      { description: { $regex: "puja", $options: "i" } },
+      { title: { $regex: "ganesh marraige puja", $options: "i" } },
     ]);
   });
+});
 
-  it("does not require the full phrase as one regex", () => {
-    const filter = buildTextSearchFilter(["title"], "Ganesh chaturti");
-    const patterns = filter.$or.map((clause) => clause.title.$regex);
-    assert.deepEqual(patterns, ["Ganesh", "chaturti"]);
-    assert.equal(patterns.includes("Ganesh chaturti"), false);
+describe("buildKeywordSearchFilter", () => {
+  it("ORs each keyword across fields", () => {
+    const filter = buildKeywordSearchFilter(
+      ["title"],
+      "ganesh marraige puja"
+    );
+    assert.deepEqual(filter.$or.map((c) => c.title.$regex), [
+      "ganesh",
+      "marraige",
+      "puja",
+    ]);
+  });
+});
+
+describe("resolveTextSearchFilter", () => {
+  it("keeps phrase filter when phrase hits exist", async () => {
+    const Model = {
+      countDocuments: async () => 2,
+    };
+    const filter = await resolveTextSearchFilter(
+      Model,
+      { status: "APPROVED" },
+      ["title"],
+      "ganesh marraige puja"
+    );
+    assert.equal(filter.$or[0].title.$regex, "ganesh marraige puja");
+  });
+
+  it("falls back to keywords when phrase has no hits", async () => {
+    const Model = {
+      countDocuments: async () => 0,
+    };
+    const filter = await resolveTextSearchFilter(
+      Model,
+      { status: "APPROVED" },
+      ["title"],
+      "ganesh marraige puja"
+    );
+    assert.deepEqual(filter.$or.map((c) => c.title.$regex), [
+      "ganesh",
+      "marraige",
+      "puja",
+    ]);
   });
 });
