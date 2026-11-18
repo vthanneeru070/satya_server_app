@@ -3,11 +3,12 @@ const Festival = require("../models/Festival");
 const Ritual = require("../models/Ritual");
 const Deity = require("../models/Deity");
 const Donation = require("../models/Donation");
+const {
+  buildTextSearchFilter,
+  tokenizeKeywords,
+} = require("../utils/textSearch");
 
 const SEARCH_TYPES = ["pooja", "festival", "ritual", "deity", "donation"];
-
-const escapeRegex = (value) =>
-  String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const normalizeDescription = (text) => String(text || "").trim();
 
@@ -40,13 +41,8 @@ const mapHit = ({
 });
 
 const buildTextFilter = (fields, query) => {
-  const safe = escapeRegex(query);
-  if (!safe) return null;
-  return {
-    $or: fields.map((field) => ({
-      [field]: { $regex: safe, $options: "i" },
-    })),
-  };
+  const filter = buildTextSearchFilter(fields, query);
+  return filter.$or ? filter : null;
 };
 
 const searchPoojas = async (query, limit) => {
@@ -130,18 +126,10 @@ const searchRituals = async (query, limit) => {
 };
 
 const searchDeities = async (query, limit) => {
-  const safe = escapeRegex(query);
-  const text = safe
-    ? {
-        $or: [
-          { name: { $regex: safe, $options: "i" } },
-          { description: { $regex: safe, $options: "i" } },
-          { alternate_names: { $regex: safe, $options: "i" } },
-          { roles: { $regex: safe, $options: "i" } },
-        ],
-      }
-    : null;
-
+  const text = buildTextFilter(
+    ["name", "description", "alternate_names", "roles"],
+    query
+  );
   const filter = { status: "APPROVED", ...(text || {}) };
 
   const rows = await Deity.find(filter)
@@ -191,17 +179,30 @@ const searchDonations = async (query, limit) => {
 };
 
 const rankResults = (results, query) => {
-  const q = String(query || "")
+  const keywords = tokenizeKeywords(query).map((k) => k.toLowerCase());
+  const full = String(query || "")
     .trim()
     .toLowerCase();
-  if (!q) return results;
+  if (!full) return results;
 
   const score = (item) => {
     const title = (item.title || item.name || "").toLowerCase();
-    if (title === q) return 100;
-    if (title.startsWith(q)) return 80;
-    if (title.includes(q)) return 60;
-    if ((item.description || "").toLowerCase().includes(q)) return 40;
+    const description = (item.description || "").toLowerCase();
+    const haystack = `${title} ${description}`;
+
+    if (full && title === full) return 100;
+    if (full && title.startsWith(full)) return 90;
+    if (full && title.includes(full)) return 80;
+
+    const titleHits = keywords.filter((k) => title.includes(k)).length;
+    const descHits = keywords.filter((k) => description.includes(k)).length;
+    if (titleHits > 0) {
+      return 50 + titleHits * 10 + Math.min(descHits, 2);
+    }
+    if (descHits > 0) {
+      return 30 + descHits * 5;
+    }
+    if (keywords.some((k) => haystack.includes(k))) return 20;
     return 10;
   };
 

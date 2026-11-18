@@ -3,11 +3,12 @@ const Product = require("../models/Product");
 const HttpError = require("../utils/httpError");
 const { inventory: inventoryMaster } = require("../masterdata");
 const { usesProductQuantity } = require("../validations/productValidation");
+const {
+  tokenizeKeywords,
+  escapeRegex,
+} = require("../utils/textSearch");
 
 const notDeleted = { isDeleted: { $ne: true } };
-
-const escapeRegex = (value) =>
-  String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const findMatchingInventoryCategoryCodes = (searchTerm) => {
   const needle = String(searchTerm || "").trim().toLowerCase();
@@ -550,20 +551,23 @@ const listInventoryItems = async (query = {}) => {
   if (query.status) filter.status = query.status;
   if (query.category) filter.category = query.category;
   if (query.search) {
-    const trimmed = String(query.search).trim();
-    const safe = escapeRegex(trimmed);
-    const orClauses = [
-      { name: { $regex: safe, $options: "i" } },
-      { description: { $regex: safe, $options: "i" } },
-      { category: { $regex: safe, $options: "i" } },
-    ];
-
-    const matchingCategoryCodes = findMatchingInventoryCategoryCodes(trimmed);
-    if (matchingCategoryCodes.length) {
-      orClauses.push({ category: { $in: matchingCategoryCodes } });
+    const keywords = tokenizeKeywords(query.search);
+    const orClauses = [];
+    for (const keyword of keywords) {
+      const safe = escapeRegex(keyword);
+      orClauses.push(
+        { name: { $regex: safe, $options: "i" } },
+        { description: { $regex: safe, $options: "i" } },
+        { category: { $regex: safe, $options: "i" } }
+      );
+      const matchingCategoryCodes = findMatchingInventoryCategoryCodes(keyword);
+      if (matchingCategoryCodes.length) {
+        orClauses.push({ category: { $in: matchingCategoryCodes } });
+      }
     }
-
-    filter.$or = orClauses;
+    if (orClauses.length) {
+      filter.$or = orClauses;
+    }
   }
   const lowStock = query.lowStock === true || query.lowStock === "true";
   if (lowStock) {

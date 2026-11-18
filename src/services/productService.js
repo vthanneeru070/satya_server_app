@@ -4,6 +4,7 @@ const InventoryItem = require("../models/InventoryItem");
 const HttpError = require("../utils/httpError");
 const { deleteFile } = require("./s3Service");
 const inventoryService = require("./inventoryService");
+const { tokenizeKeywords } = require("../utils/textSearch");
 const {
   PRODUCT_CATEGORIES,
   PRODUCT_CATEGORY_PUJA_KIT,
@@ -31,19 +32,22 @@ const findMatchingProductCategories = (searchTerm) => {
 };
 
 const buildProductSearchFilter = (searchTerm) => {
-  const trimmed = String(searchTerm || "").trim();
-  if (!trimmed) return null;
+  const keywords = tokenizeKeywords(searchTerm);
+  if (!keywords.length) return null;
 
-  const safe = escapeRegex(trimmed);
-  const orClauses = [
-    { title: { $regex: safe, $options: "i" } },
-    { slug: { $regex: safe, $options: "i" } },
-    { category: { $regex: safe, $options: "i" } },
-  ];
+  const orClauses = [];
+  for (const keyword of keywords) {
+    const safe = escapeRegex(keyword);
+    orClauses.push(
+      { title: { $regex: safe, $options: "i" } },
+      { slug: { $regex: safe, $options: "i" } },
+      { category: { $regex: safe, $options: "i" } }
+    );
 
-  const matchingCategories = findMatchingProductCategories(trimmed);
-  if (matchingCategories.length) {
-    orClauses.push({ category: { $in: matchingCategories } });
+    const matchingCategories = findMatchingProductCategories(keyword);
+    if (matchingCategories.length) {
+      orClauses.push({ category: { $in: matchingCategories } });
+    }
   }
 
   return { $or: orClauses };
